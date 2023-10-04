@@ -4,7 +4,7 @@ import { ThemeStore } from 'Stores/Theme';
 import { arePopupsVisible } from 'Knoin/Knoin';
 
 export const AppUserStore = {
-	allowContacts: () => !!SettingsGet('contactsAllowed')
+	allowContacts: () => !!SettingsGet('contactsAllowed') && !!SettingsGet('contactsExternal')
 };
 
 addObservablesTo(AppUserStore, {

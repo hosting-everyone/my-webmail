@@ -4,7 +4,7 @@ class NextcloudPlugin extends \RainLoop\Plugins\AbstractPlugin
 {
 	const
 		NAME = 'Nextcloud',
-		VERSION = '2.23',
+		VERSION = '3.0',
 		RELEASE  = '2023-04-11',
 		CATEGORY = 'Integrations',
 		DESCRIPTION = 'Integrate with Nextcloud v20+',
@@ -258,6 +258,13 @@ class NextcloudPlugin extends \RainLoop\Plugins\AbstractPlugin
 				$mResult[] = new NextcloudContactsSuggestions(
 					$this->Config()->Get('plugin', 'ignoreSystemAddressbook', true)
 				);
+			}
+			if ('address-book' === $sName) {
+				if (!\is_array($mResult)) {
+					$mResult = array();
+				}
+				include_once __DIR__ . '/NextcloudAddressBook.php';
+				$mResult = new NextcloudAddressBook();
 			}
 		}
 	}

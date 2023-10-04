@@ -25,6 +25,11 @@ class AddressBook extends AbstractProvider
 		return $this->oDriver && $this->oDriver->IsSupported();
 	}
 
+	public function IsExternal() : bool 
+	{
+		return $this->IsActive() ? $this->oDriver->IsExternal() : false;
+	}
+
 	public function Sync() : bool
 	{
 		return $this->IsActive() ? $this->oDriver->Sync() : false;

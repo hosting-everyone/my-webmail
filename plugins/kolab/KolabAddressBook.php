@@ -99,6 +99,11 @@ class KolabAddressBook implements \RainLoop\Providers\AddressBook\AddressBookInt
 		return true;
 	}
 
+	public function IsExternal(): bool
+	{
+		return false;
+	}
+
 	public function SetEmail(string $sEmail) : bool
 	{
 		return true;

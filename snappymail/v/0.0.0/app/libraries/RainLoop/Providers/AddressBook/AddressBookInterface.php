@@ -6,6 +6,8 @@ interface AddressBookInterface
 {
 	public function IsSupported() : bool;
 
+	public function IsExternal() : bool;
+
 	public function SetEmail(string $sEmail) : bool;
 
 	public function Sync() : bool;

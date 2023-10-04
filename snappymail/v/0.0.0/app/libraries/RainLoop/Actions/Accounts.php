@@ -202,6 +202,7 @@ trait Accounts
 			'accountHash' => $oAccount->Hash(),
 			'mainEmail' => \RainLoop\Api::Actions()->getMainAccountFromToken()->Email(),
 			'contactsAllowed' => $this->AddressBookProvider($oAccount)->IsActive(),
+			'contactsExternal' => $this->AddressBookProvider($oAccount)->IsExternal(),
 			'HideUnsubscribed' => false,
 			'UseThreads' => (bool) $oConfig->Get('defaults', 'mail_use_threads', false),
 			'ReplySameFolder' => (bool) $oConfig->Get('defaults', 'mail_reply_same_folder', false),
