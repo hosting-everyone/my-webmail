@@ -1,6 +1,7 @@
 import { Notifications } from 'Common/Enums';
 import { isArray, pInt, pString } from 'Common/Utils';
 import { serverRequest } from 'Common/Links';
+import { runHook } from 'Common/Plugins';
 import { getNotification } from 'Common/Translator';
 
 let iJsonErrorCount = 0;
@@ -19,7 +20,6 @@ checkResponseError = data => {
 			Notifications.DomainNotAllowed,
 			Notifications.AccountNotAllowed,
 			Notifications.MailServerError,
-			Notifications.UnknownNotification,
 			Notifications.UnknownError
 		].includes(err)
 	) {
@@ -130,10 +130,7 @@ export class AbstractFetchRemote
 
 		const start = Date.now();
 
-		fetchJSON(sAction, getURL(sGetAdd),
-			sGetAdd ? null : (params || {}),
-			undefined === iTimeout ? 30000 : pInt(iTimeout),
-			data => {
+
 				let iError = 0;
 				if (data) {
 /*
@@ -148,6 +145,8 @@ export class AbstractFetchRemote
 						iError = data.ErrorCode || Notifications.UnknownError
 					}
 				}
+
+
 
 				fCallback && fCallback(
 					iError,
@@ -170,13 +169,6 @@ export class AbstractFetchRemote
 		});
 	}
 
-	/**
-	 * @param {?Function} fCallback
-	 */
-	getPublicKey(fCallback) {
-		this.request('GetPublicKey', fCallback);
-	}
-
 	setTrigger(trigger, value) {
 		if (trigger) {
 			value = !!value;
@@ -193,11 +185,15 @@ export class AbstractFetchRemote
 	post(action, fTrigger, params, timeOut) {
 		this.setTrigger(fTrigger, true);
 		return fetchJSON(action, getURL(), params || {}, pInt(timeOut, 30000),
-			data => {
+			async data => {
 				abort(action, 0, 1);
 
 				if (!data) {
 					return Promise.reject(new FetchError(Notifications.JsonParse));
+				}
+
+				if (111 === data?.ErrorCode && rl.app.ask && await rl.app.ask.cryptkey()) {
+					return this.post(action, fTrigger, params, timeOut);
 				}
 /*
 				let isCached = false, type = '';

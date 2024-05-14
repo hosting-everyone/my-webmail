@@ -2,7 +2,7 @@
 
 ko.bindingHandlers['checked'] = {
     'after': ['value', 'attr'],
-    'init': function (element, valueAccessor, allBindings) {
+    'init'(element, valueAccessor, allBindings) {
         var isCheckbox = element.type == "checkbox",
             isRadio = element.type == "radio";
 
@@ -12,7 +12,8 @@ ko.bindingHandlers['checked'] = {
                 // Treat "value" like "checkedValue" when it is included with "checked" binding
                 if (allBindings['has']('checkedValue')) {
                     return ko.utils.unwrapObservable(allBindings.get('checkedValue'));
-                } else if (useElementValue) {
+                }
+                if (useElementValue) {
                     return allBindings['has']('value')
                         ? ko.utils.unwrapObservable(allBindings.get('value'))
                         : element.value;
@@ -48,8 +49,8 @@ ko.bindingHandlers['checked'] = {
                         // currently checked, replace the old elem value with the new elem value
                         // in the model array.
                         if (isChecked) {
-							writableValue.push(elemValue);
-							writableValue.remove(saveOldValue);
+                            writableValue.push(elemValue);
+                            writableValue.remove(saveOldValue);
                         }
                     } else {
                         // When we're responding to the user having checked/unchecked a checkbox,
@@ -77,10 +78,6 @@ ko.bindingHandlers['checked'] = {
                 rawValueIsNonArrayObservable = !(valueIsArray && rawValue.push && rawValue.splice),
                 useElementValue = isRadio || valueIsArray,
                 oldElemValue = valueIsArray ? checkedValue() : undefined;
-
-            // IE 6 won't allow radio buttons to be selected unless they have a name
-            if (isRadio && !element.name)
-                ko.bindingHandlers['uniqueName']['init'](element, function() { return true });
 
             // Set up two computeds to update the binding:
 
@@ -113,10 +110,9 @@ ko.bindingHandlers['checked'] = {
         }
     }
 };
-ko.expressionRewriting.twoWayBindings['checked'] = true;
 
 ko.bindingHandlers['checkedValue'] = {
-    'update': function (element, valueAccessor) {
+    'update'(element, valueAccessor) {
         element.value = ko.utils.unwrapObservable(valueAccessor());
     }
 };

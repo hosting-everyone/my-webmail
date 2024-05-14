@@ -87,8 +87,8 @@ class SieveClient extends \MailSo\Net\NetClient
 			return $this;
 		}
 
-		$sLogin = $oSettings->Login;
-		$sPassword = $oSettings->Password;
+		$sLogin = $oSettings->username;
+		$sPassword = $oSettings->passphrase;
 		$sLoginAuthKey = '';
 		if (!\strlen($sLogin) || !\strlen($sPassword)) {
 			$this->writeLogException(new \InvalidArgumentException, \LOG_ERR);
@@ -108,6 +108,7 @@ class SieveClient extends \MailSo\Net\NetClient
 				$this->StartTLS();
 				return $this->Login($oSettings);
 			}
+//			$this->writeLogException(new \UnexpectedValueException('No supported SASL mechanism found'), \LOG_ERR);
 			$this->writeLogException(new \MailSo\Sieve\Exceptions\LoginException, \LOG_ERR);
 		}
 
@@ -133,7 +134,7 @@ class SieveClient extends \MailSo\Net\NetClient
 				$sAuth = $SASL->authenticate($sLogin, $sPassword, $sLoginAuthKey);
 				$this->logMask($sAuth);
 
-				if ($oSettings->authPlainLiteral) {
+				if ($oSettings->authLiteral) {
 					$this->sendRaw("AUTHENTICATE \"{$type}\" {".\strlen($sAuth).'+}');
 					$this->sendRaw($sAuth);
 				} else {
@@ -183,7 +184,12 @@ class SieveClient extends \MailSo\Net\NetClient
 	public function Logout() : void
 	{
 		if ($this->bIsLoggined) {
-			$this->sendRequestWithCheck('LOGOUT');
+			try {
+				$this->sendRequestWithCheck('LOGOUT');
+			} catch (\Throwable $e) {
+				// https://github.com/the-djmaze/snappymail/issues/1455
+				$this->writeLogException($e, \LOG_WARNING, false);
+			}
 			$this->bIsLoggined = false;
 		}
 	}
@@ -407,6 +413,7 @@ class SieveClient extends \MailSo\Net\NetClient
 			if (null === $sResponseBuffer) {
 				break;
 			}
+			// \MailSo\Imap\Enumerations\ResponseStatus
 			$bEnd = \in_array(\substr($sResponseBuffer, 0, 2), array('OK', 'NO'));
 			// convertEndOfLine
 			$sLine = \trim($sResponseBuffer);

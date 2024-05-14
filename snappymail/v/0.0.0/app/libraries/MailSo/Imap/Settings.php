@@ -22,7 +22,7 @@ class Settings extends \MailSo\Net\ConnectSettings
 		$timeout = 300,
 		$body_text_limit = 0,
 //		$folder_list_limit = 200,
-		$message_list_limit = 0,
+		$message_list_limit = 10000,
 		$thread_limit = 50;
 
 	public bool
@@ -95,9 +95,6 @@ class Settings extends \MailSo\Net\ConnectSettings
 		if (!empty($aSettings['disable_preview'])) {
 			// RFC 8970
 			$object->disabled_capabilities[] = 'PREVIEW';
-		}
-		if (\in_array('SORT', $object->disabled_capabilities)) {
-			$object->disabled_capabilities[] = 'ESORT';
 		}
 		$object->disabled_capabilities = \array_values(\array_unique($object->disabled_capabilities));
 

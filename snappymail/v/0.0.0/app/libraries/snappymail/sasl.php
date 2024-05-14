@@ -13,9 +13,13 @@ abstract class SASL
 		return null;
 	}
 
-	public function verify(string $data) : bool
+	public function hasChallenge() : bool
 	{
 		return false;
+	}
+
+	public function verify(string $data) : void
+	{
 	}
 
 	final public static function factory(string $type)
@@ -26,7 +30,7 @@ abstract class SASL
 				return new $class($m[2] ?? '');
 			}
 		}
-		throw new \Exception("Unsupported SASL mechanism type: {$type}");
+		throw new \ValueError("Unsupported SASL mechanism type: {$type}");
 	}
 
 	public static function isSupported(string $type) : bool

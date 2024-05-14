@@ -9,6 +9,7 @@ ScopeMessageList = 'MessageList',
 ScopeFolderList = 'FolderList',
 ScopeMessageView = 'MessageView',
 ScopeSettings = 'Settings',
+ScopeContacts = 'Contacts',
 
 /**
  * @enum {number}
@@ -50,6 +51,7 @@ Notifications = {
 	ConnectionError: 104,
 	DomainNotAllowed: 109,
 	AccountNotAllowed: 110,
+	CryptKeyError: 111,
 
 	ContactsSyncError: 140,
 
@@ -95,7 +97,6 @@ Notifications = {
 	JsonParse: 952,
 //	JsonTimeout: 953,
 
-	UnknownNotification: 998,
 	UnknownError: 999,
 
 	// Admin

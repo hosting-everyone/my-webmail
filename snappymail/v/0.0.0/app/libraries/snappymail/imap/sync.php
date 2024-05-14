@@ -4,7 +4,6 @@ namespace SnappyMail\Imap;
 
 use MailSo\Imap\Enumerations\FetchType;
 use MailSo\Imap\Enumerations\MessageFlag;
-use MailSo\Imap\FetchResponse;
 use MailSo\Mime\Enumerations\Header;
 
 class Sync
@@ -198,7 +197,7 @@ class Sync
 							);
 							if ($iAppendUid && $aFlags) {
 								$this->MessageStoreFlag(
-									new SequenceSet([$iAppendUid]),
+									new SequenceSet($iAppendUid),
 									$aFlags,
 									\MailSo\Imap\Enumerations\StoreAction::ADD_FLAGS_SILENT
 								);

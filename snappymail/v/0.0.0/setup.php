@@ -23,10 +23,12 @@ if (defined('APP_VERSION')) {
 	is_file($sCheckFilePath) && unlink($sCheckFilePath);
 	is_dir($sCheckFolder) && rmdir($sCheckFolder);
 
-	if (!is_dir(APP_DATA_FOLDER_PATH)) {
-		mkdir(APP_DATA_FOLDER_PATH, 0700, true);
-	} else {
-		chmod(APP_DATA_FOLDER_PATH, 0700);
+	if (is_writable(dirname(APP_DATA_FOLDER_PATH))) {
+		if (is_dir(APP_DATA_FOLDER_PATH)) {
+			chmod(APP_DATA_FOLDER_PATH, 0700);
+		} else {
+			mkdir(APP_DATA_FOLDER_PATH, 0700, true);
+		}
 	}
 
 	$sTest = '';
@@ -34,31 +36,36 @@ if (defined('APP_VERSION')) {
 	{
 		case !is_dir(APP_DATA_FOLDER_PATH):
 			$sTest = 'is_dir';
+			error_log('Data folder permission error is_dir('.APP_DATA_FOLDER_PATH.')');
 			break;
 		case !is_readable(APP_DATA_FOLDER_PATH):
 			$sTest = 'is_readable';
+			error_log('Data folder permission error is_readable('.APP_DATA_FOLDER_PATH.')');
 			break;
-		case !is_writable(APP_DATA_FOLDER_PATH):
-			$sTest = 'is_writable';
-			break;
+//		case !is_writable(APP_DATA_FOLDER_PATH):
+//			$sTest = 'is_writable';
+//			error_log('Data folder permission error is_writable('.APP_DATA_FOLDER_PATH.')');
+//			break;
 		case !mkdir($sCheckFolder, 0700):
 			$sTest = 'mkdir';
+			error_log("Data folder permission error mkdir({$sCheckFolder})");
 			break;
 		case false === file_put_contents($sCheckFilePath, time()):
+			error_log("Data folder permission error file_put_contents({$sCheckFilePath})");
 			$sTest = 'file_put_contents';
 			break;
 		case !unlink($sCheckFilePath):
+			error_log("Data folder permission error unlink({$sCheckFilePath})");
 			$sTest = 'unlink';
 			break;
 		case !rmdir($sCheckFolder):
+			error_log("Data folder permission error rmdir({$sCheckFolder})");
 			$sTest = 'rmdir';
 			break;
 	}
 
-	if (!empty($sTest))
-	{
-		echo '[202] Data folder permissions error ['.$sTest.']';
-		error_log("Data folder permission error {$sTest}({$sCheckFolder})");
+	if (!empty($sTest)) {
+		echo "[202] {$sTest}() failed";
 		exit(202);
 	}
 
@@ -102,7 +109,7 @@ if (defined('APP_VERSION')) {
 			}
 		}
 
-		$sName = \SnappyMail\IDN::toAscii(mb_strtolower(gethostname()));
+		$sName = idn_to_ascii(mb_strtolower(gethostname()));
 		$sFile = APP_PRIVATE_DATA.'domains/'.$sName.'.json';
 		if (!file_exists($sFile) && !file_exists(APP_PRIVATE_DATA.'domains/'.$sName.'.ini')) {
 			$config = json_decode(file_get_contents(__DIR__ . '/app/domains/default.json'), true);

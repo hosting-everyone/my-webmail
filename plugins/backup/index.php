@@ -6,8 +6,8 @@ class BackupPlugin extends \RainLoop\Plugins\AbstractPlugin
 		NAME     = 'Backup',
 		AUTHOR   = 'SnappyMail',
 		URL      = 'https://snappymail.eu/',
-		VERSION  = '1.0',
-		RELEASE  = '2023-12-10',
+		VERSION  = '1.2',
+		RELEASE  = '2024-03-18',
 		REQUIRED = '2.30.0',
 		CATEGORY = 'General',
 		LICENSE  = 'MIT',
@@ -17,12 +17,12 @@ class BackupPlugin extends \RainLoop\Plugins\AbstractPlugin
 	{
 		// Admin Settings tab
 		$this->addJs('js/BackupAdminSettings.js', true); // add js file
-		$this->addJsonHook('JsonAdminGetData');
+		$this->addJsonHook('JsonAdminBackupData');
 		$this->addJsonHook('JsonAdminRestoreData');
 		$this->addTemplate('templates/BackupAdminSettingsTab.html', true);
 	}
 
-	public function JsonAdminGetData()
+	public function JsonAdminBackupData()
 	{
 		if (!($this->Manager()->Actions() instanceof \RainLoop\ActionsAdmin)
 		 || !$this->Manager()->Actions()->IsAdminLoggined()
@@ -30,34 +30,42 @@ class BackupPlugin extends \RainLoop\Plugins\AbstractPlugin
 			return $this->jsonResponse(__FUNCTION__, false);
 		}
 
-		$sZipHash = \MailSo\Base\Utils::Sha1Rand();
-		$sZipFileName = APP_PRIVATE_DATA . $sZipHash . '.zip';
+		\file_put_contents(APP_PRIVATE_DATA.'cache/CACHEDIR.TAG', 'Signature: 8a477f597d28d172789f06886806bc55');
 
-		\touch(APP_PRIVATE_DATA.'cache/CACHEDIR.TAG');
+		$sFileName = APP_PRIVATE_DATA . \MailSo\Base\Utils::Sha1Rand();
 
-		if (\class_exists('ZipArchive')) {
-//			$oZip = new \ZipArchive();
-//			$oZip->open($sZipFileName, \ZIPARCHIVE::CREATE | \ZIPARCHIVE::OVERWRITE);
-//			$oZip->setArchiveComment('SnappyMail/'.APP_VERSION);
+		if (true) {
+			$sType = 'application/zip';
+			$sFileName .= '.zip';
+			if (\class_exists('ZipArchive')) {
+//				$oArchive = new \ZipArchive();
+//				$oArchive->open($sFileName, \ZIPARCHIVE::CREATE | \ZIPARCHIVE::OVERWRITE);
+//				$oArchive->setArchiveComment('SnappyMail/'.APP_VERSION);
+			}
+			$oArchive = new \SnappyMail\Stream\ZIP($sFileName);
+		} else {
+			$sType = 'application/x-gzip';
+			$sFileName .= '.tgz';
+			$oArchive = new \SnappyMail\Stream\TAR($sFileName);
 		}
 
-		$oZip = new \SnappyMail\Stream\ZIP($sZipFileName);
-//		$oZip->addRecursive(APP_PRIVATE_DATA, '#/(cache.*)#');
-		$oZip->addRecursive(APP_PRIVATE_DATA.'configs', 'configs');
-		$oZip->addRecursive(APP_PRIVATE_DATA.'domains', 'domains');
-		$oZip->addRecursive(APP_PRIVATE_DATA.'plugins', 'plugins');
-		$oZip->addRecursive(APP_PRIVATE_DATA.'storage', 'storage');
+//		$oArchive->addRecursive(APP_PRIVATE_DATA, '#/(cache.*)#');
+		$oArchive->addRecursive(APP_PRIVATE_DATA.'configs', 'configs');
+		$oArchive->addRecursive(APP_PRIVATE_DATA.'domains', 'domains');
+		$oArchive->addRecursive(APP_PRIVATE_DATA.'plugins', 'plugins');
+		$oArchive->addRecursive(APP_PRIVATE_DATA.'storage', 'storage');
 		if (\is_readable(APP_PRIVATE_DATA.'AddressBook.sqlite')) {
-			$oZip->addFile(APP_PRIVATE_DATA.'AddressBook.sqlite');
+			$oArchive->addFile(APP_PRIVATE_DATA.'AddressBook.sqlite');
 		}
-//		$oZip->addFile(APP_DATA_FOLDER_PATH.'SALT.php');
-		$oZip->close();
+//		$oArchive->addFile(APP_DATA_FOLDER_PATH.'SALT.php');
+		$oArchive->close();
 
-		$data = \base64_encode(\file_get_contents($sZipFileName));
-		\unlink($sZipFileName);
+		$data = \base64_encode(\file_get_contents($sFileName));
+		\unlink($sFileName);
 
 		return $this->jsonResponse(__FUNCTION__, array(
-			'zip' => $data
+			'name' => \basename($sFileName),
+			'data' => "data:{$sType};base64,{$data}"
 		));
 	}
 
@@ -71,18 +79,17 @@ class BackupPlugin extends \RainLoop\Plugins\AbstractPlugin
 			return $this->jsonResponse(__FUNCTION__, false);
 		}
 
+		$result = false;
 		if (\class_exists('ZipArchive')) {
 			$oArchive = new \ZipArchive();
 			$oArchive->open($_FILES['backup']['tmp_name'], \ZIPARCHIVE::CREATE);
-			$oArchive->extractTo(APP_PRIVATE_DATA);
+			$result = $oArchive->extractTo(APP_PRIVATE_DATA);
 		} else if (\class_exists('PharData')) {
 			$oArchive = new \PharData($sTmp, 0, null, \Phar::GZ);
-			$oArchive->extractTo(APP_PRIVATE_DATA);
+			$result = $oArchive->extractTo(APP_PRIVATE_DATA);
 		}
 
-		return $this->jsonResponse(__FUNCTION__, array(
-			'$_FILES' => $_FILES
-		));
+		return $this->jsonResponse(__FUNCTION__, $result);
 	}
 
 }

@@ -1,0 +1,39 @@
+<div class="btn-toolbar" data-bind="css: {'hasChecked':checkAll}">
+	<a class="btn btn-thin fontastic toggleLeft"></a>
+</div>
+
+<div class="contactsList g-ui-user-select-none" data-bind="css: {'hideMessageListCheckbox': !useCheckboxesInList() }">
+	<div class="second-toolbar thm-message-list-top-toolbar">
+		<i class="checkboxCheckAll fontastic" data-bind="text: checkAll() ? (isIncompleteChecked() ? '▣' : '☑') : '☐'"></i>
+		<div class="search-input-wrp">
+			<input type="search" class="e-search" placeholder="Search" autofocus="" autocorrect="off" autocapitalize="off" spellcheck="false" data-i18n="[placeholder]GLOBAL/SEARCH" data-bind="value: search">
+			<a class="closeSearch" data-bind="click: clearSearch, visible: search">×</a>
+		</div>
+	</div>
+	<div class="b-content b-list-content g-ui-user-select-none">
+		<div class="content">
+			<div class="listClear" data-bind="visible: !!search()">
+				<span class="g-ui-link" data-i18n="CONTACTS/CLEAR_SEARCH" data-bind="click: clearSearch"></span>
+			</div>
+			<div class="listEmptyList" data-bind="visible: 0 === contacts().length && '' === search() && !contacts.loading()"
+				data-i18n="CONTACTS/EMPTY_LIST"></div>
+			<div class="listEmptyListLoading" data-bind="visible: 0 === contacts().length && '' === search() && contacts.loading()">
+				<i class="icon-spinner"></i>
+				<span data-i18n="GLOBAL/LOADING"></span>
+			</div>
+			<div class="listEmptySearchList" data-bind="visible: 0 === contacts().length && '' !== search() && !contacts.loading()"
+				data-i18n="CONTACTS/EMPTY_SEARCH"></div>
+			<div class="e-contact-foreach g-ui-user-select-none" data-bind="foreach: contacts, visible: contacts().length">
+				<div class="e-contact-item g-ui-user-select-none" data-bind="css: lineAsCss()">
+					<div class="checkboxItem fontastic" data-bind="text: checked() ? '☑' : '☐'"></div>
+					<div class="nameParent" data-bind="text: display"></div>
+				</div>
+			</div>
+		</div>
+	</div>
+	<div class="b-footer thm-message-list-bottom-toolbar b-list-footer-toolbar">
+		<div class="footer-pager">
+			<!-- ko template: { name: 'Paginator', data: contactsPaginator } --><!-- /ko -->
+		</div>
+	</div>
+</div>

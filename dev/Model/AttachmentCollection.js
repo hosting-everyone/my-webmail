@@ -1,3 +1,4 @@
+import { baseCollator } from 'Common/Translator';
 import { AbstractCollectionModel } from 'Model/AbstractCollection';
 import { AttachmentModel } from 'Model/Attachment';
 
@@ -10,14 +11,24 @@ export class AttachmentCollectionModel extends AbstractCollectionModel
 	 * @returns {AttachmentCollectionModel}
 	 */
 	static reviveFromJson(items) {
-		return super.reviveFromJson(items, attachment => AttachmentModel.reviveFromJson(attachment));
-/*
 		const attachments = super.reviveFromJson(items, attachment => AttachmentModel.reviveFromJson(attachment));
+		let collator = baseCollator(true);
+		attachments.sort((a, b) => {
+			if (a.isInline()) {
+				if (!b.isInline()) {
+					return 1;
+				}
+			} else if (!b.isInline()) {
+				return -1;
+			}
+			return collator.compare(a.fileName, b.fileName);
+		});
+/*
 		if (attachments) {
 			attachments.InlineCount = attachments.reduce((accumulator, a) => accumulator + (a.isInline ? 1 : 0), 0);
 		}
-		return attachments;
 */
+		return attachments;
 	}
 
 	/**

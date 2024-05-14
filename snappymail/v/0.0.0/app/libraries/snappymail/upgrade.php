@@ -70,14 +70,10 @@ abstract class Upgrade
 				}
 				try {
 					$aNewAccounts[$sEmail] = [
-						'account',
-						$sEmail,
-						$sEmail, // sLogin
-						'',      // sPassword
-						'',      // sClientCert
-						'',      // sProxyAuthUser
-						'',      // sProxyAuthPassword
-						\hash_hmac('sha1', '', $sHash)
+						'email' => $sEmail,
+						'login' => $sEmail,
+						'pass' => '',
+						'hmac' => \hash_hmac('sha1', '', $sHash)
 					];
 					if (!$sToken) {
 						\SnappyMail\Log::warning('UPGRADE', "ConvertInsecureAccount {$sEmail} no token");
@@ -92,15 +88,10 @@ abstract class Upgrade
 					}
 					$aAccountHash[3] = Crypt::EncryptUrlSafe($aAccountHash[3], $sHash);
 					$aNewAccounts[$sEmail] = [
-						'account',
-						$aAccountHash[1],
-						$aAccountHash[2],
-						$aAccountHash[3],
-						$aAccountHash[11],
-						$aAccountHash[8],
-						$aAccountHash[9],
-						$oMainAccount->Email(),
-						\hash_hmac('sha1', $aAccountHash[3], $sHash)
+						'email' => $aAccountHash[1],
+						'login' => $aAccountHash[2],
+						'pass' => $aAccountHash[3],
+						'hmac' => \hash_hmac('sha1', $aAccountHash[3], $sHash)
 					];
 				} catch (\Throwable $e) {
 					\SnappyMail\Log::warning('UPGRADE', "ConvertInsecureAccount {$sEmail} failed");
@@ -166,19 +157,28 @@ abstract class Upgrade
 
 	public static function backup() : string
 	{
-		if (!\class_exists('PharData')) {
-			throw new \Exception('PHP Phar is disabled, you must enable it');
-		}
 //		$tar_destination = APP_DATA_FOLDER_PATH . APP_VERSION . '.tar';
-		$tar_destination = APP_DATA_FOLDER_PATH . 'backup-' . \date('YmdHis') . '.tar';
-		$tar = new \PharData($tar_destination);
-		$files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(APP_DATA_FOLDER_PATH . '_data_'), \RecursiveIteratorIterator::SELF_FIRST);
+		$tar_destination = APP_DATA_FOLDER_PATH . 'backup-' . \date('YmdHis');
+		if (\class_exists('PharData')) {
+			$tar_destination .= '.tar';
+			$tar = new \PharData($tar_destination);
+		} else {
+			$tar_destination .= '.tgz';
+			$tar = new \SnappyMail\Stream\TAR($tar_destination);
+		}
+		$files = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator(APP_DATA_FOLDER_PATH . '_data_'),
+			\RecursiveIteratorIterator::SELF_FIRST
+		);
 		$l = \strlen(APP_DATA_FOLDER_PATH);
 		foreach ($files as $file) {
 			$file = \str_replace('\\', '/', $file);
 			if (\is_file($file) && !\strpos($file, '/cache/')) {
 				$tar->addFile($file, \substr($file, $l));
 			}
+		}
+		if ($tar instanceof \SnappyMail\Stream\TAR) {
+			return $tar_destination;
 		}
 		$tar->compress(\Phar::GZ);
 		\unlink($tar_destination);
@@ -197,12 +197,15 @@ abstract class Upgrade
 				if (!$sTmp) {
 					throw new \Exception('Failed to download latest SnappyMail');
 				}
-				$target = \rtrim(APP_INDEX_ROOT_PATH, '\\/');
+
 				if (\class_exists('PharData')) {
 					$oArchive = new \PharData($sTmp, 0, null, \Phar::GZ);
 				} else {
 					$oArchive = new \SnappyMail\TAR($sTmp);
 				}
+
+				$target = \rtrim(APP_INDEX_ROOT_PATH, '\\/');
+				\umask(0022);
 				\error_log('Extract to ' . $target);
 //				$bResult = $oArchive->extractTo($target, null, true);
 				$bResult = $oArchive->extractTo($target, 'snappymail/')
@@ -228,12 +231,13 @@ abstract class Upgrade
 	public static function fixPermissions($mode = 0755) : void
 	{
 		\clearstatcache(true);
-		\umask(0000);
+		\umask(0022);
 		$target = \rtrim(APP_INDEX_ROOT_PATH, '\\/');
 		// Prevent Apache access error due to directories being 0700
 		foreach (\glob("{$target}/snappymail/v/*", \GLOB_ONLYDIR) as $dir) {
 			\chmod($dir, 0755);
 			foreach (['static','themes'] as $folder) {
+				\chmod("{$dir}/{$folder}", 0755);
 				$iterator = new \RecursiveIteratorIterator(
 					new \RecursiveDirectoryIterator("{$dir}/{$folder}", \FilesystemIterator::SKIP_DOTS),
 					\RecursiveIteratorIterator::SELF_FIRST

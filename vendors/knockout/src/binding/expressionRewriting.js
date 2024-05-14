@@ -1,5 +1,7 @@
 ko.expressionRewriting = (() => {
-    var javaScriptReservedWords = ["true", "false", "null", "undefined"],
+    var
+/*
+        javaScriptReservedWords = ["true", "false", "null", "undefined"],
 
     // Matches something that can be assigned to--either an isolated identifier or something ending with a property accessor
     // This is designed to be simple and avoid false negatives, but could produce false positives (e.g., a+b.c).
@@ -12,7 +14,7 @@ ko.expressionRewriting = (() => {
             var match = expression.match(javaScriptAssignmentTarget);
             return match === null ? false : match[1] ? ('Object(' + match[1] + ')' + match[2]) : expression;
         },
-
+*/
     // The following regular expressions will be used to split an object-literal string into tokens
 
         specials = ',"\'`{}()/:[\\]',    // These characters have special meaning to the parser and must not appear in the middle of a token, except as part of a string.
@@ -64,7 +66,9 @@ ko.expressionRewriting = (() => {
                     // A comma signals the end of a key/value pair if depth is zero
                     if (c === 44) { // ","
                         if (depth <= 0) {
-                            result.push((key && values.length) ? {key: key, value: values.join('')} : {'unknown': key || values.join('')});
+                            result.push((key && values.length)
+                                ? {key: key, value: values.join('')}
+                                : {'unknown': key || values.join('')});
                             key = depth = 0;
                             values = [];
                             continue;
@@ -108,54 +112,29 @@ ko.expressionRewriting = (() => {
             return result;
         },
 
-    // Two-way bindings include a write function that allow the handler to update the value even if it's not an observable.
-        twoWayBindings = new Set,
-
-        preProcessBindings = (bindingsStringOrKeyValueArray, bindingOptions) => {
+        preProcessBindings = (bindingsStringOrKeyValueArray) => {
 
             var resultStrings = [],
-                propertyAccessorResultStrings = [],
-                makeValueAccessors = bindingOptions?.['valueAccessors'],
-                bindingParams = bindingOptions?.['bindingParams'],
-                keyValueArray = typeof bindingsStringOrKeyValueArray === "string" ?
-                    parseObjectLiteral(bindingsStringOrKeyValueArray) : bindingsStringOrKeyValueArray,
+//                propertyAccessorResultStrings = [],
+                keyValueArray = parseObjectLiteral(bindingsStringOrKeyValueArray),
 
                 processKeyValue = (key, val) => {
-                    var writableVal,
-                        callPreprocessHook = obj =>
-                            obj?.['preprocess'] ? (val = obj['preprocess'](val, key, processKeyValue)) : true;
-                    if (!bindingParams) {
-                        if (!callPreprocessHook(ko.bindingHandlers[key]))
-                            return;
-
-                        if (twoWayBindings.has(key) && (writableVal = getWriteableValue(val))) {
-                            // For two-way bindings, provide a write method in case the value
-                            // isn't a writable observable.
-                            propertyAccessorResultStrings.push("'" + key + "':function(_z){" + writableVal + "=_z}");
-                        }
-                    }
                     // Values are wrapped in a function so that each value can be accessed independently
-                    if (makeValueAccessors) {
-                        val = 'function(){return ' + val + ' }';
-                    }
+                    val = 'function(){return ' + val + ' }';
                     resultStrings.push("'" + key + "':" + val);
                 };
 
             keyValueArray.forEach(keyValue =>
                 processKeyValue(keyValue.key || keyValue['unknown'], keyValue.value)
             );
-
+/*
             if (propertyAccessorResultStrings.length)
                 processKeyValue('_ko_property_writers', "{" + propertyAccessorResultStrings.join(",") + " }");
-
+*/
             return resultStrings.join(",");
         };
 
     return {
-        bindingRewriteValidators: [],
-
-        twoWayBindings: twoWayBindings,
-
         parseObjectLiteral: parseObjectLiteral,
 
         preProcessBindings: preProcessBindings,
@@ -174,7 +153,8 @@ ko.expressionRewriting = (() => {
         //                      it is !== existing value on that writable observable
         writeValueToProperty: (property, allBindings, key, value, checkIfDifferent) => {
             if (!property || !ko.isObservable(property)) {
-                allBindings.get('_ko_property_writers')?.[key]?.(value);
+                throw Error(`${key} , must be observable`);
+//                allBindings.get('_ko_property_writers')?.[key]?.(value);
             } else if (ko.isWriteableObservable(property) && (!checkIfDifferent || property.peek() !== value)) {
                 property(value);
             }

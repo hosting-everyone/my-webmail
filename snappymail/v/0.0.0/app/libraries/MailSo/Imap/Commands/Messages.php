@@ -27,7 +27,7 @@ use MailSo\Imap\Enumerations\StoreAction;
 trait Messages
 {
 	/**
-	 * @throws \InvalidArgumentException
+	 * @throws \ValueError
 	 * @throws \MailSo\RuntimeException
 	 * @throws \MailSo\Net\Exceptions\*
 	 * @throws \MailSo\Imap\Exceptions\*
@@ -35,7 +35,7 @@ trait Messages
 	public function FetchIterate(array $aInputFetchItems, string $sIndexRange, bool $bIndexIsUid) : iterable
 	{
 		if (!\strlen(\trim($sIndexRange))) {
-			$this->writeLogException(new \InvalidArgumentException, \LOG_ERR);
+			$this->writeLogException(new \ValueError('$sIndexRange is empty'), \LOG_ERR);
 		}
 
 		$aReturn = array();
@@ -132,20 +132,47 @@ trait Messages
 		return $aReturn;
 	}
 
+	public function FetchMessagePart(int $iUid, string $sPartId) : string
+	{
+		if ('TEXT' === $sPartId) {
+			$oFetchResponse = $this->Fetch([
+				FetchType::BODY_PEEK.'['.$sPartId.']',
+				FetchType::BODY_HEADER_PEEK
+			], $iUid, true)[0];
+			$sHeader = $oFetchResponse->GetFetchValue(FetchType::BODY_HEADER);
+		} else {
+			$oFetchResponse = $this->Fetch([
+				FetchType::BODY_PEEK.'['.$sPartId.']',
+				// An empty section specification refers to the entire message, including the header.
+				// But Dovecot does not return it with BODY.PEEK[1], so we also use BODY.PEEK[1.MIME].
+				FetchType::BODY_PEEK.'['.$sPartId.'.MIME]'
+			], $iUid, true)[0];
+			$sHeader = $oFetchResponse->GetFetchValue(FetchType::BODY.'['.$sPartId.'.MIME]');
+		}
+		return $sHeader . $oFetchResponse->GetFetchValue(FetchType::BODY.'['.$sPartId.']');
+	}
+
 	/**
 	 * Appends message to specified folder
 	 *
 	 * @param resource $rMessageStream
 	 *
 	 * @throws \InvalidArgumentException
+	 * @throws \ValueError
 	 * @throws \MailSo\RuntimeException
 	 * @throws \MailSo\Net\Exceptions\*
 	 * @throws \MailSo\Imap\Exceptions\*
 	 */
 	public function MessageAppendStream(string $sFolderName, $rMessageStream, int $iStreamSize, array $aFlagsList = null, int $iDateTime = 0) : ?int
 	{
-		if (!\is_resource($rMessageStream) || !\strlen($sFolderName) || 1 > $iStreamSize) {
-			throw new \InvalidArgumentException;
+		if (!\is_resource($rMessageStream)) {
+			throw new \InvalidArgumentException('$rMessageStream must be a resource');
+		}
+		if (!\strlen($sFolderName)) {
+			throw new \ValueError('$sFolderName is empty');
+		}
+		if (1 > $iStreamSize) {
+			throw new \ValueError('$iStreamSize must be higher then 0');
 		}
 
 		$aParams = array(
@@ -202,7 +229,7 @@ trait Messages
 	*/
 
 	/**
-	 * @throws \InvalidArgumentException
+	 * @throws \ValueError
 	 * @throws \MailSo\RuntimeException
 	 * @throws \MailSo\Net\Exceptions\*
 	 * @throws \MailSo\Imap\Exceptions\*
@@ -210,7 +237,7 @@ trait Messages
 	public function MessageCopy(string $sFromFolder, string $sToFolder, SequenceSet $oRange) : ResponseCollection
 	{
 		if (!$sFromFolder || !$sToFolder || !\count($oRange)) {
-			$this->writeLogException(new \InvalidArgumentException, \LOG_ERR);
+			$this->writeLogException(new \ValueError, \LOG_ERR);
 		}
 
 		$this->FolderSelect($sFromFolder);
@@ -222,7 +249,7 @@ trait Messages
 	}
 
 	/**
-	 * @throws \InvalidArgumentException
+	 * @throws \ValueError
 	 * @throws \MailSo\RuntimeException
 	 * @throws \MailSo\Net\Exceptions\*
 	 * @throws \MailSo\Imap\Exceptions\*
@@ -230,7 +257,7 @@ trait Messages
 	public function MessageMove(string $sFromFolder, string $sToFolder, SequenceSet $oRange) : void
 	{
 		if (!$sFromFolder || !$sToFolder || !\count($oRange)) {
-			$this->writeLogException(new \InvalidArgumentException, \LOG_ERR);
+			$this->writeLogException(new \ValueError, \LOG_ERR);
 		}
 
 		if ($this->hasCapability('MOVE')) {
@@ -246,7 +273,7 @@ trait Messages
 	}
 
 	/**
-	 * @throws \InvalidArgumentException
+	 * @throws \ValueError
 	 * @throws \MailSo\RuntimeException
 	 * @throws \MailSo\Net\Exceptions\*
 	 * @throws \MailSo\Imap\Exceptions\*
@@ -254,7 +281,7 @@ trait Messages
 	public function MessageDelete(string $sFolder, SequenceSet $oRange, bool $bExpungeAll = false) : void
 	{
 		if (!$sFolder || !\count($oRange)) {
-			$this->writeLogException(new \InvalidArgumentException, \LOG_ERR);
+			$this->writeLogException(new \ValueError, \LOG_ERR);
 		}
 
 		$this->FolderSelect($sFolder);
@@ -279,6 +306,7 @@ trait Messages
 	 * @param resource $rMessageStream
 	 *
 	 * @throws \InvalidArgumentException
+	 * @throws \ValueError
 	 * @throws \MailSo\RuntimeException
 	 * @throws \MailSo\Net\Exceptions\*
 	 * @throws \MailSo\Imap\Exceptions\*
@@ -289,7 +317,7 @@ trait Messages
 			$this->FolderSelect($sFolderName);
 			$iNewUid = $this->MessageAppendStream($sFolderName, $rMessageStream, $iStreamSize, $aFlagsList, $iDateTime);
 			if ($iUid) {
-				$oRange = new SequenceSet([$iUid]);
+				$oRange = new SequenceSet($iUid);
 				$this->MessageStoreFlag($oRange,
 					array(MessageFlag::DELETED),
 					StoreAction::ADD_FLAGS_SILENT
@@ -326,11 +354,10 @@ trait Messages
 	 * @throws \MailSo\RuntimeException
 	 * @throws \MailSo\Net\Exceptions\*
 	 * @throws \MailSo\Imap\Exceptions\*
-	 * $sStoreAction = \MailSo\Imap\Enumerations\StoreAction::ADD_FLAGS_SILENT
 	 */
-	public function MessageStoreFlag(SequenceSet $oRange, array $aInputStoreItems, string $sStoreAction) : ?ResponseCollection
+	public function MessageStoreFlag(SequenceSet $oRange, array $aInputStoreItems, StoreAction $eStoreAction) : ?ResponseCollection
 	{
-		if (!\count($oRange) || !\strlen(\trim($sStoreAction)) || !\count($aInputStoreItems)) {
+		if (!\count($oRange) || !\count($aInputStoreItems)) {
 			return null;
 		}
 
@@ -344,7 +371,7 @@ trait Messages
 
 		return $this->SendRequestGetResponse(
 			$oRange->UID ? 'UID STORE' : 'STORE',
-			array((string) $oRange, $sStoreAction, $aInputStoreItems)
+			array((string) $oRange, $eStoreAction->value, $aInputStoreItems)
 		);
 	}
 
@@ -355,10 +382,10 @@ trait Messages
 	 * @throws \MailSo\Net\Exceptions\*
 	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function MessageSimpleSort(array $aSortTypes, string $sSearchCriterias = 'ALL', bool $bReturnUid = true) : array
+	public function MessageSort(array $aSortTypes, string $sSearchCriterias, bool $bReturnUid = true) : array
 	{
 		$oSort = new \MailSo\Imap\Requests\SORT($this);
-		$oSort->sCriterias = $sSearchCriterias;
+		$oSort->sCriterias = $sSearchCriterias ?: 'ALL';
 		$oSort->bUid = $bReturnUid;
 		$oSort->aSortTypes = $aSortTypes;
 		$oSort->SendRequest();
@@ -384,10 +411,10 @@ trait Messages
 	 * @throws \MailSo\Net\Exceptions\*
 	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function MessageSimpleESearch(string $sSearchCriterias = 'ALL', array $aSearchReturn = null, bool $bReturnUid = true, string $sLimit = '') : array
+	public function MessageESearch(string $sSearchCriterias, array $aSearchReturn = null, bool $bReturnUid = true, string $sLimit = '') : array
 	{
 		$oESearch = new \MailSo\Imap\Requests\ESEARCH($this);
-		$oESearch->sCriterias = $sSearchCriterias;
+		$oESearch->sCriterias = $sSearchCriterias ?: 'ALL';
 		$oESearch->aReturn = $aSearchReturn;
 		$oESearch->bUid = $bReturnUid;
 		$oESearch->sLimit = $sLimit;
@@ -405,10 +432,10 @@ trait Messages
 	 * @throws \MailSo\Net\Exceptions\*
 	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function MessageSimpleESort(array $aSortTypes, string $sSearchCriterias = 'ALL', array $aSearchReturn = ['ALL'], bool $bReturnUid = true, string $sLimit = '') : array
+	public function MessageESort(array $aSortTypes, string $sSearchCriterias, array $aSearchReturn = ['ALL'], bool $bReturnUid = true, string $sLimit = '') : array
 	{
 		$oSort = new \MailSo\Imap\Requests\SORT($this);
-		$oSort->sCriterias = $sSearchCriterias;
+		$oSort->sCriterias = $sSearchCriterias ?: 'ALL';
 		$oSort->bUid = $bReturnUid;
 		$oSort->aSortTypes = $aSortTypes;
 		$oSort->aReturn = $aSearchReturn ?: ['ALL'];
@@ -423,7 +450,7 @@ trait Messages
 	 * @throws \MailSo\Net\Exceptions\*
 	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function MessageSimpleSearch(string $sSearchCriterias = 'ALL', bool $bReturnUid = true) : array
+	public function MessageSearch(string $sSearchCriterias, bool $bReturnUid = true) : array
 	{
 		$aRequest = array();
 //		if (!$this->UTF8 && !\mb_check_encoding($sSearchCriterias, 'UTF-8')) {
@@ -474,11 +501,16 @@ trait Messages
 	 * @throws \MailSo\Net\Exceptions\*
 	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function MessageSimpleThread(string $sSearchCriterias = 'ALL', bool $bReturnUid = true) : iterable
+	public function MessageThread(string $sSearchCriterias, string $sAlgorithm = '', $bReturnUid = true) : iterable
 	{
 		$oThread = new \MailSo\Imap\Requests\THREAD($this);
-		$oThread->sCriterias = $sSearchCriterias;
+		$oThread->sCriterias = $sSearchCriterias ?: 'ALL';
 		$oThread->bUid = $bReturnUid;
+		try {
+			$sAlgorithm && $oThread->setAlgorithm($sAlgorithm);
+		} catch (\Throwable $e) {
+			// ignore
+		}
 		yield from $oThread->SendRequestIterateResponse();
 	}
 

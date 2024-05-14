@@ -40,8 +40,7 @@ class ZIP
 		}
 		if (\is_resource($target)) {
 			$this->out = $target;
-		}
-		if (!$this->out) {
+		} else {
 			throw new \Exception("Failed to open output: {$target}");
 		}
 
@@ -80,9 +79,8 @@ class ZIP
 		\header('Cache-Control: no-store');
 		\header('Pragma: no-cache');
 		\header('Content-Transfer-Encoding: binary');
-		$name = "{$name}.zip";
-		$name = \preg_match('#^[\x01-\x7F]*$#D', $name) ? $name : '=?UTF-8?B?'.\base64_encode($name).'?=';
-		\header("Content-Disposition: attachment; filename={$name}");
+		$name .= '.zip';
+		\MailSo\Base\Http::setContentDisposition('attachment', ['filename' => $name]);
 		\header("Content-Type: application/zip; name={$name}");
 	}
 
@@ -114,6 +112,10 @@ class ZIP
 
 	public function addFromStream($resource, string $name, int $time = 0) : bool
 	{
+		if (!$this->out) {
+			throw new \Exception('Stream closed');
+		}
+
 		if ($resource instanceof \SplFileObject) {
 			if (!$time) {
 				$time = $resource->getMTime();
@@ -170,6 +172,10 @@ class ZIP
 
 	public function addFromString(string $name, string $data, int $time = 0) : bool
 	{
+		if (!$this->out) {
+			throw new \Exception('Stream closed');
+		}
+
 		$file = new ZipEntry($name, $time, $this->compression);
 		$file->u_len = \strlen($data);
 		$file->setCrc32(\crc32($data));
@@ -202,6 +208,9 @@ class ZIP
 
 	public function addRecursive(string $dir, string $target_dir = '', string $ignore = '#/(\\.hg(/|$)|\\.hgignore)#') : void
 	{
+		if (!$this->out) {
+			throw new \Exception('Stream closed');
+		}
 		\clearstatcache();
 		$dir = \rtrim($dir,'\\/') . '/';
 		$dirl = \strlen($dir);

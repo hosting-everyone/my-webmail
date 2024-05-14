@@ -54,6 +54,9 @@ import { showScreenPopup } from 'Knoin/Knoin';
 import { OpenPgpImportPopupView } from 'View/Popup/OpenPgpImport';
 import { GnuPGUserStore } from 'Stores/User/GnuPG';
 import { OpenPGPUserStore } from 'Stores/User/OpenPGP';
+import { IdentityUserStore } from 'Stores/User/Identity';
+
+import { Passphrases } from 'Storage/Passphrases';
 
 const
 	oMessageScrollerDom = () => elementById('messageItem') || {},
@@ -96,7 +99,7 @@ export class MailMessageView extends AbstractViewRight {
 						currentMessage(null);
 						rl.app.moveMessagesToFolderType(folderType, message.folder, new Set([message.uid]), bDelete);
 					}
-				}, this.messageVisibility);
+				}, this.messageVisible);
 
 		this.msgDefaultAction = SettingsUserStore.msgDefaultAction;
 		this.simpleAttachmentsList = SettingsUserStore.simpleAttachmentsList;
@@ -109,7 +112,8 @@ export class MailMessageView extends AbstractViewRight {
 			actionsMenu: null,
 			// viewer
 			viewFromShort: '',
-			dkimData: ['none', '', '']
+			dkimData: ['none', '', ''],
+			nowTracking: false
 		});
 
 		this.moveAction = moveAction;
@@ -142,12 +146,12 @@ export class MailMessageView extends AbstractViewRight {
 
 			downloadAsZipAllowed: () => this.attachmentsActions.includes('zip')
 				&& (currentMessage()?.attachments || [])
-					.filter(item => item?.download /*&& !item?.isLinked()*/ && item?.checked())
+					.filter(item => item?.checked() && item?.download /*&& !item?.isLinked()*/)
 					.length,
 
 			tagsAllowed: () => FolderUserStore.currentFolder()?.tagsAllowed(),
 
-			messageVisibility: () => !MessageUserStore.loading() && !!currentMessage(),
+			messageVisible: () => !MessageUserStore.loading() && !!currentMessage(),
 
 			tagsToHTML: () => currentMessage()?.flags().map(value =>
 					isAllowedKeyword(value)
@@ -155,29 +159,32 @@ export class MailMessageView extends AbstractViewRight {
 					: ''
 				).join(' '),
 
-			askReadReceipt: () =>
-				(MessagelistUserStore.isDraftFolder() || MessagelistUserStore.isSentFolder())
-				&& currentMessage()?.readReceipt()
-				&& currentMessage()?.flags().includes('$mdnsent'),
+			askReadReceipt: () => currentMessage()?.readReceipt
+				&& !(MessagelistUserStore.isDraftFolder() || MessagelistUserStore.isSentFolder())
+				&& !currentMessage()?.flags().includes('$mdnsent')
+				&& !currentMessage()?.flags().includes('\\answered'),
 
 			listAttachments: () => currentMessage()?.attachments()
 				.filter(item => SettingsUserStore.listInlineAttachments() || !item.isLinked()),
-			hasAttachments: () => this.listAttachments()?.length,
+//			hasAttachments: () => currentMessage()?.attachments()?.length,
+			hasAttachments: () => currentMessage()?.attachments()
+				.some(item => SettingsUserStore.listInlineAttachments() || !item.isLinked()),
+//			listInline: () => currentMessage()?.attachments().filter(item => item.isLinked()),
+//			hasInline: () => currentMessage()?.attachments().some(item => item.isLinked()),
 
-			canBeRepliedOrForwarded: () => !MessagelistUserStore.isDraftFolder() && this.messageVisibility(),
+			canBeRepliedOrForwarded: () => !MessagelistUserStore.isDraftFolder() && this.messageVisible(),
 
-			viewDkimIcon: () => 'none' !== this.dkimData()[0],
-
-			dkimIconClass:() => {
+			dkimIcon: () => {
 				switch (this.dkimData()[0]) {
 					case 'none':
 						return '';
 					case 'pass':
-						return 'icon-ok iconcolor-green'; // ✔️
+						return '✔';
 					default:
-						return 'icon-cross iconcolor-red'; // ✖ ❌
+						return '✖';
 				}
 			},
+			dkimIconClass: () => 'pass' === this.dkimData()[0] ? 'iconcolor-green' : 'iconcolor-red',
 
 			dkimTitle:() => {
 				const dkim = this.dkimData();
@@ -204,6 +211,7 @@ export class MailMessageView extends AbstractViewRight {
 					// TODO: make first param a user setting #683
 					this.viewFromShort(message.from.toString(false, true));
 					this.dkimData(message.dkim[0] || ['none', '', '']);
+					this.nowTracking(false);
 				} else {
 					MessagelistUserStore.selectedMessage(null);
 
@@ -230,8 +238,9 @@ export class MailMessageView extends AbstractViewRight {
 		this.notSpamCommand = createCommandActionHelper(FolderType.Inbox);
 
 		decorateKoCommands(this, {
-			editCommand: self => self.messageVisibility(),
-			moveCommand: self => self.messageVisibility(),
+			editCommand: self => self.messageVisible(),
+			moveCommand: self => self.messageVisible(),
+			copyCommand: self => self.messageVisible(),
 			goUpCommand: self => !self.messageListOrViewLoading(),
 			goDownCommand: self => !self.messageListOrViewLoading()
 		});
@@ -249,13 +258,21 @@ export class MailMessageView extends AbstractViewRight {
 		currentMessage() && showMessageComposer([ComposeType.Draft, currentMessage()]);
 	}
 
-	moveCommand(vm, event) {
+	moveOrCopy(vm, event, mode) {
 		if (vm && event?.preventDefault) {
 			stopEvent(event);
 		}
 		this.actionsMenu().ddBtn.hide();
 		AppUserStore.focusedState(ScopeFolderList);
-		moveAction(true);
+		moveAction(mode);
+	}
+
+	moveCommand(vm, event) {
+		this.moveOrCopy(vm, event, 1);
+	}
+
+	copyCommand(vm, event) {
+		this.moveOrCopy(vm, event, 2);
 	}
 
 	setUnseen() {
@@ -496,6 +513,17 @@ export class MailMessageView extends AbstractViewRight {
 		currentMessage().showExternalImages();
 	}
 
+	showTracking() {
+		const msg = currentMessage(), body = msg?.body;
+		if (body && msg.hasTracking()) {
+			let attr = 'data-x-href-tracking';
+			body.querySelectorAll('a['+attr+']').forEach(node => node.href = node.getAttribute(attr));
+//			attr = 'data-x-src-tracking';
+//			body.querySelectorAll('img['+attr+']').forEach(node => node.src = node.getAttribute(attr));
+			this.nowTracking(true);
+		}
+	}
+
 	whitelistText(txt) {
 		let value = (SettingsUserStore.viewImagesWhitelist().trim() + '\n' + txt).trim();
 /*
@@ -521,20 +549,19 @@ export class MailMessageView extends AbstractViewRight {
 	 * @returns {void}
 	 */
 	readReceipt() {
-		let oMessage = currentMessage()
-		if (oMessage.readReceipt()) {
-			Remote.request('SendReadReceiptMessage', iError => {
-				if (!iError) {
-					oMessage.flags.push('$mdnsent');
-//					oMessage.flags.valueHasMutated();
+		let oMessage = currentMessage();
+		if (oMessage.readReceipt) {
+			oMessage.flags.push('$mdnsent');
+			Remote.request('SendReadReceiptMessage',
+				iError => iError && oMessage.flags.remove('$mdnsent'),
+				{
+					messageFolder: oMessage.folder,
+					messageUid: oMessage.uid,
+					readReceipt: oMessage.readReceipt,
+					subject: i18n('READ_RECEIPT/SUBJECT', { SUBJECT: oMessage.subject() }),
+					plain: i18n('READ_RECEIPT/BODY', { 'READ-RECEIPT': AccountUserStore.email() })
 				}
-			}, {
-				messageFolder: oMessage.folder,
-				messageUid: oMessage.uid,
-				readReceipt: oMessage.readReceipt(),
-				subject: i18n('READ_RECEIPT/SUBJECT', { SUBJECT: oMessage.subject() }),
-				plain: i18n('READ_RECEIPT/BODY', { 'READ-RECEIPT': AccountUserStore.email() })
-			});
+			);
 		}
 	}
 
@@ -550,40 +577,45 @@ export class MailMessageView extends AbstractViewRight {
 	}
 
 	pgpDecrypt() {
-		const oMessage = currentMessage();
+		const oMessage = currentMessage(),
+			data = oMessage.pgpEncrypted();
+		delete data.error;
 		PgpUserStore.decrypt(oMessage).then(result => {
-			if (result) {
-				oMessage.pgpDecrypted(true);
-				if (result.data) {
-					MimeToMessage(result.data, oMessage);
-					oMessage.html() ? oMessage.viewHtml() : oMessage.viewPlain();
-					if (result.signatures?.length) {
-						oMessage.pgpSigned(true);
-						oMessage.pgpVerified({
-							signatures: result.signatures,
-							success: !!result.signatures.length
-						});
-					}
-				}
-			} else {
+			if (!result) {
 				// TODO: translate
-				alert('Decryption failed, canceled or not possible');
+				throw Error('Decryption failed, canceled or not possible');
+			}
+			oMessage.pgpDecrypted(true);
+			if (result.data) {
+				MimeToMessage(result.data, oMessage);
+				oMessage.html() ? oMessage.viewHtml() : oMessage.viewPlain();
+				if (result.signatures?.length) {
+					oMessage.pgpSigned({
+						signatures: result.signatures,
+						success: !!result.signatures.length
+					});
+				}
 			}
 		})
-		.catch(e => console.error(e));
+		.catch(e => {
+			data.error = e.message;
+		})
+		.finally(() => {
+			oMessage.pgpEncrypted(data);
+		});
 	}
 
 	pgpVerify(/*self, event*/) {
 		const oMessage = currentMessage()/*, ctrl = event.target.closest('.openpgp-control')*/;
 		PgpUserStore.verify(oMessage).then(result => {
 			if (result) {
-				oMessage.pgpVerified(result);
+				oMessage.pgpSigned(result);
 			} else {
 				alert('Verification failed or no valid public key found');
 			}
 /*
 			if (result?.success) {
-				i18n('OPENPGP/GOOD_SIGNATURE', {
+				i18n('CRYPTO/GOOD_SIGNATURE', {
 					USER: validKey.user + ' (' + validKey.id + ')'
 				});
 				message.getText()
@@ -593,12 +625,77 @@ export class MailMessageView extends AbstractViewRight {
 						? keyIds.map(item => item?.toHex?.()).filter(v => v).join(', ')
 						: '';
 
-				i18n('OPENPGP/ERROR', {
+				i18n('CRYPTO/ERROR', {
+					TYPE: 'OpenPGP',
 					ERROR: 'message'
 				}) + (additional ? ' (' + additional + ')' : '');
 			}
 */
 		});
+	}
+
+	async smimeDecrypt() {
+		const message = currentMessage();
+		const addresses = message.from.concat(message.to, message.cc, message.bcc).map(item => item.email),
+			identity = IdentityUserStore.find(item => addresses.includes(item.email())),
+			data = message.smimeEncrypted(); // { partId: "1" }
+		if (data && identity) {
+			delete data.error;
+			let pass, params = { ...data }; // clone
+			params.folder = message.folder;
+			params.uid = message.uid;
+//			params.bodyPart = params.bodyPart?.raw;
+			params.certificate = identity.smimeCertificate();
+			params.privateKey = identity.smimeKey();
+			if (identity.smimeKeyEncrypted()) {
+				pass = await Passphrases.ask(identity,
+					i18n('SMIME/PRIVATE_KEY_OF', {EMAIL: identity.email()}),
+					'CRYPTO/DECRYPT'
+				);
+				if (!pass) {
+					return;
+				}
+				params.passphrase = pass?.password;
+			}
+			Remote.post('SMimeDecryptMessage', null, params).then(response => {
+				if (response?.Result?.data) {
+					message.smimeDecrypted(true);
+					MimeToMessage(response.Result.data, message);
+					message.html() ? message.viewHtml() : message.viewPlain();
+					pass && pass.remember && Passphrases.handle(identity, pass.password);
+					if ('signed' in response.Result) {
+						message.smimeSigned(response.Result.signed);
+					}
+				}
+			}).catch(e => {
+				data.error = e.message
+			})
+			.finally(() => {
+				message.smimeEncrypted(data);
+			});
+		}
+	}
+
+	smimeVerify(/*self, event*/) {
+		const message = currentMessage(),
+			data = message.smimeSigned(); // { partId: "1", micAlg: "pgp-sha256" }
+		if (data) {
+			const params = { ...data }; // clone
+			params.folder = message.folder;
+			params.uid = message.uid;
+			params.bodyPart = data.bodyPart?.raw;
+			params.sigPart = data.sigPart?.bodyRaw;
+			Remote.post('SMimeVerifyMessage', null, params).then(response => {
+				if (response?.Result) {
+					if (response.Result.body) {
+						MimeToMessage(response.Result.body, message);
+						message.html() ? message.viewHtml() : message.viewPlain();
+					}
+					data.success = response.Result.success;
+					message.smimeSigned(data);
+				}
+			});
+		}
 	}
 
 }

@@ -3,7 +3,7 @@
 	<a href="#" class="close" data-bind="click: hideError">×</a>
 	<span data-bind="text: submitError"></span>
 </div>
-<form action="#/" spellcheck="false" data-bind="submit: submitForm, css: {'errorAnimated': formError, 'submitting': submitRequest()}">
+<form action="#/" spellcheck="false" method="POST" data-bind="submit: submitForm, css: {'errorAnimated': formError, 'submitting': submitRequest()}">
 	<div class="controls" data-bind="css: {'error': loginError}">
 		<span class="fontastic">👤</span>
 		<input name="Login" required="" type="text" class="input-block-level"
@@ -16,7 +16,7 @@
 		<input name="Password" required="" type="password" class="input-block-level"
 			autocomplete="current-password" autocorrect="off" autocapitalize="off"
 			data-bind="textInput: password, disable: submitRequest"
-			data-i18n="[placeholder]LOGIN/LABEL_PASSWORD">
+			data-i18n="[placeholder]GLOBAL/PASSWORD">
 	</div>
 	<div class="controls">
 		<span class="fontastic">⏱</span>

@@ -22,15 +22,15 @@
 					});
 				} else {
 					var link = document.createElement("a");
-					link.download = 'backup-' + Date.now() + '.zip';
-					link.href = 'data:application/zip;base64,' + oData.Result.zip;
-					link.textContent = 'backup.zip';
+					link.download = oData.Result.name;
+					link.href = oData.Result.data;
+					link.textContent = oData.Result.name;
 					this.viewModelDom.append(link);
 					link.click();
 					link.remove();
 				}
 
-			}, 'JsonAdminGetData');
+			}, 'JsonAdminBackupData');
 		}
 
 		submitForm(form) {
