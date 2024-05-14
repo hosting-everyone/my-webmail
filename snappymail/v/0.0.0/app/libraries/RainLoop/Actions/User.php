@@ -161,9 +161,9 @@ trait User
 		});
 
 		$this->setSettingsFromParams($oSettings, 'Layout', 'int', function ($iValue) {
-			return (int) (\in_array((int) $iValue, array(\RainLoop\Enumerations\Layout::NO_PREVIEW,
-				\RainLoop\Enumerations\Layout::SIDE_PREVIEW, \RainLoop\Enumerations\Layout::BOTTOM_PREVIEW)) ?
-					$iValue : \RainLoop\Enumerations\Layout::SIDE_PREVIEW);
+			return (
+				\RainLoop\Enumerations\Layout::tryFrom((int) $iValue) ?? \RainLoop\Enumerations\Layout::SIDE_PREVIEW
+			)->value;
 		});
 
 		$this->setSettingsFromParams($oSettings, 'EditorDefaultType', 'string');
