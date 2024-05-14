@@ -2,10 +2,14 @@
 
 class NextcloudContactsSuggestions implements \RainLoop\Providers\Suggestions\ISuggestions
 {
-	/**
-	 * @var \MailSo\Log\Logger
-	 */
-	private $oLogger = null;
+	use \MailSo\Log\Inherit;
+
+	private bool $ignoreSystemAddressbook;
+
+	function __construct(bool $ignoreSystemAddressbook = true)
+	{
+		$this->ignoreSystemAddressbook = $ignoreSystemAddressbook;
+	}
 
 	public function Process(\RainLoop\Model\Account $oAccount, string $sQuery, int $iLimit = 20): array
 	{
@@ -19,6 +23,15 @@ class NextcloudContactsSuggestions implements \RainLoop\Providers\Suggestions\IS
 			$cm = \OC::$server->getContactsManager();
 			if (!$cm || !$cm->isEnabled()) {
 				return [];
+			}
+
+			// Unregister system addressbook so as to return only contacts in user's addressbooks
+			if ($this->ignoreSystemAddressbook) {
+				foreach($cm->getUserAddressBooks() as $addressBook) {
+					if($addressBook->isSystemAddressBook()) {
+						 $cm->unregisterAddressBook($addressBook);
+					}
+				}
 			}
 
 			$aSearchResult = $cm->search($sQuery, array('FN', 'NICKNAME', 'TITLE', 'EMAIL'));
@@ -59,16 +72,9 @@ class NextcloudContactsSuggestions implements \RainLoop\Providers\Suggestions\IS
 		}
 		catch (\Exception $oException)
 		{
-			if ($this->oLogger) {
-				$this->oLogger->WriteException($oException);
-			}
+			$this->logException($oException);
 		}
 
 		return [];
-	}
-
-	public function SetLogger(\MailSo\Log\Logger $oLogger)
-	{
-		$this->oLogger = $oLogger;
 	}
 }

@@ -1,5 +1,4 @@
 <?php
-define('ROOT_DIR', dirname(__DIR__));
 define('PLUGINS_DEST_DIR', __DIR__ . '/dist/releases/plugins');
 
 is_dir(PLUGINS_DEST_DIR) || mkdir(PLUGINS_DEST_DIR, 0777, true);
@@ -10,6 +9,8 @@ $files = new RecursiveIteratorIterator(
 foreach ($files as $fileinfo) {
     $fileinfo->isDir() || unlink($fileinfo->getRealPath());
 }
+
+$terser = ROOT_DIR . '/node_modules/terser/bin/terser';
 
 $manifest = [];
 require ROOT_DIR . '/snappymail/v/0.0.0/app/libraries/RainLoop/Plugins/AbstractPlugin.php';
@@ -27,10 +28,46 @@ $keys = [
 	'url',
 	'version'
 ];
+/*
+$released = [
+	'add-x-originating-ip-header',
+	'avatars',
+	'backup',
+	'black-list',
+	'change-password',
+	'change-password-froxlor',
+	'change-password-hestia',
+	'change-password-hmailserver',
+	'change-password-ispconfig',
+	'change-password-poppassd',
+	'custom-login-mapping',
+	'imap-contacts-suggestions',
+	'kolab',
+	'ldap-contacts-suggestions',
+	'ldap-identities',
+	'ldap-login-mapping',
+	'ldap-mail-accounts',
+	'login-external',
+	'login-external-sso',
+	'login-override',
+	'login-register',
+	'login-remote',
+	'mailbox-detect',
+	'nextcloud',
+	'override-smtp-credentials',
+	'set-remote-addr',
+	'smtp-use-from-adr-account',
+	'snowfall-on-login-screen',
+	'two-factor-auth',
+	'view-ics',
+	'white-list'
+];
+*/
 foreach (glob(ROOT_DIR . '/plugins/*', GLOB_NOSORT | GLOB_ONLYDIR) as $dir) {
 	if (is_file("{$dir}/index.php") && !strpos($dir, '.bak')) {
 		require "{$dir}/index.php";
 		$name = basename($dir);
+//		if (!in_array($name, $released)) continue;
 		$class = new ReflectionClass(str_replace('-', '', $name) . 'Plugin');
 		$manifest_item = [];
 		foreach ($class->getConstants() as $key => $value) {
@@ -42,6 +79,21 @@ foreach (glob(ROOT_DIR . '/plugins/*', GLOB_NOSORT | GLOB_ONLYDIR) as $dir) {
 		$version = $manifest_item['version'];
 		if (0 < floatval($version)) {
 			echo "+ {$name} {$version}\n";
+
+			// Minify JavaScript
+			foreach (glob("{$dir}/*.js") as $file) {
+				if (!strpos($file,'.min')) {
+					$mfile = str_replace('.js', '.min.js', $file);
+					passthru("{$terser} {$file} --output {$mfile} --compress 'drop_console' --ecma 6 --mangle");
+				}
+			}
+			foreach (glob("{$dir}/js/*.js") as $file) {
+				if (!strpos($file,'.min')) {
+					$mfile = str_replace('.js', '.min.js', $file);
+					passthru("{$terser} {$file} --output {$mfile} --compress 'drop_console' --ecma 6 --mangle");
+				}
+			}
+
 			$manifest_item['type'] = 'plugin';
 			$manifest_item['id']   = $name;
 			$manifest_item['file'] = "plugins/{$name}-{$version}.tgz";
@@ -54,6 +106,7 @@ foreach (glob(ROOT_DIR . '/plugins/*', GLOB_NOSORT | GLOB_ONLYDIR) as $dir) {
 			$tar->compress(Phar::GZ);
 			unlink($tar_destination);
 			rename("{$tar_destination}.gz", $tgz_destination);
+/*
 			if (Phar::canWrite()) {
 				$phar_destination = PLUGINS_DEST_DIR . "/{$name}.phar";
 				@unlink($phar_destination);
@@ -63,6 +116,7 @@ foreach (glob(ROOT_DIR . '/plugins/*', GLOB_NOSORT | GLOB_ONLYDIR) as $dir) {
 				unlink($phar_destination);
 				rename("{$phar_destination}.gz", $phar_destination);
 			}
+*/
 			if (isset($options['sign'])) {
 				passthru('gpg --local-user 1016E47079145542F8BA133548208BA13290F3EB --armor --detach-sign '.escapeshellarg($tgz_destination), $return_var);
 				$manifest_item['pgp_sig'] = trim(preg_replace('/-----(BEGIN|END) PGP SIGNATURE-----/', '', file_get_contents($tgz_destination.'.asc')));

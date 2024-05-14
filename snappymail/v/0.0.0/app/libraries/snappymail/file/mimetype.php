@@ -35,17 +35,22 @@ abstract class MimeType
 			if (self::$finfo) {
 				$mime = \preg_replace('#[,;].*#', '', self::$finfo->file($filename));
 			}
+			if (!$mime && \is_callable('mime_content_type')) {
+				$mime = \mime_content_type($filename);
+			}
 			if (!$mime && $fp = \fopen($filename, 'rb')) {
 				$mime = self::fromStream($fp);
 				\fclose($fp);
 			}
 			if ('application/zip' === \str_replace('/x-', '/', $mime)) {
-				$zip = new \ZipArchive($filename);
-				if (false !== $zip->locateName('word/_rels/document.xml.rels')) {
-					return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-				}
-				if (false !== $zip->locateName('xl/_rels/workbook.xml.rels')) {
-					return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+				$zip = new \ZipArchive();
+				if ($zip->open($filename, \ZIPARCHIVE::RDONLY)) {
+					if (false !== $zip->locateName('word/_rels/document.xml.rels')) {
+						return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+					}
+					if (false !== $zip->locateName('xl/_rels/workbook.xml.rels')) {
+						return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+					}
 				}
 			}
 		}
@@ -98,7 +103,7 @@ abstract class MimeType
 	{
 		$filename = \strtolower($filename);
 		if ('winmail.dat' === $filename) {
-			return 'application/ms-tnef';
+			return static::$types['tnef'];
 		}
 		$extension = \explode('.', $filename);
 		$extension = \array_pop($extension);
@@ -111,7 +116,7 @@ abstract class MimeType
 	public static function toExtension(string $mime, bool $include_dot = true) : ?string
 	{
 		$mime = \strtolower($mime);
-		if ('application/pgp-signature' == $mime || 'application/pgp-keys' == $mime) {
+		if ('application/pgp-signature' === $mime || 'application/pgp-keys' === $mime) {
 			$ext = 'asc';
 		} else {
 			$mime = \str_replace('application/x-tar', 'application/gtar', $mime);
@@ -144,7 +149,6 @@ abstract class MimeType
 		'epub' => 'application/epub',
 		'exe' => 'application/x-msdownload',
 		'gz' => 'application/gzip',
-		'gz' => 'application/x-gzip',
 		'hlp' => 'application/winhlp',
 		'js' => 'application/javascript',
 		'json' => 'application/json',
@@ -173,7 +177,9 @@ abstract class MimeType
 		'swf' => 'application/x-shockwave-flash',
 		'tar' => 'application/gtar',
 //		'tar' => 'application/x-tar',
-//		'tgz' => 'application/x-gzip',
+//		'tgz' => 'application/gzip',
+		'tnef' => 'application/vnd.ms-tnef',
+//		'tnef' => 'application/ms-tnef', // not IANA official
 		'torrent' => 'application/x-bittorrent',
 		'wgt' => 'application/widget',
 		'xls' => 'application/vnd.ms-excel',

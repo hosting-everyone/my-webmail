@@ -17,18 +17,16 @@ const
 
 	// import { folderListOptionsBuilder } from 'Common/Folders';
 	/**
-	 * @param {Array=} aDisabled
-	 * @param {Array=} aHeaderLines
-	 * @param {Function=} fRenameCallback
 	 * @returns {Array}
 	 */
-	folderListOptionsBuilder = (
-		aDisabled,
-		aHeaderLines,
-		fRenameCallback
-	) => {
+	folderListOptionsBuilder = () => {
 		const
-			aResult = [],
+			aResult = [{
+				id: '',
+				name: '',
+				system: false,
+				disabled: false
+			}],
 			sDeepPrefix = '\u00A0\u00A0\u00A0',
 			showUnsubscribed = true/*!SettingsUserStore.hideUnsubscribed()*/,
 
@@ -37,11 +35,9 @@ const
 					if (showUnsubscribed || oItem.hasSubscriptions() || !oItem.exists) {
 						aResult.push({
 							id: oItem.fullName,
-							name:
-								sDeepPrefix.repeat(oItem.deep) +
-								fRenameCallback(oItem),
+							name: sDeepPrefix.repeat(oItem.deep) + oItem.detailedName(),
 							system: false,
-							disabled: !oItem.selectable() || aDisabled.includes(oItem.fullName)
+							disabled: !oItem.selectable()
 						});
 					}
 
@@ -51,18 +47,6 @@ const
 				});
 			};
 
-
-		fRenameCallback = fRenameCallback || (oItem => oItem.name());
-		Array.isArray(aDisabled) || (aDisabled = []);
-
-		Array.isArray(aHeaderLines) && aHeaderLines.forEach(line =>
-			aResult.push({
-				id: line[0],
-				name: line[1],
-				system: false,
-				disabled: false
-			})
-		);
 
 		// FolderUserStore.folderList()
 		foldersWalk(window.Sieve.folderList() || []);
@@ -82,13 +66,7 @@ export class FilterPopupView extends rl.pluginPopupView {
 		});
 
 		this.defaultOptionsAfterRender = defaultOptionsAfterRender;
-		this.folderSelectList = koComputable(() =>
-			folderListOptionsBuilder(
-				[rl.settings.get('SieveAllowFileintoInbox') ? '' : 'INBOX'],
-				[['', '']],
-				item => item?.localName() || ''
-			)
-		);
+		this.folderSelectList = koComputable(() => folderListOptionsBuilder());
 
 		this.selectedFolderValue.subscribe(() => this.filter().actionValueError(false));
 
@@ -140,11 +118,13 @@ export class FilterPopupView extends rl.pluginPopupView {
 					id: FilterAction.MoveTo,
 					name: i18nFilter('ACTION_MOVE_TO')
 				});
-				this.actionTypeOptions.push({
-					id: FilterAction.Forward,
-					name: i18nFilter('ACTION_FORWARD_TO')
-				});
 			}
+
+			// redirect command
+			this.actionTypeOptions.push({
+				id: FilterAction.Forward,
+				name: i18nFilter('ACTION_FORWARD_TO')
+			});
 
 			if (capa.includes('reject')) {
 				this.actionTypeOptions.push({ id: FilterAction.Reject, name: i18nFilter('ACTION_REJECT') });

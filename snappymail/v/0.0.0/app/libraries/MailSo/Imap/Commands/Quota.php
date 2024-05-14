@@ -47,11 +47,11 @@ trait Quota
 	// * QUOTA "User quota" (STORAGE 1284645 2097152)\r\n
 	private function getQuota(bool $root, string $sFolderName) : ?array
 	{
-		if (!$this->IsSupported('QUOTA')) {
+		if (!$this->hasCapability('QUOTA')) {
 			return null;
 		}
+		$aReturn = array(0, 0, 0, 0);
 		$oResponseCollection = $this->SendRequest(($root?'GETQUOTAROOT':'GETQUOTA') . " {$this->EscapeFolderName($sFolderName)}");
-		$aReturn = array(0, 0);
 		foreach ($this->yieldUntaggedResponses() as $oResponse) {
 			if ('QUOTA' === $oResponse->StatusOrIndex
 				&& isset($oResponse->ResponseList[3])

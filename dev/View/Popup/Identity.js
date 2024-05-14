@@ -1,75 +1,111 @@
-import { addObservablesTo, addSubscribablesTo } from 'External/ko';
+
+import { addObservablesTo, koComputable } from 'External/ko';
 
 import { getNotification } from 'Common/Translator';
+import { loadAccountsAndIdentities } from 'Common/UtilsUser';
 
 import Remote from 'Remote/User/Fetch';
 
 import { AbstractViewPopup } from 'Knoin/AbstractViews';
 
+import { IdentityModel } from 'Model/Identity';
+
+import { folderListOptionsBuilder } from 'Common/Folders';
+import { i18n } from 'Common/Translator';
+import { defaultOptionsAfterRender } from 'Common/Utils';
+
+import { AskPopupView } from 'View/Popup/Ask';
+
 export class IdentityPopupView extends AbstractViewPopup {
 	constructor() {
 		super('Identity');
 
-		this.id = '';
 		addObservablesTo(this, {
+			identity: null,
 			edit: false,
-			owner: false,
-
-			email: '',
-			emailFocused: false,
-
-			name: '',
-
-			replyTo: '',
-			replyToFocused: false,
-
-			bcc: '',
-			bccFocused: false,
-			bccHasError: false,
-
-			signature: '',
-			signatureInsertBefore: false,
-
-			showBcc: false,
-			showReplyTo: false,
-
+			labelFocused: false,
+			nameFocused: false,
 			submitRequest: false,
 			submitError: ''
-		});
-
-		addSubscribablesTo(this, {
-			replyTo: value => {
-				if (false === this.showReplyTo() && value.length) {
-					this.showReplyTo(true);
-				}
-			},
-			bcc: value => {
-				if (false === this.showBcc() && value.length) {
-					this.showBcc(true);
-				}
-			}
 		});
 /*
 		this.email.valueHasMutated();
 		this.replyTo.valueHasMutated();
 		this.bcc.valueHasMutated();
 */
+		this.folderSelectList = koComputable(() =>
+			folderListOptionsBuilder(
+				[],
+				[['', '('+i18n('GLOBAL/DEFAULT')+')']]
+			)
+		);
+		this.defaultOptionsAfterRender = defaultOptionsAfterRender;
+
+		this.createSelfSigned = this.createSelfSigned.bind(this);
+		this.setSMimeKeyPass = this.setSMimeKeyPass.bind(this);
+	}
+
+	createSelfSigned() {
+		AskPopupView.password('', 'CRYPTO/CREATE_SELF_SIGNED').then(result => {
+			if (result) {
+				const identity = this.identity();
+				Remote.request('SMimeCreateCertificate', (iError, oData) => {
+					if (oData.Result.x509) {
+						identity.smimeKey(oData.Result.pkey);
+						identity.smimeCertificate(oData.Result.x509);
+					} else {
+						this.submitError(oData.ErrorMessage);
+					}
+				}, {
+					name: identity.name(),
+					email: identity.email(),
+					privateKey: identity.smimeKey(),
+					passphrase: result.password
+				});
+			}
+		});
+	}
+
+	async setSMimeKeyPass() {
+		const identity = this.identity();
+		let old = null
+		if (identity.smimeKeyEncrypted()) {
+			old = await AskPopupView.password(i18n('CRYPTO/CURRENT_PASS'), 'CRYPTO/DECRYPT');
+			if (!old) {
+				return;
+			}
+		}
+		AskPopupView.password(i18n('CRYPTO/NEW_PASS'), 'GLOBAL/SAVE').then(result => {
+			if (result) {
+				Remote.request('SMimeExportPrivateKey', (iError, oData) => {
+					if (oData.Result) {
+						identity.smimeKey(oData.Result);
+					} else {
+						this.submitError(oData.ErrorMessage);
+					}
+				}, {
+					privateKey: identity.smimeKey(),
+					oldPassphrase: old?.password,
+					newPassphrase: result.password
+				});
+			}
+		});
 	}
 
 	submitForm(form) {
 		if (!this.submitRequest() && form.reportValidity()) {
-			this.signature?.__fetchEditorValue?.();
+			let identity = this.identity();
+			identity.signature?.__fetchEditorValue?.();
 			this.submitRequest(true);
 			const data = new FormData(form);
-			data.set('Id', this.id);
-			data.set('Signature', this.signature());
-			data.set('SignatureInsertBefore', this.signatureInsertBefore() ? 1 : 0);
+			data.set('Id', identity.id());
+			data.set('Signature', identity.signature());
 			Remote.request('IdentityUpdate', iError => {
 					this.submitRequest(false);
 					if (iError) {
 						this.submitError(getNotification(iError));
 					} else {
-						rl.app.accountsAndIdentities();
+						loadAccountsAndIdentities();
 						this.close();
 					}
 				}, data
@@ -81,40 +117,19 @@ export class IdentityPopupView extends AbstractViewPopup {
 	 * @param {?IdentityModel} oIdentity
 	 */
 	onShow(identity) {
-		this.showBcc(false);
-		this.showReplyTo(false);
-
 		this.submitRequest(false);
 		this.submitError('');
-
 		if (identity) {
 			this.edit(true);
-
-			this.id = identity.id() || '';
-			this.name(identity.name());
-			this.email(identity.email());
-			this.replyTo(identity.replyTo());
-			this.bcc(identity.bcc());
-			this.signature(identity.signature());
-			this.signatureInsertBefore(identity.signatureInsertBefore());
-
-			this.owner(!this.id);
 		} else {
 			this.edit(false);
-
-			this.id = Jua.randomId();
-			this.name('');
-			this.email('');
-			this.replyTo('');
-			this.bcc('');
-			this.signature('');
-			this.signatureInsertBefore(false);
-
-			this.owner(false);
+			identity = new IdentityModel;
+			identity.id(Jua.randomId());
 		}
+		this.identity(identity);
 	}
 
 	afterShow() {
-		this.owner() || this.emailFocused(true);
+		this.identity().id() ? this.labelFocused(true) : this.nameFocused(true);
 	}
 }

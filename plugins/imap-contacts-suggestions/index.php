@@ -4,11 +4,11 @@ class ImapContactsSuggestionsPlugin extends \RainLoop\Plugins\AbstractPlugin
 {
 	const
 		NAME = 'Contacts suggestions (IMAP folder)',
-		VERSION = '1.0',
-		RELEASE  = '2022-05-18',
+		VERSION = '2.36',
+		RELEASE  = '2024-03-19',
 		CATEGORY = 'Contacts',
 		DESCRIPTION = 'Get contacts suggestions from IMAP INBOX folder.',
-		REQUIRED = '2.15.2';
+		REQUIRED = '2.36.0';
 
 	public function Init() : void
 	{

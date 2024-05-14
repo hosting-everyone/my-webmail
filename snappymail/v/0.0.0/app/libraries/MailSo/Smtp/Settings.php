@@ -17,13 +17,25 @@ namespace MailSo\Smtp;
  */
 class Settings extends \MailSo\Net\ConnectSettings
 {
-	public int $port = 25;
+	public int
+		$port = 25,
+		$timeout = 60;
 
-	public bool $usePhpMail = false;
-
-	public bool $setSender = false;
+	public bool
+		$setSender = false,
+		$usePhpMail = false,
+		// https://github.com/the-djmaze/snappymail/issues/1038
+		$authPlainLine = false,
+		$viewErrors = false;
 
 	public string $Ehlo;
+
+	public function __construct()
+	{
+		parent::__construct();
+		$oConfig = \RainLoop\API::Config();
+		$this->viewErrors = !!$oConfig->Get('labs', 'smtp_show_server_errors', false);
+	}
 
 	public static function fromArray(array $aSettings) : self
 	{
@@ -31,6 +43,8 @@ class Settings extends \MailSo\Net\ConnectSettings
 		$object->useAuth = !empty($aSettings['useAuth']);
 		$object->setSender = !empty($aSettings['setSender']);
 		$object->usePhpMail = !empty($aSettings['usePhpMail']);
+		$object->authPlainLine = !empty($aSettings['authPlainLine']);
+//		$object->viewErrors = !empty($aSettings['viewErrors']);
 		return $object;
 	}
 
@@ -43,7 +57,9 @@ class Settings extends \MailSo\Net\ConnectSettings
 //				'@Object' => 'Object/SmtpSettings',
 				'useAuth' => $this->useAuth,
 				'setSender' => $this->setSender,
-				'usePhpMail' => $this->usePhpMail
+				'usePhpMail' => $this->usePhpMail,
+				'authPlainLine' => $this->authPlainLine
+//				'viewErrors' => $this->viewErrors
 			]
 		);
 	}

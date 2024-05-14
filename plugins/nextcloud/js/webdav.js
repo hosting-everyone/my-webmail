@@ -29,13 +29,14 @@ const
 </propfind>`,
 
 	propfindCal = `<?xml version="1.0"?>
-<propfind xmlns="DAV:">
-	<prop>
-		<resourcetype/>
-		<current-user-privilege-set/>
-		<displayname/>
-	</prop>
-</propfind>`,
+<d:propfind xmlns:d="DAV:" xmlns:x1="http://apple.com/ns/ical/">
+	<d:prop>
+		<d:resourcetype/>
+		<d:current-user-privilege-set/>
+		<d:displayname/>
+		<x1:calendar-color/>
+	</d:prop>
+</d:propfind>`,
 
 	xmlParser = new DOMParser(),
 	pathRegex = /.*\/remote.php\/dav\/[^/]+\/[^/]+/g,
@@ -112,12 +113,21 @@ const
 				}
 				elemList.push(elem);
 			}
+			// https://github.com/the-djmaze/snappymail/issues/1177
+//			elemList.sort((a, b) => a.isFile != b.isFile ? (a.isFile ? 1 : -1) : a.name.localeCompare(b.name));
 			return Promise.resolve(elemList);
 		});
 	},
 
 	buildTree = (view, parent, items, path) => {
 		if (items.length) {
+			try {
+				// https://github.com/the-djmaze/snappymail/issues/1109
+				let collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
+				items.sort((a, b) => collator.compare(a.name, b.name));
+			} catch (e) {
+				console.error(e);
+			}
 			items.forEach(item => {
 				if (!item.isFile) {
 					let li = document.createElement('li'),
@@ -149,31 +159,14 @@ const
 				items.forEach(item => {
 					if (item.isFile) {
 						let li = document.createElement('li'),
-							btn = document.createElement('button');
+							cb = document.createElement('input');
 
 						li.item = item;
 						li.textContent = item.name.replace(/^.*\/([^/]+)$/, '$1');
 						li.dataset.icon = '🗎';
 
-						btn.name = 'select';
-						btn.dataset.icon = '📎';
-						btn.textContent = 'attach';
-						btn.className = 'button-vue';
-						li.append(btn);
-
-						btn = document.createElement('button');
-						btn.name = 'share-internal';
-						btn.dataset.icon = '🔗';
-						btn.textContent = 'internal';
-						btn.className = 'button-vue';
-						li.append(btn);
-
-						btn = document.createElement('button');
-						btn.name = 'share-public';
-						btn.dataset.icon = '🔗';
-						btn.textContent = 'public';
-						btn.className = 'button-vue';
-						li.append(btn);
+						cb.type = 'checkbox';
+						li.append(cb);
 
 						parent.append(li);
 					}
@@ -203,28 +196,42 @@ class NextcloudFilesPopupView extends rl.pluginPopupView {
 		});
 	}
 
-	onBuild(dom) {
-		this.tree = dom.querySelector('#sm-nc-files-tree');
-		this.tree.addEventListener('click', event => {
-			let el = event.target;
-			if (el.matches('button')) {
-				let parent = el.parentNode,
-					item = parent.item;
-				if ('select' == el.name) {
-					this.select = this.files() ? [item] : parent.item_name;
+	attach() {
+		this.select = [];
+		this.tree.querySelectorAll('input').forEach(input =>
+			input.checked && this.select.push(input.parentNode.item)
+		);
+		this.close();
+	}
+
+	shareInternal() {
+		this.select = [];
+		this.tree.querySelectorAll('input').forEach(input =>
+			input.checked && this.select.push({url:generateRemoteUrl(`/f/${input.parentNode.item.id}`)})
+		);
+		this.close();
+	}
+
+	sharePublic() {
+		const inputs = [...this.tree.querySelectorAll('input')],
+			loop = () => {
+				if (!inputs.length) {
 					this.close();
-				} else if ('share-internal' == el.name) {
-					this.select = [{url:generateRemoteUrl(`/f/${item.id}`)}];
-					this.close();
-				} else if ('share-public' == el.name) {
+					return;
+				}
+				const input = inputs.pop();
+				if (!input.checked) {
+					loop();
+				} else {
+					const item = input.parentNode.item;
 					if (item.shared) {
 						ncFetch(
 							shareUrl() + `?format=json&path=${encodeURIComponent(item.name)}&reshares=true`
 						)
 						.then(response => (response.status < 400) ? response.json() : Promise.reject(new Error({ response })))
 						.then(json => {
-							this.select = [{url:json.ocs.data[0].url}];
-							this.close();
+							this.select.push({url:json.ocs.data[0].url});
+							loop();
 //							json.data[0].password
 						});
 					} else {
@@ -246,10 +253,26 @@ class NextcloudFilesPopupView extends rl.pluginPopupView {
 						.then(response => (response.status < 400) ? response.json() : Promise.reject(new Error({ response })))
 						.then(json => {
 //							PUT /ocs/v2.php/apps/files_sharing/api/v1/shares/2 {"password":"ABC09"}
-							this.select = [{url:json.ocs.data.url}];
-							this.close();
+							this.select.push({url:json.ocs.data.url});
+							loop();
 						});
 					}
+				}
+			};
+
+		this.select = [];
+		loop();
+	}
+
+	onBuild(dom) {
+		this.tree = dom.querySelector('#sm-nc-files-tree');
+		this.tree.addEventListener('click', event => {
+			let el = event.target;
+			if (el.matches('button')) {
+				let parent = el.parentNode;
+				if ('select' == el.name) {
+					this.select = parent.item_name;
+					this.close();
 				} else if ('create' == el.name) {
 					let name = el.input.value.replace(/[|\\?*<":>+[]\/&\s]/g, '');
 					if (name.length) {
@@ -306,7 +329,51 @@ class NextcloudCalendarsPopupView extends rl.pluginPopupView {
 			}
 		});
 	}
+	createCalendarListItem(calendarData, treeElement) {
+		const {
+			displayName,
+			href,
+			calendarColor
+		} = calendarData;
 
+		const li = document.createElement('li');
+		li.style.display = 'flex';
+
+		const span = document.createElement('span');
+		span.setAttribute('role', 'img');
+		span.className = 'material-design-icon checkbox-blank-circle-icon';
+		span.style.fill = calendarColor;
+		span.style.width = '20px';
+		span.style.height = '20px';
+
+		const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+		svg.setAttribute('width', '20');
+		svg.setAttribute('height', '20');
+		svg.setAttribute('viewBox', '0 0 24 24');
+
+		const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+		path.setAttribute('d', 'M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z');
+		svg.appendChild(path);
+
+		span.appendChild(svg);
+
+		const button = document.createElement('button');
+		button.className = 'button-vue';
+		button.style.backgroundColor = 'transparent';
+		button.style.border = '0';
+		button.style.fontSize = 'large';
+		button.style.padding = '0';
+		button.style.cursor = 'pointer';
+		button.style.marginLeft = '5px';
+		button.href = href.replace(pathRegex, '').replace(/\/$/, '');
+		button.textContent = displayName;
+		button.style.color = '#1968DF';
+
+		li.appendChild(span);
+		li.appendChild(button);
+
+		treeElement.appendChild(li);
+	}
 	// Happens after showModal()
 	beforeShow(fResolve) {
 		this.select = '';
@@ -321,26 +388,30 @@ class NextcloudCalendarsPopupView extends rl.pluginPopupView {
 		})
 		.then(response => (response.status < 400) ? response.text() : Promise.reject(new Error({ response })))
 		.then(text => {
-			const
-				responseList = getDavElementsByTagName(
-					xmlParser.parseFromString(text, 'application/xml').documentElement,
-					'response'
-				);
+			// Parse the XML text
+			const xmlDoc = xmlParser.parseFromString(text, 'application/xml').documentElement;
+			const responseList = getElementsInNamespaces(xmlDoc, 'response');
 			for (let i = 0; i < responseList.length; ++i) {
-				const e = responseList.item(i);
+				const e = responseList[i];
 				if (getDavElementByTagName(e, 'resourcetype').getElementsByTagNameNS(nsCalDAV, 'calendar').length) {
-//				 && getDavElementsByTagName(getDavElementByTagName(e, 'current-user-privilege-set'), 'write').length) {
-					const li = document.createElement('li'),
-						btn = document.createElement('button');
-					li.dataset.icon = '📅';
-					li.textContent = getDavElementByTagName(e, 'displayname').textContent;
-					btn.href = getDavElementByTagName(e, 'href').textContent
-						.replace(pathRegex, '').replace(/\/$/, '');
-					btn.textContent = 'select';
-					btn.className = 'button-vue';
-					btn.style.marginLeft = '1em';
-					li.append(btn);
-					this.tree.append(li);
+					const displayNameElement = getElementsInNamespaces(e, 'displayname')[0];
+					const displayName = displayNameElement ? displayNameElement.textContent.trim() : '';
+
+					const hrefElement = getElementsInNamespaces(e, 'href')[0];
+					const href = hrefElement ? hrefElement.textContent.trim() : '';
+
+					const calendarColorElement = getElementsInNamespaces(e, 'calendar-color')[0];
+					const calendarColor = calendarColorElement ? calendarColorElement.textContent.trim() : '#000000';
+
+					// Create an object to hold calendar data
+					const calendarData = {
+						displayName,
+						href,
+						calendarColor
+					};
+
+					// Call the function to create and append the list item
+					this.createCalendarListItem(calendarData, this.tree);
 				}
 			}
 		})
@@ -413,3 +484,19 @@ rl.nextcloud = {
 };
 
 })(window.rl);
+
+function getElementsInNamespaces(xmlDocument, tagName) {
+	const namespaces = {
+		d: 'DAV:',
+		x1: 'http://apple.com/ns/ical/',
+	};
+	const results = [];
+	for (const prefix in namespaces) {
+		const namespaceURI = namespaces[prefix];
+		const elements = xmlDocument.getElementsByTagNameNS(namespaceURI, tagName);
+		for (const element of elements) {
+			results.push(element);
+		}
+	}
+	return results;
+}

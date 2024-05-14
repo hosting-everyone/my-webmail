@@ -21,9 +21,10 @@ import { AbstractViewPopup } from 'Knoin/AbstractViews';
 
 import { AskPopupView } from 'View/Popup/Ask';
 
+import { ScopeContacts } from 'Common/Enums';
+
 const
-	CONTACTS_PER_PAGE = 50,
-	ScopeContacts = 'Contacts';
+	CONTACTS_PER_PAGE = 50;
 
 let
 	bOpenCompose = false,
@@ -56,14 +57,13 @@ export class ContactsPopupView extends AbstractViewPopup {
 			ContactUserStore,
 			this.selectorContact,
 			null,
-			'.e-contact-item .actionHandle',
-			'.e-contact-item .checkboxItem',
-			'.e-contact-item.focused'
+			'.e-contact-item',
+			'.e-contact-item .checkboxItem'
 		);
 
 		this.selector.on('ItemSelect', contact => this.populateViewContact(contact));
 
-		this.selector.on('ItemGetUid', contact => contact ? contact.generateUid() : '');
+		this.selector.on('ItemGetUid', contact => contact ? contact.id() : '');
 
 		addComputablesTo(this, {
 			contactsPaginator: computedPaginatorHelper(
@@ -104,10 +104,10 @@ export class ContactsPopupView extends AbstractViewPopup {
 		const contacts = this.contactsCheckedOrSelected();
 		if (contacts.length) {
 			let selectorContact = this.selectorContact(),
-				Uids = [],
+				uids = [],
 				count = 0;
 			contacts.forEach(contact => {
-				Uids.push(contact.id());
+				uids.push(contact.id());
 				if (selectorContact && selectorContact.id() === contact.id()) {
 					this.selectorContact(selectorContact = null);
 				}
@@ -127,7 +127,7 @@ export class ContactsPopupView extends AbstractViewPopup {
 					}
 					this.reloadContactList();
 				}, {
-					Uids: Uids.join(',')
+					uids: uids.join(',')
 				}
 			);
 		}
@@ -138,9 +138,25 @@ export class ContactsPopupView extends AbstractViewPopup {
 			recipients = {to:null,cc:null,bcc:null};
 
 		this.contactsCheckedOrSelected().forEach(oContact => {
-			const data = oContact?.getNameAndEmailHelper(),
-				email = data ? new EmailModel(data[0], data[1]) : null;
-			email?.validate() && aE.push(email);
+			if (oContact) {
+				let name = (oContact.givenName() + ' ' + oContact.surName()).trim(),
+					email,
+					addresses = oContact.email();
+				if (!oContact.sendToAll()) {
+					addresses = addresses.slice(0,1);
+				}
+				addresses.forEach(address => {
+					email = new EmailModel(address.value(), name);
+					email.valid() && aE.push(email);
+				});
+/*
+		//		oContact.jCard.getOne('fn')?.notEmpty() ||
+				oContact.jCard.parseFullName({set:true});
+		//		let name = oContact.jCard.getOne('nickname'),
+				let name = oContact.jCard.getOne('fn'),
+					email = [oContact.jCard.getOne('email')];
+*/
+			}
 		});
 
 		if (arrayLength(aE)) {
@@ -327,7 +343,7 @@ export class ContactsPopupView extends AbstractViewPopup {
 		this.search('');
 		this.contactsCount(0);
 
-		ContactUserStore([]);
+//		ContactUserStore([]);
 
 		bOpenCompose && showMessageComposer();
 	}

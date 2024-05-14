@@ -14,53 +14,122 @@ import { AskPopupView } from 'View/Popup/Ask';
 
 const
 	capitalize = string => string.charAt(0).toUpperCase() + string.slice(1),
+	domainDefaults = {
+		enableSmartPorts: false,
+
+		savingError: '',
+
+		name: '',
+
+		imapHost: '',
+		imapPort: 143,
+		imapType: 0,
+		imapTimeout: 300,
+		imapShortLogin: false,
+		imapLowerLogin: true,
+		// SSL
+		imapSslVerify_peer: false,
+		imapSslAllow_self_signed: false,
+		// Options
+		imapExpunge_all_on_delete: false,
+		imapFast_simple_search: true,
+		imapFetch_new_messages: true,
+		imapForce_select: false,
+		imapFolder_list_limit: 200,
+		imapMessage_all_headers: false,
+		imapMessage_list_limit: 10000,
+		imapSearch_filter: '',
+
+		sieveEnabled: false,
+		sieveHost: '',
+		sievePort: 4190,
+		sieveType: 0,
+		sieveTimeout: 10,
+		sieveAuthLiteral: true,
+
+		smtpHost: '',
+		smtpPort: 25,
+		smtpType: 0,
+		smtpTimeout: 60,
+		smtpShortLogin: false,
+		smtpLowerLogin: true,
+		smtpUseAuth: true,
+		smtpSetSender: false,
+		smtpAuthPlainLine: false,
+		smtpUsePhpMail: false,
+		// SSL
+		smtpSslVerify_peer: false,
+		smtpSslAllow_self_signed: false,
+
+		whiteList: '',
+		aliasName: ''
+	},
 	domainToParams = oDomain => ({
-		Name: oDomain.name(),
+		name: oDomain.name,
 		IMAP: {
-			host: oDomain.imapHost(),
-			port: oDomain.imapPort(),
+			host: oDomain.imapHost,
+			port: oDomain.imapPort,
 			secure: pInt(oDomain.imapType()),
+			timeout: oDomain.imapTimeout,
 			shortLogin: !!oDomain.imapShortLogin(),
+			lowerLogin: !!oDomain.imapLowerLogin(),
 			ssl: {
 				verify_peer: !!oDomain.imapSslVerify_peer(),
 				verify_peer_name: !!oDomain.imapSslVerify_peer(),
 				allow_self_signed: !!oDomain.imapSslAllow_self_signed()
-			}
+			},
+			disabled_capabilities:  oDomain.imapDisabled_capabilities(),
+			folder_list_limit: pInt(oDomain.imapFolder_list_limit()),
+			message_list_limit: pInt(oDomain.imapMessage_list_limit())
+/*
+			expunge_all_on_delete: ,
+			fast_simple_search: ,
+			fetch_new_messages: ,
+			force_select: ,
+			message_all_headers: ,
+			search_filter:
+*/
 		},
 		SMTP: {
-			host: oDomain.smtpHost(),
-			port: oDomain.smtpPort(),
+			host: oDomain.smtpHost,
+			port: oDomain.smtpPort,
 			secure: pInt(oDomain.smtpType()),
+			timeout: oDomain.smtpTimeout,
 			shortLogin: !!oDomain.smtpShortLogin(),
+			lowerLogin: !!oDomain.smtpLowerLogin(),
 			ssl: {
 				verify_peer: !!oDomain.smtpSslVerify_peer(),
 				verify_peer_name: !!oDomain.smtpSslVerify_peer(),
 				allow_self_signed: !!oDomain.smtpSslAllow_self_signed()
 			},
 			setSender: !!oDomain.smtpSetSender(),
+			authPlainLine: !!oDomain.smtpAuthPlainLine(),
 			useAuth: !!oDomain.smtpUseAuth(),
 			usePhpMail: !!oDomain.smtpUsePhpMail()
 		},
 		Sieve: {
 			enabled: !!oDomain.sieveEnabled(),
-			host: oDomain.sieveHost(),
-			port: oDomain.sievePort(),
+			authLiteral: !!oDomain.sieveAuthLiteral(),
+			host: oDomain.sieveHost,
+			port: oDomain.sievePort,
 			secure: pInt(oDomain.sieveType()),
+			timeout: oDomain.sieveTimeout,
 			shortLogin: !!oDomain.imapShortLogin(),
+			lowerLogin: !!oDomain.imapLowerLogin(),
 			ssl: {
 				verify_peer: !!oDomain.imapSslVerify_peer(),
 				verify_peer_name: !!oDomain.imapSslVerify_peer(),
 				allow_self_signed: !!oDomain.imapSslAllow_self_signed()
 			}
 		},
-		whiteList: oDomain.whiteList()
+		whiteList: oDomain.whiteList
 	});
 
 export class DomainPopupView extends AbstractViewPopup {
 	constructor() {
 		super('Domain');
 
-		addObservablesTo(this, this.getDefaults());
+		addObservablesTo(this, domainDefaults);
 		addObservablesTo(this, {
 			edit: false,
 
@@ -71,34 +140,23 @@ export class DomainPopupView extends AbstractViewPopup {
 			testingImapError: false,
 			testingSieveError: false,
 			testingSmtpError: false,
-			testingImapErrorDesc: '',
-			testingSieveErrorDesc: '',
-			testingSmtpErrorDesc: '',
 
 			imapHostFocus: false,
 			sieveHostFocus: false,
 			smtpHostFocus: false,
 		});
+		this.imapDisabled_capabilities = ko.observableArray();
+		this.imapCapabilities = ko.observableArray();
 
 		addComputablesTo(this, {
 			headerText: () => {
 				const name = this.name(),
 					aliasName = this.aliasName();
-
-				let result = '';
-
-				if (this.edit()) {
-					result = i18n('POPUPS_DOMAIN/TITLE_EDIT_DOMAIN', { NAME: name });
-					if (aliasName) {
-						result += ' ⫘ ' + aliasName;
-					}
-				} else {
-					result = name
-							? i18n('POPUPS_DOMAIN/TITLE_ADD_DOMAIN_WITH_NAME', { NAME: name })
-							: i18n('POPUPS_DOMAIN/TITLE_ADD_DOMAIN');
-				}
-
-				return result;
+				return this.edit()
+					? i18n('POPUPS_DOMAIN/TITLE_EDIT_DOMAIN', { NAME: name }) + (aliasName ? ' ⫘ ' + aliasName : '')
+					: (name
+						? i18n('POPUPS_DOMAIN/TITLE_ADD_DOMAIN_WITH_NAME', { NAME: name })
+						: i18n('POPUPS_DOMAIN/TITLE_ADD_DOMAIN'));
 			},
 
 			domainDesc: () => {
@@ -124,10 +182,6 @@ export class DomainPopupView extends AbstractViewPopup {
 		});
 
 		addSubscribablesTo(this, {
-			testingImapError: value => value || this.testingImapErrorDesc(''),
-			testingSieveError: value => value || this.testingSieveErrorDesc(''),
-			testingSmtpError: value => value || this.testingSmtpErrorDesc(''),
-
 			// smart form improvements
 			imapHostFocus: value =>
 				value && this.name() && !this.imapHost() && this.imapHost(this.name().replace(/[.]?[*][.]?/g, '')),
@@ -192,15 +246,23 @@ export class DomainPopupView extends AbstractViewPopup {
 	createOrAddCommand() {
 		this.saving(true);
 		Remote.request('AdminDomainSave',
-			this.onDomainCreateOrSaveResponse.bind(this),
+			iError => {
+				this.saving(false);
+				if (iError) {
+					this.savingError(getNotification(iError));
+				} else {
+					DomainAdminStore.fetch();
+					this.close();
+				}
+			},
 			Object.assign(domainToParams(this), {
-				Create: this.edit() ? 0 : 1
+				create: this.edit() ? 0 : 1
 			})
 		);
 	}
 
 	testConnectionCommand() {
-		this.clearTesting(false);
+		this.clearTesting();
 		// https://github.com/the-djmaze/snappymail/issues/477
 		AskPopupView.credentials('IMAP', 'GLOBAL/TEST').then(credentials => {
 			if (credentials) {
@@ -214,45 +276,33 @@ export class DomainPopupView extends AbstractViewPopup {
 					(iError, oData) => {
 						this.testing(false);
 						if (iError) {
-							this.testingImapError(true);
-							this.testingSieveError(true);
-							this.testingSmtpError(true);
+							this.testingImapError(getNotification(iError));
+							this.testingSieveError(getNotification(iError));
+							this.testingSmtpError(getNotification(iError));
 						} else {
+							const result = oData.Result;
 							this.testingDone(true);
-							this.testingImapError(true !== oData.Result.Imap);
-							this.testingSieveError(true !== oData.Result.Sieve);
-							this.testingSmtpError(true !== oData.Result.Smtp);
-
-							if (this.testingImapError() && oData.Result.Imap) {
-								this.testingImapErrorDesc('');
-								this.testingImapErrorDesc(oData.Result.Imap);
+							this.testingImapError(true !== result.Imap ? result.Imap : false);
+							this.testingSieveError(true !== result.Sieve ? result.Sieve : false);
+							this.testingSmtpError(true !== result.Smtp ? result.Smtp : false);
+							// result.ImapResult.connectCapa
+							if (true === result.Imap) {
+								let capa = result.ImapResult.authCapa
+									|| ['LIST-STATUS','METADATA','MOVE','SORT','THREAD','BINARY','STATUS=SIZE','PREVIEW'];
+								capa = capa.concat(result.ImapResult.connectCapa).unique();
+								capa.sort();
+								this.imapCapabilities(capa);
 							}
-
-							if (this.testingSieveError() && oData.Result.Sieve) {
-								this.testingSieveErrorDesc('');
-								this.testingSieveErrorDesc(oData.Result.Sieve);
-							}
-
-							if (this.testingSmtpError() && oData.Result.Smtp) {
-								this.testingSmtpErrorDesc('');
-								this.testingSmtpErrorDesc(oData.Result.Smtp);
-							}
+							// result.SmtpResult.connectCapa
+							// result.SmtpResult.authCapa
+							// result.SieveResult.connectCapa
+							// result.SieveResult.authCapa
 						}
 					},
 					params
 				);
 			}
 		});
-	}
-
-	onDomainCreateOrSaveResponse(iError) {
-		this.saving(false);
-		if (iError) {
-			this.savingError(getNotification(iError));
-		} else {
-			DomainAdminStore.fetch();
-			this.close();
-		}
 	}
 
 	clearTesting() {
@@ -263,10 +313,45 @@ export class DomainPopupView extends AbstractViewPopup {
 		this.testingSmtpError(false);
 	}
 
+	autoconfig() {
+		let domain = this.name();
+		Remote.request('AdminDomainAutoconfig', (iError, oData) => {
+			if (oData?.Result?.config) {
+				let server = oData.Result.config.incomingServer[0];
+				this.imapHost(server.hostname);
+				this.imapPort(server.port);
+				this.imapType('STARTTLS' === server.socketType ? 2 : ('SSL' === server.socketType ? 1 : 0));
+				this.imapShortLogin('%EMAILADDRESS%' !== server.username);
+
+				server = oData.Result.config.outgoingServer[0];
+				this.smtpHost(server.hostname);
+				this.smtpPort(server.port);
+				this.smtpType('STARTTLS' === server.socketType ? 2 : ('SSL' === server.socketType ? 1 : 0));
+				this.smtpShortLogin('%EMAILADDRESS%' !== server.username);
+				this.smtpUseAuth(!!server.authentication);
+				this.smtpUsePhpMail(false);
+			}
+		}, {domain});
+	}
+
 	onShow(oDomain) {
 		this.saving(false);
 		this.clearTesting();
-		this.clearForm();
+		this.edit(false);
+		this.imapCapabilities([
+			'BINARY',
+			'LIST-STATUS',
+			'METADATA',
+			'MOVE',
+			'NAMESPACE',
+			'PREVIEW',
+			'SORT',
+			'STATUS=SIZE',
+			'THREAD'
+		]);
+		this.imapDisabled_capabilities(['METADATA','PREVIEW','STATUS=SIZE']);
+		forEachObjectEntry(domainDefaults, (key, value) => this[key](value));
+		this.enableSmartPorts(true);
 		if (oDomain) {
 			this.enableSmartPorts(false);
 			this.edit(true);
@@ -287,50 +372,10 @@ export class DomainPopupView extends AbstractViewPopup {
 					this[key]?.(value);
 				}
 			});
+			this.name(IDN.toUnicode(this.name()));
+			this.aliasName(IDN.toUnicode(this.aliasName()));
+			this.imapCapabilities(this.imapCapabilities.concat(this.imapDisabled_capabilities()).unique());
 			this.enableSmartPorts(true);
 		}
-	}
-
-	getDefaults() {
-		return {
-			enableSmartPorts: false,
-
-			savingError: '',
-
-			name: '',
-
-			imapHost: '',
-			imapPort: 143,
-			imapType: 0,
-			imapShortLogin: false,
-			// SSL
-			imapSslVerify_peer: false,
-			imapSslAllow_self_signed: false,
-
-			sieveEnabled: false,
-			sieveHost: '',
-			sievePort: 4190,
-			sieveType: 0,
-
-			smtpHost: '',
-			smtpPort: 25,
-			smtpType: 0,
-			smtpShortLogin: false,
-			smtpUseAuth: true,
-			smtpSetSender: false,
-			smtpUsePhpMail: false,
-			// SSL
-			smtpSslVerify_peer: false,
-			smtpSslAllow_self_signed: false,
-
-			whiteList: '',
-			aliasName: ''
-		};
-	}
-
-	clearForm() {
-		this.edit(false);
-		forEachObjectEntry(this.getDefaults(), (key, value) => this[key](value));
-		this.enableSmartPorts(true);
 	}
 }

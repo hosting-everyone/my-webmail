@@ -2,7 +2,7 @@
 
 namespace RainLoop\Enumerations;
 
-class PluginPropertyType
+abstract class PluginPropertyType
 {
 	const
 		GROUP = 7,
@@ -12,5 +12,6 @@ class PluginPropertyType
 		PASSWORD = 3,
 		SELECTION = 4,
 		BOOL = 5,
-		URL = 6;
+		URL = 6,
+		SELECT = 8;
 }

@@ -17,9 +17,14 @@ class PersonalSettings implements ISettings
 	public function getForm()
 	{
 		$uid = \OC::$server->getUserSession()->getUser()->getUID();
+		$sEmail = $this->config->getUserValue($uid, 'snappymail', 'snappymail-email');
+		if ($sPass = $this->config->getUserValue($uid, 'snappymail', 'snappymail-password')) {
+			$this->config->deleteUserValue($uid, 'snappymail', 'snappymail-password');
+			$this->config->setUserValue($uid, 'snappymail', 'passphrase', $sPass);
+		}
 		$parameters = [
-			'snappymail-email' => $this->config->getUserValue($uid, 'snappymail', 'snappymail-email'),
-			'snappymail-password' => $this->config->getUserValue($uid, 'snappymail', 'snappymail-password') ? '******' : ''
+			'snappymail-email' => $sEmail,
+			'snappymail-password' => $this->config->getUserValue($uid, 'snappymail', 'passphrase') ? '******' : ''
 		];
 		\OCP\Util::addScript('snappymail', 'snappymail');
 		return new TemplateResponse('snappymail', 'personal_settings', $parameters, '');

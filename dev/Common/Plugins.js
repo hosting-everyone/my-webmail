@@ -1,9 +1,34 @@
 import { settingsAddViewModel } from 'Screen/AbstractSettings';
 import { SettingsGet } from 'Common/Globals';
 import { AbstractViewPopup } from 'Knoin/AbstractViews';
+import { isArray, isFunction } from 'Common/Utils';
 
-const USER_VIEW_MODELS_HOOKS = [],
+const SIMPLE_HOOKS = {},
+	USER_VIEW_MODELS_HOOKS = [],
 	ADMIN_VIEW_MODELS_HOOKS = [];
+
+/**
+ * @param {string} name
+ * @param {Function} callback
+ */
+rl.addHook = (name, callback) => {
+	if (isFunction(callback)) {
+		if (!isArray(SIMPLE_HOOKS[name])) {
+			SIMPLE_HOOKS[name] = [];
+		}
+		SIMPLE_HOOKS[name].push(callback);
+	}
+};
+
+/**
+ * @param {string} name
+ * @param {Array=} args = []
+ */
+export function runHook(name, args = []) {
+	if (isArray(SIMPLE_HOOKS[name])) {
+		SIMPLE_HOOKS[name].forEach(callback => callback(...args));
+	}
+}
 
 /**
  * @param {Function} callback

@@ -17,7 +17,6 @@
 @import "../../vendors/bootstrap/less/utilities.less";
 
 @import "_FontasticToBoot.less";
-@import "_BootstrapFix.less";
 
 @import "Ui.less";
 @import "Main.less";
@@ -54,6 +53,8 @@
 
 @import "User/Animations.less";
 
+@import "rtl.less";
+
 @import "_End.less";
 
 @media print {
@@ -63,9 +64,14 @@
 	#rl-left {
 		display: none;
 	}
+	#rl-content, #rl-right {
+		display: block;
+		width: 100%;
+	}
 	.message-selected {
 		.close,
 		.infoParent,
+		.top-toolbar,
 		.messageView .controls-handle,
 		#tags-dropdown-id,
 		.message-fixed-button-toolbar,
@@ -76,10 +82,10 @@
 		}
 		#V-MailMessageView {
 			left: 0;
+			overflow: initial;
 			position: initial;
 		}
 		.messageView,
-		.messageView .b-content,
 		.messageView .b-message,
 		#messageItem,
 		#messageItem .b-text-part {

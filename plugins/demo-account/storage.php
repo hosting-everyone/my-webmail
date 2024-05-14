@@ -31,9 +31,14 @@ class DemoStorage extends \RainLoop\Providers\Storage\FileStorage
 			}
 		}
 
-		$sDataPath .= '/' . \RainLoop\Utils::fixName(\RainLoop\Utils::GetConnectionToken());
+		// $_COOKIE['smtoken']
+		if (empty($_COOKIE['smctoken'])) {
+			\SnappyMail\Cookies::set('smctoken', \base64_encode(\random_bytes(16)), 0, false);
+		}
+		$sDataPath .= '/' . \MailSo\Base\Utils::SecureFileName($_COOKIE['smctoken']);
 		if (!\is_dir($sDataPath) && \mkdir($sDataPath, 0700, true)) {
-			\file_put_contents("{$sDataPath}/settings",'{"RemoveColors":true,"ListInlineAttachments":true}');
+			\file_put_contents("{$sDataPath}/settings",'{"RemoveColors":true,"ListInlineAttachments":true,"listGrouped":true}');
+			\file_put_contents("{$sDataPath}/settings_local",'{"UseThreads":true}');
 			if (\mkdir($sDataPath.'/.gnupg/private-keys-v1.d', 0700, true)) {
 				// AES
 				\file_put_contents("{$sDataPath}/.gnupg/private-keys-v1.d/3106F4281F98D820114228FEF16B5BA0D78AA005.key",file_get_contents("{$this->sDataPath}/demo.pgp/.gnupg/private-keys-v1.d/3106F4281F98D820114228FEF16B5BA0D78AA005.key"));

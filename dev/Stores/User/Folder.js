@@ -59,7 +59,7 @@ FolderUserStore = new class {
 			 */
 			displaySpecSetting: false,
 
-//			sortMode: '',
+			sortMode: '',
 
 			quotaLimit: 0,
 			quotaUsage: 0,
@@ -70,8 +70,8 @@ FolderUserStore = new class {
 			trashFolder: '',
 			archiveFolder: '',
 
-			folderListOptimized: false,
-			folderListError: '',
+			optimized: false,
+			error: '',
 
 			foldersLoading: false,
 			foldersCreating: false,
@@ -80,8 +80,6 @@ FolderUserStore = new class {
 
 			foldersInboxUnreadCount: 0
 		});
-
-		self.sortMode = ko.observable('');
 
 		self.namespace = '';
 
@@ -117,7 +115,7 @@ FolderUserStore = new class {
 
 		const
 			subscribeRemoveSystemFolder = observable => {
-				observable.subscribe(() => getFolderFromCacheList(observable())?.type(FolderType.User), self, 'beforeChange');
+				observable.subscribe(() => getFolderFromCacheList(observable())?.type(0), self, 'beforeChange');
 			},
 			fSetSystemFolderType = type => value => getFolderFromCacheList(value)?.type(type);
 
@@ -130,7 +128,7 @@ FolderUserStore = new class {
 		addSubscribablesTo(self, {
 			sentFolder: fSetSystemFolderType(FolderType.Sent),
 			draftsFolder: fSetSystemFolderType(FolderType.Drafts),
-			spamFolder: fSetSystemFolderType(FolderType.Spam),
+			spamFolder: fSetSystemFolderType(FolderType.Junk),
 			trashFolder: fSetSystemFolderType(FolderType.Trash),
 			archiveFolder: fSetSystemFolderType(FolderType.Archive)
 		});
@@ -199,11 +197,11 @@ FolderUserStore = new class {
 
 	saveSystemFolders(folders) {
 		folders = folders || {
-			Sent: FolderUserStore.sentFolder(),
-			Drafts: FolderUserStore.draftsFolder(),
-			Spam: FolderUserStore.spamFolder(),
-			Trash: FolderUserStore.trashFolder(),
-			Archive: FolderUserStore.archiveFolder()
+			sent: FolderUserStore.sentFolder(),
+			drafts: FolderUserStore.draftsFolder(),
+			junk: FolderUserStore.spamFolder(),
+			trash: FolderUserStore.trashFolder(),
+			archive: FolderUserStore.archiveFolder()
 		};
 		forEachObjectEntry(folders, (k,v)=>Settings.set(k+'Folder',v));
 		rl.app.Remote.request('SystemFoldersUpdate', null, folders);

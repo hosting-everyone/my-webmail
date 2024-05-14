@@ -1,3 +1,5 @@
+Also see https://github.com/the-djmaze/snappymail/tree/master/plugins/example
+
 PHP
 ```php
 class Plugin extends \RainLoop\Plugins\AbstractPlugin
@@ -130,12 +132,13 @@ $Plugin->addHook('hook.name', 'functionName');
 ### login.credentials
 	params:
 		string &$sEmail
-		string &$sLogin
+		string &$sImapUser
 		string &$sPassword
+		string &$sSmtpUser
 
 ### login.success
 	params:
-		\RainLoop\Model\Account $oAccount
+		\RainLoop\Model\MainAccount $oAccount
 
 ## IMAP
 
@@ -163,6 +166,12 @@ $Plugin->addHook('hook.name', 'functionName');
 		\MailSo\Imap\ImapClient $oImapClient
 		bool $bSuccess
 		\MailSo\Imap\Settings $oSettings
+
+### imap.message-headers
+	params:
+		array &$aHeaders
+
+	Allows you to fetch more MIME headers for messages.
 
 ## Sieve
 
@@ -218,27 +227,27 @@ $Plugin->addHook('hook.name', 'functionName');
 		bool $bSuccess
 		\MailSo\Smtp\Settings $oSettings
 
-## Folders
+## Json service actions
+Called by RainLoop\ServiceActions::ServiceJson()
+{actionname} is one of the RainLoop\Actions::Do{ActionName}(),
+or an extension action as "Plugin{ActionName}" added with Plugin::addJsonHook()
+and called in JavaScript using rl.pluginRemoteRequest().
 
-### filter.folders-post
-	params:
-		\RainLoop\Model\Account $oAccount
-		\MailSo\Mail\FolderCollection $oFolderCollection
+### json.before-{actionname}
+	params: none
 
-### filter.folders-complete
+### json.after-{actionname}
 	params:
-		\RainLoop\Model\Account $oAccount
-		\MailSo\Mail\FolderCollection $oFolderCollection
+		array &$aResponse
 
-### filter.folders-system-types
-	params:
-		\RainLoop\Model\Account $oAccount
-		array &$aList
+### json.action-post-call
+	Obsolete, use json.after-{actionname}
 
-### filter.system-folders-names
-	params:
-		\RainLoop\Model\Account $oAccount
-		array &$aCache
+### json.action-pre-call
+	Obsolete, use json.before-{actionname}
+
+### filter.json-response
+	Obsolete, use json.after-{actionname}
 
 ## Others
 
@@ -285,10 +294,12 @@ $Plugin->addHook('hook.name', 'functionName');
 	params:
 		array &$aPaths
 
-### filter.json-response
+### filter.language
 	params:
-		string $sAction
-		array &$aResponseItem
+		string &$sLanguage
+		bool $bAdmin
+
+	Allows you to set a different language
 
 ### filter.message-html
 	params:
@@ -307,6 +318,7 @@ $Plugin->addHook('hook.name', 'functionName');
 	Happens before send/save message
 
 ### filter.message-rcpt
+	Called by DoSendMessage and DoSendReadReceiptMessage
 	params:
 		\RainLoop\Model\Account $oAccount
 		\MailSo\Mime\EmailCollection $oRcpt
@@ -359,6 +371,7 @@ $Plugin->addHook('hook.name', 'functionName');
 		array &$aHiddenRcpt
 
 ### filter.smtp-message-stream
+	Called by DoSendMessage and DoSendReadReceiptMessage
 	params:
 		\RainLoop\Model\Account $oAccount
 		resource &$rMessageStream
@@ -366,16 +379,7 @@ $Plugin->addHook('hook.name', 'functionName');
 
 ### filter.upload-response
 	params:
-		array &$aResponseItem
-
-### json.action-post-call
-	params:
-		string $sAction
-		array &$aResponseItem
-
-### json.action-pre-call
-	params:
-		string $sAction
+		array &$aResponse
 
 ### json.attachments
 	params:
@@ -387,20 +391,6 @@ $Plugin->addHook('hook.name', 'functionName');
 		int &$iLimit
 		\RainLoop\Model\Account $oAccount
 
-### json.suggestions-post
-	params:
-		array &$aResult
-		string $sQuery
-		\RainLoop\Model\Account $oAccount
-		int $iLimit
-
-### json.suggestions-pre
-	params:
-		array &$aResult
-		string $sQuery
-		\RainLoop\Model\Account $oAccount
-		int $iLimit
-
 ### main.content-security-policy
 	params:
 		\SnappyMail\HTTP\CSP $oCSP
@@ -409,31 +399,18 @@ $Plugin->addHook('hook.name', 'functionName');
 	`$oCSP->script[] = "'strict-dynamic'";`
 
 ### main.default-response
-	params:
-		string $sActionName
-		array &$aResponseItem
+	Obsolete, use json.after-{actionname}
 
 ### main.default-response-data
-	params:
-		string $sActionName
-		mixed &$mResult
+	Obsolete, use json.after-{actionname}
 
 ### main.default-response-error-data
-	params:
-		string $sActionName
-		int &$iErrorCode
-		string &$sErrorMessage
+	Obsolete, use json.after-{actionname}
 
 ### main.fabrica
 	params:
 		string $sName
 		mixed &$mResult
-
-### service.app-delay-start-begin
-	no params
-
-### service.app-delay-start-end
-	no params
 
 # JavaScript Events
 
@@ -441,18 +418,39 @@ $Plugin->addHook('hook.name', 'functionName');
 ### mailbox.inbox-unread-count
 ### mailbox.message-list.selector.go-up
 ### mailbox.message-list.selector.go-down
+
 ### mailbox.message.show
+	Use to show a specific message.
+``` JavaScript
+	dispatchEvent(
+		new CustomEvent(
+			'mailbox.message.show',
+			{
+				detail: {
+					folder: 'INBOX',
+					uid: 1
+				},
+				cancelable: false
+			}
+		)
+	);
+```
+
 ## audio
 ### audio.start
 ### audio.stop
 ### audio.api.stop
 ## Misc
-### idle
 ### rl-layout
+	event.detail value is one of:
+	0. NoPreview
+	1. SidePreview
+	2. BottomPreview
 
 ### rl-view-model.create
 	event.detail = the ViewModel class
-	Happens immediately after the ViewModel constructor
+	Happens immediately after the ViewModel constructor.
+	See accessible properties as https://github.com/the-djmaze/snappymail/blob/master/dev/Knoin/AbstractViews.js
 
 ### rl-view-model
 	event.detail = the ViewModel class
@@ -472,3 +470,97 @@ $Plugin->addHook('hook.name', 'functionName');
 ### sm-show-screen
 	event.detail = 'screenname'
 	cancelable using preventDefault()
+
+### squire-toolbar
+	event.detail = { squire: SquireUI, actions: object }
+	`actions` is the toolbar structure.
+	```javascript
+	block-of-buttons: {
+		button-name: {
+			select: ['selectbox options'],
+			html: 'button text',
+			cmd: () => `command to execute`,
+			key: 'keyboard shortcut',
+			matches: 'HTML elements that match'
+		}
+	}
+	```
+	See [SquireUI.js](https://github.com/the-djmaze/snappymail/blob/master/dev/External/SquireUI.js)
+	for all default toolbar actions.
+
+# JavaScript `rl` object
+
+## rl.Enums.StorageResultType
+### rl.Enums.StorageResultType.Abort
+### rl.Enums.StorageResultType.Error
+### rl.Enums.StorageResultType.Success
+
+## rl.​Utils.htmlToPlain(html)
+Converts HTML to text
+
+## rl.Utils.plainToHtml(plain)
+Converts text to HTML
+
+## rl.addSettingsViewModel(SettingsViewModelClass, template, labelName, route)​
+Examples in
+* ./change-password/js/ChangePasswordUserSettings.js
+* ./example/js/ExampleUserSettings.js
+* ./kolab/js/settings.js
+* ./two-factor-auth/js/TwoFactorAuthSettings.js
+
+## rl.addSettingsViewModelForAdmin(SettingsViewModelClass, template, labelName, route)​
+Examples in
+* ./example/js/ExampleAdminSettings.js:34:	rl.addSettingsViewModelForAdmin(ExampleAdminSettings, 'ExampleAdminSettingsTab',
+
+## rl.adminArea()​
+Returns true or false when in '?admin' area
+
+## rl.app.Remote.abort(action)​​​​​
+
+## rl.app.Remote.get(action, url)​​​​​
+
+## rl.app.Remote.getPublicKey(fCallback)​​​​​
+
+## rl.app.Remote.post(action, fTrigger, params, timeOut)​​​​​
+
+## rl.app.Remote.request(action, fCallback, params, iTimeout, sGetAdd)​​​​​
+
+## rl.app.Remote.setTrigger(trigger, value)​​​​​
+
+## rl.app.Remote.streamPerLine(fCallback, sGetAdd, postData)
+
+## rl.app.folderList
+A knockout observable array of all folders/mailboxes
+
+## rl.fetch(resource, init, postData)​
+
+## rl.fetchJSON(resource, init, postData)​
+
+## rl.i18n(key, valueList, defaulValue)​
+
+## rl.loadScript(src)​
+
+## rl.logoutReload(url)​
+
+## rl.pluginPopupView
+class AbstractViewPopup
+
+## rl.pluginRemoteRequest(callback, action, parameters, timeout)​
+
+## rl.pluginSettingsGet(pluginSection, name)​
+
+## rl.registerWYSIWYG(name, construct)​
+
+## rl.route.root()
+
+## rl.route.reload()
+
+## rl.route.off()
+
+## rl.setTitle(title)​
+
+## rl.settings.get(name)
+
+## rl.settings.set(name, value)
+
+## rl.settings.app(name)

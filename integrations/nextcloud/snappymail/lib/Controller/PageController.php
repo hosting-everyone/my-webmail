@@ -23,7 +23,7 @@ class PageController extends Controller
 			SnappyMailHelper::loadApp();
 			$bAdmin = \RainLoop\Api::Config()->Get('security', 'admin_panel_key', 'admin') == $_SERVER['QUERY_STRING'];
 			if (!$bAdmin) {
-				SnappyMailHelper::startApp(true);
+				return SnappyMailHelper::startApp(true);
 			}
 		}
 
@@ -38,6 +38,7 @@ class PageController extends Controller
 			]);
 			$csp = new ContentSecurityPolicy();
 			$csp->addAllowedFrameDomain("'self'");
+//			$csp->addAllowedFrameAncestorDomain("'self'");
 			$response->setContentSecurityPolicy($csp);
 			return $response;
 		}
@@ -51,8 +52,8 @@ class PageController extends Controller
 		$oActions = $bAdmin ? new \RainLoop\ActionsAdmin() : \RainLoop\Api::Actions();
 		$oHttp = \MailSo\Base\Http::SingletonInstance();
 		$oServiceActions = new \RainLoop\ServiceActions($oHttp, $oActions);
-		$sAppJsMin = $oConfig->Get('labs', 'use_app_debug_js', false) ? '' : '.min';
-		$sAppCssMin = $oConfig->Get('labs', 'use_app_debug_css', false) ? '' : '.min';
+		$sAppJsMin = $oConfig->Get('debug', 'javascript', false) ? '' : '.min';
+		$sAppCssMin = $oConfig->Get('debug', 'css', false) ? '' : '.min';
 		$sLanguage = $oActions->GetLanguage(false);
 
 		$csp = new ContentSecurityPolicy();
@@ -66,7 +67,6 @@ class PageController extends Controller
 			'BaseAppBootScriptNonce' => $sNonce,
 			'BaseLanguage' => $oActions->compileLanguage($sLanguage, $bAdmin),
 			'BaseAppBootCss' => \file_get_contents(APP_VERSION_ROOT_PATH.'static/css/boot'.$sAppCssMin.'.css'),
-			'BaseAppThemeCssLink' => $oActions->ThemeLink($bAdmin),
 			'BaseAppThemeCss' => \preg_replace(
 				'/\\s*([:;{},]+)\\s*/s',
 				'$1',
@@ -94,7 +94,7 @@ class PageController extends Controller
 	 */
 	public function appGet()
 	{
-		SnappyMailHelper::startApp(true);
+		return SnappyMailHelper::startApp(true);
 	}
 
 	/**
@@ -103,7 +103,7 @@ class PageController extends Controller
 	 */
 	public function appPost()
 	{
-		SnappyMailHelper::startApp(true);
+		return SnappyMailHelper::startApp(true);
 	}
 
 	/**
@@ -112,6 +112,6 @@ class PageController extends Controller
 	 */
 	public function indexPost()
 	{
-		SnappyMailHelper::startApp(true);
+		return SnappyMailHelper::startApp(true);
 	}
 }

@@ -2,8 +2,10 @@ import ko from 'ko';
 
 import { SMAudio } from 'Common/Audio';
 import { SaveSettingStatus } from 'Common/Enums';
-import { EditorDefaultType, Layout } from 'Common/EnumsUser';
+import { LayoutSideView, LayoutBottomView } from 'Common/EnumsUser';
+import { setRefreshFoldersInterval } from 'Common/Folders';
 import { Settings, SettingsGet } from 'Common/Globals';
+import { WYSIWYGS } from 'Common/HtmlEditor';
 import { isArray } from 'Common/Utils';
 import { addSubscribablesTo, addComputablesTo } from 'External/ko';
 import { i18n, translateTrigger, translatorReload, convertLangName } from 'Common/Translator';
@@ -13,10 +15,10 @@ import { showScreenPopup } from 'Knoin/Knoin';
 
 import { AppUserStore } from 'Stores/User/App';
 import { LanguageStore } from 'Stores/Language';
+import { FolderUserStore } from 'Stores/User/Folder';
 import { SettingsUserStore } from 'Stores/User/Settings';
 import { IdentityUserStore } from 'Stores/User/Identity';
 import { NotificationUserStore } from 'Stores/User/Notification';
-import { MessageUserStore } from 'Stores/User/Message';
 import { MessagelistUserStore } from 'Stores/User/Messagelist';
 
 import Remote from 'Remote/User/Fetch';
@@ -30,27 +32,43 @@ export class UserSettingsGeneral extends AbstractViewSettings {
 
 		this.language = LanguageStore.language;
 		this.languages = LanguageStore.languages;
+		this.hourCycle = LanguageStore.hourCycle;
 
 		this.soundNotification = SMAudio.notifications;
 		this.notificationSound = ko.observable(SettingsGet('NotificationSound'));
-		this.notificationSounds = ko.observableArray(SettingsGet('NewMailSounds'));
+		this.notificationSounds = ko.observableArray(SettingsGet('newMailSounds'));
 
-		this.desktopNotification = NotificationUserStore.enabled;
+		this.desktopNotifications = NotificationUserStore.enabled;
 		this.isDesktopNotificationAllowed = NotificationUserStore.allowed;
 
 		this.threadsAllowed = AppUserStore.threadsAllowed;
+		// 'THREAD=REFS', 'THREAD=REFERENCES', 'THREAD=ORDEREDSUBJECT'
+		this.threadAlgorithms = ko.observableArray();
+		FolderUserStore.capabilities.forEach(capa =>
+			capa.startsWith('THREAD=') && this.threadAlgorithms.push(capa.slice(7))
+		);
+		this.threadAlgorithms.sort((a, b) => a.length - b.length);
+		this.threadAlgorithm = SettingsUserStore.threadAlgorithm;
 
-		['layout', 'messageReadDelay', 'messagesPerPage',
-		 'editorDefaultType', 'requestReadReceipt', 'requestDsn', 'pgpSign', 'pgpEncrypt',
-		 'viewHTML', 'showImages', 'removeColors', 'hideDeleted', 'listInlineAttachments', 'simpleAttachmentsList',
-		 'useCheckboxesInList', 'useThreads', 'replySameFolder', 'msgDefaultAction', 'allowSpellcheck'
+		['useThreads', 'threadAlgorithm',
+		 // These use addSetting()
+		 'layout', 'messageReadDelay', 'messagesPerPage', 'checkMailInterval',
+		 'editorDefaultType', 'editorWysiwyg', 'msgDefaultAction', 'maxBlockquotesLevel',
+		 // These are in addSettings()
+		 'requestReadReceipt', 'requestDsn', 'requireTLS', 'pgpSign', 'pgpEncrypt',
+		 'viewHTML', 'viewImages', 'viewImagesWhitelist', 'removeColors', 'allowStyles', 'allowDraftAutosave',
+		 'hideDeleted', 'listInlineAttachments', 'simpleAttachmentsList', 'collapseBlockquotes',
+		 'useCheckboxesInList', 'listGrouped', 'replySameFolder', 'allowSpellcheck',
+		 'messageReadAuto', 'showNextMessage', 'messageNewWindow'
 		].forEach(name => this[name] = SettingsUserStore[name]);
 
-		this.allowLanguagesOnSettings = !!SettingsGet('AllowLanguagesOnSettings');
+		this.allowLanguagesOnSettings = !!SettingsGet('allowLanguagesOnSettings');
 
 		this.languageTrigger = ko.observable(SaveSettingStatus.Idle);
 
 		this.identities = IdentityUserStore;
+
+		this.wysiwygs = WYSIWYGS;
 
 		addComputablesTo(this, {
 			languageFullName: () => convertLangName(this.language()),
@@ -68,10 +86,12 @@ export class UserSettingsGeneral extends AbstractViewSettings {
 			editorDefaultTypes: () => {
 				translateTrigger();
 				return [
-					{ id: EditorDefaultType.Html, name: i18n('SETTINGS_GENERAL/EDITOR_HTML') },
-					{ id: EditorDefaultType.Plain, name: i18n('SETTINGS_GENERAL/EDITOR_PLAIN') }
+					{ id: 'Html', name: i18n('SETTINGS_GENERAL/EDITOR_HTML') },
+					{ id: 'Plain', name: i18n('SETTINGS_GENERAL/EDITOR_PLAIN') }
 				];
 			},
+
+			hasWysiwygs: () => 1 < WYSIWYGS().length,
 
 			msgDefaultActions: () => {
 				translateTrigger();
@@ -84,22 +104,28 @@ export class UserSettingsGeneral extends AbstractViewSettings {
 			layoutTypes: () => {
 				translateTrigger();
 				return [
-					{ id: Layout.NoPreview, name: i18n('SETTINGS_GENERAL/LAYOUT_NO_SPLIT') },
-					{ id: Layout.SidePreview, name: i18n('SETTINGS_GENERAL/LAYOUT_VERTICAL_SPLIT') },
-					{ id: Layout.BottomPreview, name: i18n('SETTINGS_GENERAL/LAYOUT_HORIZONTAL_SPLIT') }
+					{ id: 0, name: i18n('SETTINGS_GENERAL/LAYOUT_NO_SPLIT') },
+					{ id: LayoutSideView, name: i18n('SETTINGS_GENERAL/LAYOUT_VERTICAL_SPLIT') },
+					{ id: LayoutBottomView, name: i18n('SETTINGS_GENERAL/LAYOUT_HORIZONTAL_SPLIT') }
 				];
 			}
 		});
 
 		this.addSetting('EditorDefaultType');
+		this.addSetting('editorWysiwyg');
 		this.addSetting('MsgDefaultAction');
 		this.addSetting('MessageReadDelay');
 		this.addSetting('MessagesPerPage');
+		this.addSetting('CheckMailInterval');
 		this.addSetting('Layout');
+		this.addSetting('MaxBlockquotesLevel');
 
-		this.addSettings(['ViewHTML', 'ShowImages', 'HideDeleted', 'ListInlineAttachments', 'simpleAttachmentsList',
-			'UseCheckboxesInList', 'ReplySameFolder',
-			'requestReadReceipt', 'requestDsn', 'pgpSign', 'pgpEncrypt', 'allowSpellcheck',
+		this.addSettings([
+			'requestReadReceipt', 'requestDsn', 'requireTLS', 'pgpSign', 'pgpEncrypt',
+			'ViewHTML', 'ViewImages', 'ViewImagesWhitelist', 'RemoveColors', 'AllowStyles', 'AllowDraftAutosave',
+			'HideDeleted', 'ListInlineAttachments', 'simpleAttachmentsList', 'CollapseBlockquotes',
+			'UseCheckboxesInList', 'listGrouped', 'ReplySameFolder', 'allowSpellcheck',
+			'messageReadAuto', 'showNextMessage', 'messageNewWindow',
 			'DesktopNotifications', 'SoundNotification']);
 
 		const fReloadLanguageHelper = (saveSettingsStep) => () => {
@@ -110,18 +136,13 @@ export class UserSettingsGeneral extends AbstractViewSettings {
 		addSubscribablesTo(this, {
 			language: value => {
 				this.languageTrigger(SaveSettingStatus.Saving);
-				translatorReload(false, value)
+				translatorReload(value)
 					.then(fReloadLanguageHelper(SaveSettingStatus.Success), fReloadLanguageHelper(SaveSettingStatus.Failed))
-					.then(() => Remote.saveSetting('Language', value));
+					.then(() => Remote.saveSetting('language', value));
 			},
 
-			removeColors: value => {
-				let dom = MessageUserStore.bodiesDom();
-				if (dom) {
-					dom.innerHTML = '';
-				}
-				Remote.saveSetting('RemoveColors', value);
-			},
+			hourCycle: value =>
+				Remote.saveSetting('hourCycle', value),
 
 			notificationSound: value => {
 				Remote.saveSetting('NotificationSound', value);
@@ -131,6 +152,15 @@ export class UserSettingsGeneral extends AbstractViewSettings {
 			useThreads: value => {
 				MessagelistUserStore([]);
 				Remote.saveSetting('UseThreads', value);
+			},
+
+			threadAlgorithm: value => {
+				MessagelistUserStore([]);
+				Remote.saveSetting('threadAlgorithm', value);
+			},
+
+			checkMailInterval: () => {
+				setRefreshFoldersInterval(SettingsUserStore.checkMailInterval());
 			}
 		});
 	}

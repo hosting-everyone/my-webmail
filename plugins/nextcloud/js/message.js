@@ -63,8 +63,8 @@
 						if (folder) {
 							rl.fetchJSON('./?/Json/&q[]=/0/', {}, {
 								Action: 'AttachmentsActions',
-								Do: 'nextcloud',
-								Hashes: hashes,
+								target: 'nextcloud',
+								hashes: hashes,
 								NcFolder: folder
 							})
 							.then(result => {
@@ -120,6 +120,7 @@
 			view.message.subscribe(msg => {
 				view.nextcloudICS(null);
 				if (msg && cfg.CalDAV) {
+//					let ics = msg.attachments.find(attachment => 'application/ics' == attachment.mimeType);
 					let ics = msg.attachments.find(attachment => 'text/calendar' == attachment.mimeType);
 					if (ics && ics.download) {
 						// fetch it and parse the VEVENT

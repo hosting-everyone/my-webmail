@@ -1,5 +1,3 @@
-import { mailbox } from 'Common/Links';
-import { getFolderInboxName } from 'Common/Cache';
 import { leftPanelDisabled, toggleLeftPanel } from 'Common/Globals';
 
 import { MessageUserStore } from 'Stores/User/Message';
@@ -10,10 +8,6 @@ import { AbstractViewRight } from 'Knoin/AbstractViews';
 export class SettingsPaneUserView extends AbstractViewRight {
 	constructor() {
 		super();
-
-		this.isMobile = ThemeStore.isMobile;
-		this.leftPanelDisabled = leftPanelDisabled;
-		this.toggleLeftPanel = toggleLeftPanel;
 	}
 
 	onShow() {
@@ -21,12 +15,12 @@ export class SettingsPaneUserView extends AbstractViewRight {
 	}
 
 	onBuild(dom) {
-		dom.addEventListener('click', () =>
-			ThemeStore.isMobile() && !event.target.closestWithin('.toggleLeft', dom) && leftPanelDisabled(true)
-		);
-	}
-
-	backToInbox() {
-		hasher.setHash(mailbox(getFolderInboxName()));
+		dom.addEventListener('click', () => {
+			if (event.target.closestWithin('.toggleLeft', dom)) {
+				toggleLeftPanel();
+			} else {
+				ThemeStore.isMobile() && leftPanelDisabled(true);
+			}
+		});
 	}
 }

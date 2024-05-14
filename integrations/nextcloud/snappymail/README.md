@@ -32,6 +32,9 @@ From that point, all instance-wide SnappyMail settings can be tweaked as you wis
 
 ![grafik](https://user-images.githubusercontent.com/63400209/199768097-7bd939a7-56d0-47ba-b481-aeac08776fb4.png)
 
+## App Integrations
+### Contacts
+SnappyMail automatically connects with the Nextcloud contacts app. Download and install the [contacts app](https://apps.nextcloud.com/apps/contacts) for SnappyMail to obtain access to all registered users on the Nextcloud system, as well as users' personal contacts saved in here.
 
 ## SnappyMail Settings, Where Are They?
 
@@ -75,6 +78,8 @@ If your IMAP server only accepts usernames without a domain (for example the lda
 #### Option 3: Attempt to automatically login users with their Nextcloud email and password, or user-defined credentials, if set.
 If the user sets his credentials for the mailbox in his personal account under "Settings -> Additional settings", these credentials are used by SnappyMail to login.
 If no personal credentials are defined the mail address of the Nextcloud user and his password are used by SnappyMail to login. SnappyMail will lookup the "Domain" settings for a configuration that meets the domain part of the mail address passed as username.
+
+#### Option 4: Attempt to automatically login with OIDC when active
 
 ### Auto-connection for all Nextcloud users
 If your Nextcloud users base is synchronized with an email system, then it is possible that Nextcloud credentials could be used right away to access the centralized email system. In the SnappyMail admin settings, the Nextcloud administrator can then tick the "Automatically login with Nextcloud/Nextcloud user credentials" checkbox.

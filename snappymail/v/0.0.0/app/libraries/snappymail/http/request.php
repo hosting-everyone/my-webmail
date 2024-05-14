@@ -7,9 +7,11 @@ abstract class Request
 	const
 		/**
 		 * Authentication
+		 * These are bitwise options
 		 */
 		AUTH_BASIC = 1,
-		AUTH_DIGEST = 2;
+		AUTH_DIGEST = 2,
+		AUTH_BEARER = 4;
 
 	public
 		$timeout = 5, // timeout in seconds.
@@ -48,7 +50,10 @@ abstract class Request
 		$this->user_agent = 'SnappyMail/' . APP_VERSION;
 	}
 
-	public function setAuth(int $type, string $user, string $pass) : void
+	public function setAuth(int $type, string $user,
+		#[\SensitiveParameter]
+		string $pass
+	) : void
 	{
 		$this->auth = [
 			'type' => $type,

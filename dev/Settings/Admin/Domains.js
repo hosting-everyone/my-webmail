@@ -16,17 +16,16 @@ export class AdminSettingsDomains /*extends AbstractViewSettings*/ {
 	}
 
 	testUsername() {
-		// TODO: find domain matching username
 		Remote.request('AdminDomainMatch',
 			(iError, oData) => {
 				if (oData?.Result?.domain) {
-					alert(`${oData.Result.domain.email} matched domain: ${oData.Result.domain.name}`);
+					alert(`${oData.Result.email} matched domain: ${oData.Result.domain.name}`);
 				} else {
 					alert('No domain match');
 				}
 			},
 			{
-				username: this.username()
+				username: this.username
 			}
 		);
 	}
@@ -42,15 +41,15 @@ export class AdminSettingsDomains /*extends AbstractViewSettings*/ {
 	deleteDomain(domain) {
 		DomainAdminStore.remove(domain);
 		Remote.request('AdminDomainDelete', DomainAdminStore.fetch, {
-			Name: domain.name
+			name: domain.name
 		});
 	}
 
 	disableDomain(domain) {
 		domain.disabled(!domain.disabled());
 		Remote.request('AdminDomainDisable', DomainAdminStore.fetch, {
-			Name: domain.name,
-			Disabled: domain.disabled() ? 1 : 0
+			name: domain.name,
+			disabled: domain.disabled() ? 1 : 0
 		});
 	}
 
@@ -60,7 +59,7 @@ export class AdminSettingsDomains /*extends AbstractViewSettings*/ {
 			el && ko.dataFor(el) && Remote.request('AdminDomainLoad',
 				(iError, oData) => iError || showScreenPopup(DomainPopupView, [oData.Result]),
 				{
-					Name: ko.dataFor(el).name
+					name: ko.dataFor(el).name
 				}
 			);
 

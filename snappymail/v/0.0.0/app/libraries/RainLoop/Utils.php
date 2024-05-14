@@ -4,12 +4,6 @@ namespace RainLoop;
 
 class Utils
 {
-	static $CookieDefaultPath = '';
-
-	static $CookieSecure = null;
-
-	static $CookieSameSite = 'Strict';
-
 	const
 		/**
 		 * 30 days cookie
@@ -60,27 +54,30 @@ class Utils
 
 	public static function GetSessionToken(bool $generate = true) : ?string
 	{
-		$sToken = static::GetCookie(self::SESSION_TOKEN);
+		$sToken = \SnappyMail\Cookies::get(self::SESSION_TOKEN);
 		if (!$sToken) {
 			if (!$generate) {
 				return null;
 			}
 			\SnappyMail\Log::debug('TOKENS', 'New SESSION_TOKEN');
 			$sToken = \MailSo\Base\Utils::Sha1Rand(APP_SALT);
-			static::SetCookie(self::SESSION_TOKEN, $sToken);
+			\SnappyMail\Cookies::set(self::SESSION_TOKEN, $sToken);
 		}
 		return \sha1('Session'.APP_SALT.$sToken.'Token'.APP_SALT);
 	}
 
 	public static function GetConnectionToken() : string
 	{
-		$sToken = static::GetCookie(self::CONNECTION_TOKEN);
-		if (!$sToken)
-		{
-			$sToken = \MailSo\Base\Utils::Sha1Rand(APP_SALT);
-			static::SetCookie(self::CONNECTION_TOKEN, $sToken, \time() + 3600 * 24 * 30);
+		$oActions = \RainLoop\Api::Actions();
+		$oAccount = $oActions->getAccountFromToken(false) ?: $oActions->getMainAccountFromToken(false);
+		if ($oAccount) {
+			return $oAccount->Hash();
 		}
-
+		$sToken = \SnappyMail\Cookies::get(self::CONNECTION_TOKEN);
+		if (!$sToken) {
+			$sToken = \MailSo\Base\Utils::Sha1Rand(APP_SALT);
+			\SnappyMail\Cookies::set(self::CONNECTION_TOKEN, $sToken, \time() + 3600 * 24 * 30);
+		}
 		return \sha1('Connection'.APP_SALT.$sToken.'Token'.APP_SALT);
 	}
 
@@ -91,10 +88,9 @@ class Utils
 
 	public static function UpdateConnectionToken() : void
 	{
-		$sToken = static::GetCookie(self::CONNECTION_TOKEN);
-		if ($sToken)
-		{
-			static::SetCookie(self::CONNECTION_TOKEN, $sToken, \time() + 3600 * 24 * 30);
+		$sToken = \SnappyMail\Cookies::get(self::CONNECTION_TOKEN);
+		if ($sToken) {
+			\SnappyMail\Cookies::set(self::CONNECTION_TOKEN, $sToken, \time() + 3600 * 24 * 30);
 		}
 	}
 
@@ -106,120 +102,6 @@ class Utils
 			['>', "\xC2\xA0", "\xC2\xA0", ' '],
 			\trim($sHtml)
 		));
-	}
-
-	/**
-	 * @param mixed $mDefault = null
-	 */
-	public static function GetCookie(string $sName) : ?string
-	{
-		if (isset($_COOKIE[$sName])) {
-			$aParts = [];
-			foreach (\array_keys($_COOKIE) as $sCookieName) {
-				if (\strtok($sCookieName, '~') === $sName) {
-					$aParts[$sCookieName] = $_COOKIE[$sCookieName];
-				}
-			}
-			\ksort($aParts);
-			return \implode('', $aParts);
-		}
-		return null;
-	}
-
-	public static function GetSecureCookie(string $sName)
-	{
-		return isset($_COOKIE[$sName])
-			? \SnappyMail\Crypt::DecryptFromJSON(\MailSo\Base\Utils::UrlSafeBase64Decode(static::GetCookie($sName)))
-			: null;
-	}
-
-	private static function _SetCookie(string $sName, string $sValue, int $iExpire)
-	{
-		$sPath = static::$CookieDefaultPath;
-		$sPath = $sPath && \strlen($sPath) ? $sPath : '/';
-/*
-		if (\strlen($sValue) > 4000 - \strlen($sPath . $sName)) {
-			throw new \Exception("Cookie '{$sName}' value too long");
-		}
-*/
-		if (\strlen($sValue)) {
-			$_COOKIE[$sName] = $sValue;
-		}
-
-		// Cookie "$sName" has been rejected because it is already expired.
-		// Happens when \setcookie() sends multiple with the same name (and one is deleted)
-		// So when previously set, we must delete all 'Set-Cookie' headers and start over
-		$cookies = [];
-		$cookie_remove = false;
-		foreach (\headers_list() as $header) {
-			if (\preg_match("/Set-Cookie:([^=]+)=/i", $header, $match)) {
-				if (\trim($match[1]) == $sName) {
-					$cookie_remove = true;
-				} else {
-					$cookies[] = $header;
-				}
-			}
-		}
-		if ($cookie_remove) {
-			\header_remove('Set-Cookie');
-			foreach ($cookies as $cookie) {
-				\header($cookie);
-			}
-		}
-
-		\setcookie($sName, $sValue, array(
-			'expires' => $iExpire,
-			'path' => $sPath,
-//			'domain' => null,
-			'secure' => static::$CookieSecure,
-			'httponly' => true,
-			'samesite' => static::$CookieSameSite
-		));
-	}
-
-	/**
-	 * Firefox: Cookie "$sName" has been rejected because it is already expired.
-	 * \header_remove("set-cookie: {$sName}");
-	 */
-	public static function SetCookie(string $sName, string $sValue, int $iExpire = 0)
-	{
-		$sPath = static::$CookieDefaultPath;
-		$sPath = $sPath && \strlen($sPath) ? $sPath : '/';
-		// https://github.com/the-djmaze/snappymail/issues/451
-		// The 4K browser limit is for the entire cookie, including name, value, expiry date etc.
-		$iMaxSize = 4000 - \strlen($sPath . $sName);
-/*
-		if ($iMaxSize < \strlen($sValue)) {
-			throw new \Exception("Cookie '{$sName}' value too long");
-		}
-*/
-		// Set the new 4K split cookie
-		foreach (\str_split($sValue, $iMaxSize) as $i => $sPart) {
-			static::_SetCookie($i ? "{$sName}~{$i}" : $sName, $sPart, $iExpire);
-		}
-		// Delete unused old 4K split cookie parts
-		while (($sCookieName = "{$sName}~" . ++$i) && isset($_COOKIE[$sCookieName])) {
-			unset($_COOKIE[$sCookieName]);
-			static::_SetCookie($sCookieName, '', \time() - 3600 * 24 * 30);
-		}
-	}
-
-	public static function ClearCookie(string $sName)
-	{
-		if (isset($_COOKIE[$sName])) {
-			$sPath = static::$CookieDefaultPath;
-			foreach (\array_keys($_COOKIE) as $sCookieName) {
-				if (\strtok($sCookieName, '~') === $sName) {
-					unset($_COOKIE[$sCookieName]);
-					static::_SetCookie($sCookieName, '', \time() - 3600 * 24 * 30);
-				}
-			}
-		}
-	}
-
-	public static function UrlEncode(string $sV, bool $bEncode = false) : string
-	{
-		return $bEncode ? \urlencode($sV) : $sV;
 	}
 
 	public static function WebPath() : string
@@ -248,22 +130,6 @@ class Utils
 		return self::WebVersionPath() . 'static/' . $path;
 	}
 
-	public static function RemoveSuggestionDuplicates(array $aSuggestions) : array
-	{
-		$aResult = array();
-
-		foreach ($aSuggestions as $aItem)
-		{
-			$sLine = \implode('~~', $aItem);
-			if (!isset($aResult[$sLine]))
-			{
-				$aResult[$sLine] = $aItem;
-			}
-		}
-
-		return array_values($aResult);
-	}
-
 	public static function inOpenBasedir(string $name) : string
 	{
 		static $open_basedir;
@@ -276,19 +142,10 @@ class Utils
 					return true;
 				}
 			}
-			\SnappyMail\Log::warning('OpenBasedir', "open_basedir restriction in effect. {$name} is not within the allowed path(s): " . \ini_get('open_basedir'));
+//			\SnappyMail\Log::warning('OpenBasedir', "open_basedir restriction in effect. {$name} is not within the allowed path(s): " . \ini_get('open_basedir'));
 			return false;
 		}
 		return true;
-	}
-
-	/**
-	 * Replace control characters, ampersand, spaces and reserved characters (based on Win95 VFAT)
-	 * en.wikipedia.org/wiki/Filename#Reserved_characters_and_words
-	 */
-	public static function fixName(string $filename) : string
-	{
-		return \preg_replace('#[|\\\\?*<":>+\\[\\]/&\\s\\pC]#su', '-', $filename);
 	}
 
 	public static function saveFile(string $filename, string $data) : void

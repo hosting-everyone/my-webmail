@@ -5,6 +5,10 @@
   <br>
   <h1>SnappyMail</h1>
   <br>
+
+[![github-actions](https://github.com/the-djmaze/snappymail/actions/workflows/docker.yml/badge.svg)](https://github.com/the-djmaze/snappymail/actions/workflows/docker.yml)
+[![docker-image-size](https://img.shields.io/docker/image-size/djmaze/snappymail/latest)](https://hub.docker.com/r/djmaze/snappymail/tags)
+
   <p>
     Simple, modern, lightweight &amp; fast web-based email client.
   </p>
@@ -26,7 +30,7 @@ For more information about the product, check [snappymail.eu](https://snappymail
 
 Information about installing the product, check the [wiki page](https://github.com/the-djmaze/snappymail/wiki/Installation-instructions).
 
-And don't forget to read the [RainLoop documentation](https://www.rainloop.net/docs/).
+And don't forget to read the whole [Wiki](https://github.com/the-djmaze/snappymail/wiki).
 
 ## License
 
@@ -34,7 +38,7 @@ And don't forget to read the [RainLoop documentation](https://www.rainloop.net/d
 **GNU AFFERO GENERAL PUBLIC LICENSE Version 3 (AGPL)**.
 http://www.gnu.org/licenses/agpl-3.0.html
 
-Copyright (c) 2020 - 2022 SnappyMail
+Copyright (c) 2020 - 2024 SnappyMail
 Copyright (c) 2013 - 2022 RainLoop
 
 ## Modifications
@@ -45,7 +49,7 @@ This fork of RainLoop has the following changes:
 * Admin uses password_hash/password_verify
 * Auth failed attempts written to syslog
 * Added Fail2ban instructions
-* ES2018
+* ES2020
 * PHP 7.4+ required
 * PHP mbstring extension required
 * PHP replaced pclZip with PharData and ZipArchive
@@ -79,12 +83,7 @@ This fork of RainLoop has the following changes:
 * Added [Fetch Metadata Request Headers](https://www.w3.org/TR/fetch-metadata/) checks
 * Reduced excessive DOM size
 * Support [Kolab groupware](https://kolab.org/)
-* Support IMAP RFC 2971 ID extension
-* Support IMAP RFC 5258 LIST-EXTENDED
-* Support IMAP RFC 5464 METADATA
-* Support IMAP RFC 5819 LIST-STATUS
-* Support IMAP RFC 7628 SASL OAUTHBEARER aka XOAUTH2
-* Support IMAP4rev2 RFC 9051
+* Support many more [IMAP RFC's](https://snappymail.eu/comparison#IMAP)
 * Support Sodium and OpenSSL for encryption
 * Much better PGP support
 
@@ -141,28 +140,28 @@ RainLoop 1.17 vs SnappyMail
 
 |js/*           	|RainLoop 	|Snappy   	|
 |---------------	|--------:	|--------:	|
-|admin.js        	|2.170.153	|   82.419	|
-|app.js          	|4.207.787	|  407.238	|
-|boot.js         	|  868.735	|    1.989	|
-|libs.js         	|  658.812	|  193.075	|
-|sieve.js         	|        0	|   86.121	|
+|admin.js        	|2.170.153	|   83.494	|
+|app.js          	|4.207.787	|  436.310	|
+|boot.js         	|  868.735	|    4.147	|
+|libs.js         	|  658.812	|  193.716	|
+|sieve.js         	|        0	|   84.598	|
 |polyfills.js    	|  334.608	|        0	|
 |serviceworker.js	|        0	|      285	|
-|TOTAL           	|8.240.095	|  771.127	|
+|TOTAL           	|8.240.095	|  802.550	|
 
 |js/min/*       	|RainLoop 	|Snappy   	|RL gzip	|SM gzip	|RL brotli	|SM brotli	|
 |---------------	|--------:	|--------:	|------:	|------:	|--------:	|--------:	|
-|admin.min.js    	|  256.831	|   40.933	| 73.606	| 13.575	| 60.877  	| 12.185	|
-|app.min.js      	|  515.367	|  188.830	|139.456	| 62.816	|110.485  	| 53.944	|
-|boot.min.js     	|   84.659	|    1.216	| 26.998	|    761	| 23.643  	|    614	|
-|libs.min.js     	|  584.772	|   92.084	|180.901	| 34.119	|155.182  	| 30.621	|
-|sieve.min.js     	|        0	|   41.926	|      0	| 10.484	|      0  	|  9.451	|
+|admin.min.js    	|  256.831	|   40.856	| 73.606	| 13.776	| 60.877  	| 12.345	|
+|app.min.js      	|  515.367	|  197.511	|139.456	| 67.058	|110.485  	| 57.209	|
+|boot.min.js     	|   84.659	|    2.087	| 26.998	|  1.204	| 23.643  	|  1.002	|
+|libs.min.js     	|  584.772	|   92.365	|180.901	| 34.487	|155.182  	| 30.830	|
+|sieve.min.js     	|        0	|   41.093	|      0	| 10.325	|      0  	|  9.327	|
 |polyfills.min.js	|   32.837	|        0	| 11.406	|      0	| 10.175  	|      0	|
-|TOTAL user      	|1.217.635	|  282.130	|358.761	| 97.696	|299.485  	| 85.179	|
-|TOTAL user+sieve	|1.217.635	|  324.056	|358.761	|108.180	|299.485  	| 94.630	|
-|TOTAL admin     	|  959.099	|  134.233	|292.911	| 48.455	|249.877  	| 43.420	|
+|TOTAL user      	|1.217.635	|  291.963	|358.761	|102.749	|299.485  	| 89.041	|
+|TOTAL user+sieve	|1.217.635	|  333.056	|358.761	|113.074	|299.485  	| 98.368	|
+|TOTAL admin     	|  959.099	|  135.308	|292.911	| 49.467	|249.877  	| 44.177	|
 
-For a user its around 70% smaller and faster than traditional RainLoop.
+For a user it is around 68% smaller and faster than traditional RainLoop.
 
 ### CSS changes
 
@@ -189,12 +188,12 @@ For a user its around 70% smaller and faster than traditional RainLoop.
 
 |css/*       	|RainLoop	|Snappy   	|RL gzip	|SM gzip	|SM brotli	|
 |------------	|-------:	|------:	|------:	|------:	|--------:	|
-|app.css     	| 340.331	| 82.425	| 46.946	| 17.049	| 14.595	|
-|app.min.css 	| 274.947	| 66.502	| 39.647	| 15.049	| 13.221	|
+|app.css     	| 340.331	| 84.629	| 46.946	| 17.652	| 15.127	|
+|app.min.css 	| 274.947	| 67.995	| 39.647	| 15.562	| 13.568	|
 |boot.css    	|       	|  1.326	|       	|    664	|    545	|
 |boot.min.css	|       	|  1.071	|       	|    590	|    474	|
-|admin.css    	|       	| 29.807	|       	|  6.744	|  5.851	|
-|admin.min.css	|       	| 24.223	|       	|  6.142	|  5.397	|
+|admin.css    	|       	| 30.528	|       	|  7.001	|  6.088	|
+|admin.min.css	|       	| 24.652	|       	|  6.325	|  5.574	|
 
 ### PGP
 RainLoop uses the old OpenPGP.js v2
@@ -208,7 +207,7 @@ See https://github.com/the-djmaze/openpgpjs for development
 
 |OpenPGP        	|RainLoop 	|Snappy   	|RL gzip	|SM gzip	|RL brotli	|SM brotli	|
 |---------------	|--------:	|--------:	|------:	|-------:	|--------:	|--------:	|
-|openpgp.min.js 	|  330.742	|  539.257	|102.388	| 166.998	| 84.241  	|  137.186	|
+|openpgp.min.js 	|  330.742	|  546.309	|102.388	| 169.249	| 84.241  	|  138.751	|
 |openpgp.worker 	|    1.499	|         	|    824	|        	|    695 	|        	|
 
 
@@ -218,7 +217,6 @@ The [Squire](https://github.com/neilj/Squire) implementation is not 100% compati
 Still TODO:
 
 * support for tables (really needed?!?)
-* support BIDI (really needed?!?)
 
 |       	| normal	| min    	| gzip  	| min gzip	|
 |--------	|-------:	|-------:	|------:	|--------:	|
@@ -226,5 +224,3 @@ Still TODO:
 |ckeditor	|       ?	| 520.035	|      ?	|  155.916	|
 
 CKEditor including the 7 asset requests (css,language,plugins,icons) is 633.46 KB / 180.47 KB (gzip).
-
-To use the old CKEditor, you must install the plugin.

@@ -1,7 +1,9 @@
 /* eslint key-spacing: 0 */
 /* eslint quote-props: 0 */
 
-import { arrayLength } from 'Common/Utils';
+import { arrayLength, pInt } from 'Common/Utils';
+
+export const RFC822 = 'message/rfc822';
 
 const
 	cache = {},
@@ -12,8 +14,8 @@ const
 	lowerCase = text => text.toLowerCase().trim(),
 
 	exts = {
-		eml: 'message/rfc822',
-		mime: 'message/rfc822',
+		eml: RFC822,
+		mime: RFC822,
 		vcard: 'text/vcard',
 		vcf: 'text/vcard',
 		htm: 'text/html',
@@ -28,6 +30,8 @@ const
 		p7c: app+'pkcs7-mime',
 		p7m: app+'pkcs7-mime',
 		p7s: app+'pkcs7-signature',
+		p12: app+'pkcs12',
+		pfx: app+'x-pkcs12',
 		torrent: app+'x-bittorrent',
 
 		// scripts
@@ -116,7 +120,8 @@ export const FileType = {
 	Spreadsheet: 'spreadsheet',
 	Presentation: 'presentation',
 	Certificate: 'certificate',
-	Archive: 'archive'
+	Archive: 'archive',
+	Calendar: 'calendar'
 };
 
 export const FileInfo = {
@@ -133,7 +138,7 @@ export const FileInfo = {
 	getContentType: fileName => {
 		fileName = lowerCase(fileName);
 		if ('winmail.dat' === fileName) {
-			return app + 'ms-tnef';
+			return app + 'vnd.ms-tnef';
 		}
 		let ext = fileName.split('.').pop();
 		if (/^(txt|text|def|list|in|ini|log|sql|cfg|conf)$/.test(ext))
@@ -161,7 +166,7 @@ export const FileInfo = {
 	 */
 	getType: (ext, mimeType) => {
 		ext = lowerCase(ext);
-		mimeType = lowerCase(mimeType).replace('csv/plain', 'text/csv');
+		mimeType = lowerCase(mimeType).replace('csv/plain', 'text/csv').replace('x-','');
 
 		let key = ext + mimeType;
 		if (cache[key]) {
@@ -170,7 +175,7 @@ export const FileInfo = {
 
 		let result = FileType.Unknown;
 		const mimeTypeParts = mimeType.split('/'),
-			type = mimeTypeParts[1].replace('x-','').replace('-compressed',''),
+			type = mimeTypeParts[1].replace('-compressed',''),
 			match = str => mimeType.includes(str),
 			archive = /^(zip|7z|tar|rar|gzip|bzip|bzip2)$/;
 
@@ -187,8 +192,11 @@ export const FileInfo = {
 			case ['php', 'js', 'css', 'xml', 'html'].includes(ext) || 'text/html' == mimeType:
 				result = FileType.Code;
 				break;
-			case 'eml' == ext || ['message/delivery-status', 'message/rfc822'].includes(mimeType):
+			case 'eml' == ext || ['message/delivery-status', RFC822].includes(mimeType):
 				result = FileType.Eml;
+				break;
+			case 'ics' == ext || mimeType == 'text/calendar':
+				result = FileType.Calendar;
 				break;
 			case 'text' == mimeTypeParts[0] || 'txt' == ext || 'log' == ext:
 				result = FileType.Text;
@@ -199,9 +207,8 @@ export const FileInfo = {
 			case 'pdf' == type || 'pdf' == ext:
 				result = FileType.Pdf;
 				break;
-			case [app+'pgp-signature', app+'pgp-keys'].includes(mimeType)
-				|| ['asc', 'pem', 'ppk'].includes(ext)
-				|| [app+'pkcs7-signature'].includes(mimeType) || 'p7s' == ext:
+			case [app+'pgp-signature', app+'pgp-keys', exts.p7m, exts.p7s, exts.p12, exts.pfx].includes(mimeType)
+				|| ['asc', 'pem', 'ppk', 'p7s', 'p7m', 'p12', 'pfx'].includes(ext):
 				result = FileType.Certificate;
 				break;
 			case match(msOffice+'.wordprocessingml') || match(openDoc+'.text') || match('vnd.ms-word')
@@ -240,6 +247,7 @@ export const FileInfo = {
 			case FileType.Certificate:
 			case FileType.Spreadsheet:
 			case FileType.Presentation:
+			case FileType.Calendar:
 				return result + '-' + fileType;
 		}
 		return result;
@@ -266,8 +274,8 @@ export const FileInfo = {
 	},
 
 	friendlySize: bytes => {
-		bytes = parseInt(bytes, 10) || 0;
-		let i = Math.floor(Math.log(bytes) / Math.log(1024));
+		bytes = pInt(bytes);
+		let i = bytes ? Math.floor(Math.log(bytes) / Math.log(1024)) : 0;
 		return (bytes / Math.pow(1024, i)).toFixed(2>i ? 0 : 1) + ' ' + sizes[i];
 	}
 

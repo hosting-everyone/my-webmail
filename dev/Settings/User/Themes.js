@@ -6,6 +6,7 @@ import { i18n } from 'Common/Translator';
 import { SettingsCapa } from 'Common/Globals';
 
 import { ThemeStore, convertThemeName, changeTheme } from 'Stores/Theme';
+import { addSubscribablesTo } from 'External/ko';
 
 import Remote from 'Remote/User/Fetch';
 
@@ -24,20 +25,22 @@ export class UserSettingsThemes /*extends AbstractViewSettings*/ {
 		this.fontSansSerif = ThemeStore.fontSansSerif;
 		this.fontSerif = ThemeStore.fontSerif;
 		this.fontMono = ThemeStore.fontMono;
-		ThemeStore.fontSansSerif.subscribe(value => {
-			Remote.saveSettings(null, {
-				fontSansSerif: value
-			});
-		});
-		ThemeStore.fontSerif.subscribe(value => {
-			Remote.saveSettings(null, {
-				fontSerif: value
-			});
-		});
-		ThemeStore.fontMono.subscribe(value => {
-			Remote.saveSettings(null, {
-				fontMono: value
-			});
+		addSubscribablesTo(ThemeStore, {
+			fontSansSerif: value => {
+				Remote.saveSettings(null, {
+					fontSansSerif: value
+				});
+			},
+			fontSerif: value => {
+				Remote.saveSettings(null, {
+					fontSerif: value
+				});
+			},
+			fontMono: value => {
+				Remote.saveSettings(null, {
+					fontMono: value
+				});
+			}
 		});
 
 		this.theme = ThemeStore.theme;
@@ -58,6 +61,10 @@ export class UserSettingsThemes /*extends AbstractViewSettings*/ {
 				Theme: value
 			});
 		});
+	}
+
+	setTheme(theme) {
+		ThemeStore.theme(theme.name);
 	}
 
 	onBuild() {
@@ -88,8 +95,8 @@ export class UserSettingsThemes /*extends AbstractViewSettings*/ {
 				})
 				.on('onComplete', (id, result, data) => {
 					themeBackground.loading(false);
-					themeBackground.name(data?.Result?.Name || '');
-					themeBackground.hash(data?.Result?.Hash || '');
+					themeBackground.name(data?.Result?.name || '');
+					themeBackground.hash(data?.Result?.hash || '');
 					if (!themeBackground.name() || !themeBackground.hash()) {
 						let errorMsg = '';
 						if (data.ErrorCode) {

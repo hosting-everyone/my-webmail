@@ -14,14 +14,9 @@ const config = {
 };
 
 config.paths.globjs = 'dev/**/*.js';
-config.paths.static = 'snappymail/v/' + config.devVersion + '/static/';
 config.paths.staticJS = 'snappymail/v/' + config.devVersion + '/static/js/';
 config.paths.staticMinJS = 'snappymail/v/' + config.devVersion + '/static/js/min/';
 config.paths.staticCSS = 'snappymail/v/' + config.devVersion + '/static/css/';
-
-config.paths.assets = {
-	src: ['assets/**/*.*', 'assets/**/.htaccess']
-};
 
 config.paths.less = {
 	main: {
@@ -69,6 +64,7 @@ config.paths.js = {
 			'vendors/knockout/build/output/knockout-latest.js',
 //			'vendors/knockout/build/output/knockout-latest.debug.js',
 			'vendors/squire/build/squire-raw.js',
+			'vendors/mathiasbynens/punycode.js',
 			'dev/External/SquireUI.js'
 		]
 	},

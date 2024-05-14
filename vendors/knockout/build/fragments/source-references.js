@@ -1,7 +1,7 @@
 knockoutDebugCallback([
     'src/namespace.js',
     'src/google-closure-compiler-utils.js',
-    'src/version.js',
+//    'src/version.js',
 //    'src/options.js',
     'src/utils.js',
     'src/utils.domData.js',
@@ -27,7 +27,7 @@ knockoutDebugCallback([
 //    'src/components/customElements.js',
     'src/components/componentBinding.js',
     'src/binding/defaultBindings/attr.js',
-//    'src/binding/defaultBindings/checked.js',
+    'src/binding/defaultBindings/checked.js',
     'src/binding/defaultBindings/css.js',
     'src/binding/defaultBindings/enableDisable.js',
     'src/binding/defaultBindings/event.js',

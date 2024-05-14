@@ -15,82 +15,71 @@ namespace MailSo\Imap;
  * @category MailSo
  * @package Imap
  */
-class NamespaceResult
+class NamespaceResult implements \JsonSerializable
 {
-	/**
-	 * @var string
-	 */
-	private $sPersonal = '';
+	public array
+		$aPersonal = [],
+		$aOtherUsers = [],
+		$aShared = [];
 
-	/**
-	 * @var string
-	 */
-	private $sPersonalDelimiter = '';
-
-	/**
-	 * @var string
-	 */
-	private $sOtherUser = '';
-
-	/**
-	 * @var string
-	 */
-	private $sOtherUserDelimiter = '';
-
-	/**
-	 * @var string
-	 */
-	private $sShared = '';
-
-	/**
-	 * @var string
-	 */
-	private $sSharedDelimiter = '';
-
-	public function InitByImapResponse(\MailSo\Imap\Response $oImapResponse) : self
+	function __construct(Response $oImapResponse)
 	{
-		if ($oImapResponse)
-		{
-			if (isset($oImapResponse->ResponseList[2][0]) &&
-				\is_array($oImapResponse->ResponseList[2][0]) &&
-				2 <= \count($oImapResponse->ResponseList[2][0]))
-			{
-				$this->sPersonal = $oImapResponse->ResponseList[2][0][0];
-				$this->sPersonalDelimiter = $oImapResponse->ResponseList[2][0][1];
-
-				$this->sPersonal = 'INBOX'.$this->sPersonalDelimiter === \substr(\strtoupper($this->sPersonal), 0, 6) ?
-					'INBOX'.$this->sPersonalDelimiter.\substr($this->sPersonal, 6) : $this->sPersonal;
-			}
-
-			if (isset($oImapResponse->ResponseList[3][0]) &&
-				\is_array($oImapResponse->ResponseList[3][0]) &&
-				2 <= \count($oImapResponse->ResponseList[3][0]))
-			{
-				$this->sOtherUser = $oImapResponse->ResponseList[3][0][0];
-				$this->sOtherUserDelimiter = $oImapResponse->ResponseList[3][0][1];
-
-				$this->sOtherUser = 'INBOX'.$this->sOtherUserDelimiter === \substr(\strtoupper($this->sOtherUser), 0, 6) ?
-					'INBOX'.$this->sOtherUserDelimiter.\substr($this->sOtherUser, 6) : $this->sOtherUser;
-			}
-
-			if (isset($oImapResponse->ResponseList[4][0]) &&
-				\is_array($oImapResponse->ResponseList[4][0]) &&
-				2 <= \count($oImapResponse->ResponseList[4][0]))
-			{
-				$this->sShared = $oImapResponse->ResponseList[4][0][0];
-				$this->sSharedDelimiter = $oImapResponse->ResponseList[4][0][1];
-
-				$this->sShared = 'INBOX'.$this->sSharedDelimiter === \substr(\strtoupper($this->sShared), 0, 6) ?
-					'INBOX'.$this->sSharedDelimiter.\substr($this->sShared, 6) : $this->sShared;
+		if (!empty($oImapResponse->ResponseList[2])) {
+			foreach ($oImapResponse->ResponseList[2] as $entry) {
+				if (\is_array($entry) && 2 <= \count($entry)) {
+					$this->aPersonal[] = [
+						'prefix' => \array_shift($entry),
+						'delimiter' => \array_shift($entry),
+						'extension' => $entry
+					];
+				}
 			}
 		}
-
-		return $this;
+		if (!empty($oImapResponse->ResponseList[3])) {
+			foreach ($oImapResponse->ResponseList[3] as $entry) {
+				if (\is_array($entry) && 2 <= \count($entry)) {
+					$this->aOtherUsers[] = [
+						'prefix' => \array_shift($entry),
+						'delimiter' => \array_shift($entry),
+						'extension' => $entry
+					];
+				}
+			}
+		}
+		if (!empty($oImapResponse->ResponseList[4])) {
+			foreach ($oImapResponse->ResponseList[4] as $entry) {
+				if (\is_array($entry) && 2 <= \count($entry)) {
+					$this->aShared[] = [
+						'prefix' => \array_shift($entry),
+						'delimiter' => \array_shift($entry),
+						'extension' => $entry
+					];
+				}
+			}
+		}
 	}
 
-	public function GetPersonalNamespace() : string
+	public function GetPersonalPrefix() : string
 	{
-		return $this->sPersonal;
+		$sPrefix = '';
+		if (isset($this->aPersonal[0])) {
+			$sPrefix = $this->aPersonal[0]['prefix'];
+			$sDelimiter = $this->aPersonal[0]['delimiter'];
+			if ('INBOX'.$sDelimiter === \substr(\strtoupper($sPrefix), 0, 6)) {
+				$sPrefix = 'INBOX'.$sDelimiter.\substr($sPrefix, 6);
+			};
+		}
+		return $sPrefix;
 	}
 
+	#[\ReturnTypeWillChange]
+	public function jsonSerialize()
+	{
+		return array(
+			'@Object' => 'Object/Namespaces',
+			'personal' => $this->aPersonal,
+			'users' => $this->aOtherUsers,
+			'shared' => $this->aShared,
+		);
+	}
 }

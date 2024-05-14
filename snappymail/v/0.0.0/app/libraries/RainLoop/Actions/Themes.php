@@ -2,6 +2,8 @@
 
 namespace RainLoop\Actions;
 
+use RainLoop\Enumerations\Capa;
+
 trait Themes
 {
 	public function GetTheme(bool $bAdmin): string
@@ -11,11 +13,11 @@ trait Themes
 			$sTheme = $this->Config()->Get('webmail', 'theme', 'Default');
 			if (!$bAdmin
 			 && ($oAccount = $this->getAccountFromToken(false))
-			 && $this->GetCapa(\RainLoop\Enumerations\Capa::THEMES)
+			 && $this->GetCapa(Capa::THEMES)
 			 && ($oSettingsLocal = $this->SettingsProvider(true)->Load($oAccount))) {
 				$sTheme = (string) $oSettingsLocal->GetConf('Theme', $sTheme);
 			}
-			$sTheme = $this->ValidateTheme($sTheme) ?: 'Default';
+			$sTheme = $this->ValidateTheme($sTheme);
 		}
 		return $sTheme;
 	}
@@ -55,15 +57,27 @@ trait Themes
 
 		$sDir = APP_INDEX_ROOT_PATH . 'themes'; // custom user themes
 		if (\is_dir($sDir)) {
-			$rDirH = \opendir($sDir);
-			if ($rDirH) {
+			if ($rDirH = \opendir($sDir)) {
 				while (($sFile = \readdir($rDirH)) !== false) {
 					if ('.' !== $sFile[0] && \is_dir($sDir . '/' . $sFile)
 					 && (\file_exists("{$sDir}/{$sFile}/styles.css") || \file_exists("{$sDir}/{$sFile}/styles.less"))) {
 						$aCache[] = $sFile . '@custom';
 					}
 				}
+				\closedir($rDirH);
+			} else {
+				$this->logWrite("{$sDir} not readable", \LOG_DEBUG, 'Themes');
+			}
+		}
 
+		if (\class_exists('OC', false)) {
+			$sDir = \OC::$SERVERROOT . '/themes'; // custom user themes
+			if (\is_dir($sDir) && ($rDirH = \opendir($sDir))) {
+				while (($sFile = \readdir($rDirH)) !== false) {
+					if ('.' !== $sFile[0] && \is_dir("{$sDir}/{$sFile}") && \file_exists("{$sDir}/{$sFile}/snappymail/style.css")) {
+						$aCache[] = $sFile . '@nextcloud';
+					}
+				}
 				\closedir($rDirH);
 			}
 		}
@@ -82,43 +96,49 @@ trait Themes
 		return $aCache;
 	}
 
-	public function ThemeLink(bool $bAdmin): string
-	{
-		return './?/Css/0/' . ($bAdmin ? 'Admin' : 'User') . '/-/' . $this->GetTheme($bAdmin) . '/-/' . $this->StaticCache() . '/Hash/-/';
-	}
-
 	public function ValidateTheme(string $sTheme): string
 	{
-		return \in_array($sTheme, $this->GetThemes()) ? $sTheme : $this->Config()->Get('themes', 'default', 'Default');
-	}
-
-	public function compileCss(string $sTheme, bool $bAdmin) : string
-	{
-		$bCustomTheme = '@custom' === \substr($sTheme, -7);
-		if ($bCustomTheme) {
-			$sTheme = \substr($sTheme, 0, -7);
-		}
-
-		$mResult = array();
-
-		$sBase = ($bCustomTheme ? \RainLoop\Utils::WebPath() : \RainLoop\Utils::WebVersionPath())
-				. "themes/{$sTheme}/";
-
-		$bLess = false;
-
-		$sThemeCSSFile = ($bCustomTheme ? APP_INDEX_ROOT_PATH : APP_VERSION_ROOT_PATH).'themes/'.$sTheme.'/styles.css';
-		if (\is_file($sThemeCSSFile)) {
-			$mResult[] = \file_get_contents($sThemeCSSFile);
-		} else {
-			$sThemeCSSFile = \str_replace('styles.css', 'styles.less', $sThemeCSSFile);
-			if (\is_file($sThemeCSSFile)) {
-				$bLess = true;
-				$mResult[] = "@base: \"{$sBase}\";";
-				$mResult[] = \file_get_contents($sThemeCSSFile);
+		if (!\in_array($sTheme, $this->GetThemes())) {
+			$sTheme = $this->Config()->Get('webmail', 'theme', 'Default');
+			if (!\in_array($sTheme, $this->GetThemes())) {
+				$sTheme = 'Default';
 			}
 		}
+		return $sTheme;
+	}
 
-		$mResult[] = $this->Plugins()->CompileCss($bAdmin, $bLess);
+	public function compileCss(string $sTheme, bool $bAdmin, bool $bMinified = false) : string
+	{
+		$mResult = array();
+		$bLess = false;
+
+		if ('@nextcloud' === \substr($sTheme, -10)) {
+			$sBase = \OC::$WEBROOT . '/';
+			$sThemeCSSFile = \OC::$SERVERROOT . '/themes/' . \str_replace('@nextcloud', '/snappymail/style.css', $sTheme);
+		} else {
+			$bCustomTheme = '@custom' === \substr($sTheme, -7);
+			if ($bCustomTheme) {
+				$sTheme = \substr($sTheme, 0, -7);
+				$sBase = \RainLoop\Utils::WebPath();
+			} else {
+				$sBase = \RainLoop\Utils::WebVersionPath();
+			}
+			$sBase .= "themes/{$sTheme}/";
+			$sThemeCSSFile = ($bCustomTheme ? APP_INDEX_ROOT_PATH : APP_VERSION_ROOT_PATH).'themes/'.$sTheme.'/styles.css';
+			if (!\is_file($sThemeCSSFile)) {
+				$sThemeCSSFile = \str_replace('styles.css', 'styles.less', $sThemeCSSFile);
+				if (\is_file($sThemeCSSFile)) {
+					$bLess = true;
+					$mResult[] = "@base: \"{$sBase}\";";
+					$mResult[] = \file_get_contents($sThemeCSSFile);
+				}
+			}
+		}
+		if (\is_file($sThemeCSSFile)) {
+			$mResult[] = \file_get_contents($sThemeCSSFile);
+		}
+
+		$mResult[] = $this->Plugins()->CompileCss($bAdmin, $bLess, $bMinified);
 
 		$mResult = \preg_replace('@(url\(["\']?)(\\./)?([a-z]+[^:a-z])@',
 			"\$1{$sBase}\$3",
@@ -128,19 +148,16 @@ trait Themes
 //			: \str_replace(';}', '}', \preg_replace('/\\s*([:;{},])\\s*/', '\1', \preg_replace('/\\s+/', ' ', \preg_replace('#/\\*.*?\\*/#s', '', $mResult))));
 	}
 
-	public function UploadBackground(): array
+	public function UploadBackground(?array $aFile, int $iError): array
 	{
 		$oAccount = $this->getAccountFromToken();
 
-		if (!$this->GetCapa(\RainLoop\Enumerations\Capa::USER_BACKGROUND)) {
-			return $this->FalseResponse(__FUNCTION__);
+		if (!$this->GetCapa(Capa::USER_BACKGROUND)) {
+			return $this->FalseResponse();
 		}
 
 		$sName = '';
 		$sHash = '';
-
-		$aFile = $this->GetActionParam('File', null);
-		$iError = $this->GetActionParam('Error', \RainLoop\Enumerations\UploadError::UNKNOWN);
 
 		if ($oAccount && UPLOAD_ERR_OK === $iError && \is_array($aFile)) {
 			$sMimeType = \SnappyMail\File\MimeType::fromFile($aFile['tmp_name'], $aFile['name'])
@@ -164,8 +181,8 @@ trait Themes
 							if ($this->StorageProvider()->Put($oAccount,
 								\RainLoop\Providers\Storage\Enumerations\StorageType::CONFIG,
 								'background',
+								// Used by RawUserBackground()
 								\RainLoop\Utils::jsonEncode(array(
-									'Name' => $aFile['name'],
 									'ContentType' => $sMimeType,
 									'Raw' => \base64_encode($sData)
 								))
@@ -176,7 +193,7 @@ trait Themes
 
 									$oSettings->SetConf('UserBackgroundName', $sName);
 									$oSettings->SetConf('UserBackgroundHash', $sHash);
-									$this->SettingsProvider()->Save($oAccount, $oSettings);
+									$oSettings->save();
 								}
 							}
 						}
@@ -198,17 +215,16 @@ trait Themes
 		}
 
 		if (UPLOAD_ERR_OK !== $iError) {
-			$iClientError = \RainLoop\Enumerations\UploadError::NORMAL;
-			$sError = $this->getUploadErrorMessageByCode($iError, $iClientError);
-
+			$iClientError = 0;
+			$sError = \RainLoop\Enumerations\UploadError::getUserMessage($iError, $iClientError);
 			if (!empty($sError)) {
-				return $this->FalseResponse(__FUNCTION__, $iClientError, $sError);
+				return $this->FalseResponse($iClientError, $sError);
 			}
 		}
 
-		return $this->DefaultResponse(__FUNCTION__, !empty($sName) && !empty($sHash) ? array(
-			'Name' => $sName,
-			'Hash' => $sHash
+		return $this->DefaultResponse(!empty($sName) && !empty($sHash) ? array(
+			'name' => $sName,
+			'hash' => $sHash
 		) : false);
 	}
 }

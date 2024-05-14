@@ -84,22 +84,22 @@ class Provider implements IProvider
 
 			$oMailClient = $oActions->MailClient();
 			if (!$oMailClient->IsLoggined()) {
-				$oAccount->ImapConnectAndLoginHelper($oActions->Plugins(), $oMailClient, $oConfig);
+				$oAccount->ImapConnectAndLogin($oActions->Plugins(), $oMailClient->ImapClient(), $oConfig);
 			}
 
 			// instanceof \MailSo\Mail\MessageCollection
 			$MessageCollection = $oMailClient->MessageList($oParams);
 
 			$baseURL = $this->urlGenerator->linkToRoute('snappymail.page.index');
-			$config = \OC::$server->getConfig();
-			if ($config->getAppValue('snappymail', 'snappymail-no-embed')) {
-				$baseURL .= '?target=';
-			} else {
+//			$config = \OC::$server->getConfig();
+//			if ($config->getAppValue('snappymail', 'snappymail-no-embed')) {
+//				$baseURL .= '?target=';
+//			} else {
 				$baseURL .= '#';
-			}
+//			}
 			$search = \rawurlencode($oParams->sSearch);
 
-//			$MessageCollection->MessageResultCount;
+//			$MessageCollection->totalEmails;
 			foreach ($MessageCollection as $Message) {
 				// $Message instanceof \MailSo\Mail\Message
 				$result[] = new SearchResultEntry(

@@ -4,12 +4,9 @@ namespace RainLoop\Providers\Filters;
 
 class SieveStorage implements FiltersInterface
 {
-	const SIEVE_FILE_NAME = 'rainloop.user';
+	use \MailSo\Log\Inherit;
 
-	/**
-	 * @var \MailSo\Log\Logger
-	 */
-	private $oLogger;
+	const SIEVE_FILE_NAME = 'rainloop.user';
 
 	/**
 	 * @var \RainLoop\Plugins\Manager
@@ -23,8 +20,6 @@ class SieveStorage implements FiltersInterface
 
 	public function __construct($oPlugins, $oConfig)
 	{
-		$this->oLogger = null;
-
 		$this->oPlugins = $oPlugins;
 		$this->oConfig = $oConfig;
 	}
@@ -33,8 +28,7 @@ class SieveStorage implements FiltersInterface
 	{
 		$oSieveClient = new \MailSo\Sieve\SieveClient();
 		$oSieveClient->SetLogger($this->oLogger);
-		$oSieveClient->SetTimeOuts(10, (int) \RainLoop\Api::Config()->Get('labs', 'sieve_timeout', 10));
-		return $oAccount->SieveConnectAndLoginHelper($this->oPlugins, $oSieveClient, $this->oConfig)
+		return $oAccount->SieveConnectAndLogin($this->oPlugins, $oSieveClient, $this->oConfig)
 			 ? $oSieveClient
 			 : null;
 	}
@@ -67,8 +61,7 @@ class SieveStorage implements FiltersInterface
 					'@Object' => 'Object/SieveScript',
 					'name' => self::SIEVE_FILE_NAME,
 					'active' => false,
-					'body' => '',
-					'filters' => []
+					'body' => ''
 				);
 			}
 		}
@@ -124,10 +117,5 @@ class SieveStorage implements FiltersInterface
 			return true;
 		}
 		return false;
-	}
-
-	public function SetLogger(?\MailSo\Log\Logger $oLogger)
-	{
-		$this->oLogger = $oLogger;
 	}
 }

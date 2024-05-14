@@ -23,8 +23,7 @@ abstract class DateTimeHelper
 	public static function GetUtcTimeZoneObject() : \DateTimeZone
 	{
 		static $oDateTimeZone = null;
-		if (null === $oDateTimeZone)
-		{
+		if (null === $oDateTimeZone) {
 			$oDateTimeZone = new \DateTimeZone('UTC');
 		}
 		return $oDateTimeZone;
@@ -37,13 +36,17 @@ abstract class DateTimeHelper
 	public static function ParseRFC2822DateString(string $sDateTime) : int
 	{
 		$sDateTime = \trim($sDateTime);
-		if (empty($sDateTime))
-		{
+		if (empty($sDateTime)) {
+			\SnappyMail\Log::info('', "No RFC 2822 date to parse");
 			return 0;
 		}
 
 		$sDateTime = \trim(\preg_replace('/ \([a-zA-Z0-9]+\)$/', '', $sDateTime));
 		$oDateTime = \DateTime::createFromFormat(\DateTime::RFC2822, $sDateTime, static::GetUtcTimeZoneObject());
+		// 398045302 is 1982-08-13 00:08:22 the date RFC 822 was created
+		if (!$oDateTime || 398045302 > $oDateTime->getTimestamp()) {
+			\SnappyMail\Log::notice('', "Failed to parse RFC 2822 date '{$sDateTime}'");
+		}
 		return $oDateTime ? $oDateTime->getTimestamp() : 0;
 	}
 
@@ -54,13 +57,12 @@ abstract class DateTimeHelper
 	public static function ParseInternalDateString(string $sDateTime) : int
 	{
 		$sDateTime = \trim($sDateTime);
-		if (empty($sDateTime))
-		{
+		if (empty($sDateTime)) {
 			return 0;
 		}
 
-		if (\preg_match('/^[a-z]{2,4}, /i', $sDateTime)) // RFC2822 ~ "Thu, 10 Jun 2010 08:58:33 -0700 (PDT)"
-		{
+		// RFC2822 ~ "Thu, 10 Jun 2010 08:58:33 -0700 (PDT)"
+		if (\preg_match('/^[a-z]{2,4}, /i', $sDateTime)) {
 			return static::ParseRFC2822DateString($sDateTime);
 		}
 
@@ -74,8 +76,7 @@ abstract class DateTimeHelper
 	public static function ParseDateStringType1(string $sDateTime) : int
 	{
 		$sDateTime = \trim($sDateTime);
-		if (empty($sDateTime))
-		{
+		if (empty($sDateTime)) {
 			return 0;
 		}
 

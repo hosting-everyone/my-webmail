@@ -1,4 +1,5 @@
 {
+	"LANG_DIR": "ltr",
 	"GLOBAL": {
 		"TO_ARCHIVE": "Arquivo",
 		"ARE_YOU_SURE": "Você tem certeza?",
@@ -17,11 +18,14 @@
 		"LOGOUT": "Sair",
 		"MORE": "Mais",
 		"MOVE_TO": "Mover Para",
+		"COPY_TO": "Copiar para",
 		"NAME": "Caixa de Entrada",
 		"NONE": "Nenhum",
+		"TO_SPAM": "Move message(s) to Spam",
 		"NOT_SPAM": "Não é Lixo Eletrônico",
 		"USERNAME": "Nome de usuário",
 		"PASSWORD": "Senha",
+		"REMEMBER": "Remember",
 		"REPLY_TO": "Responder para",
 		"SAVE": "Salvar",
 		"SAVE_CHANGES": "Save changes?",
@@ -33,7 +37,11 @@
 		"SERVER_MESSAGE": "Server message",
 		"YES": "Sim",
 		"NO": "Não",
-		"INACTIVE": "Inactive"
+		"INACTIVE": "Inactive",
+		"DEFAULT": "padrão",
+		"HELP": "Ajuda",
+		"TEXT": "Texto",
+		"ATTACHMENTS": "Anexos"
 	},
 	"LOGIN": {
 		"LABEL_LOGIN": "Usuário",
@@ -41,13 +49,7 @@
 		"BUTTON_SIGN_IN": "Entrar"
 	},
 	"TOP_TOOLBAR": {
-		"BUTTON_ADD_ACCOUNT": "Adicionar Conta",
-		"BUTTON_SETTINGS": "Configurações",
-		"BUTTON_HELP": "Ajuda"
-	},
-	"MOBILE": {
-		"BUTTON_MOBILE_VERSION": "Versão Mobile",
-		"BUTTON_DESKTOP_VERSION": "Versão Desktop"
+		"BUTTON_ADD_ACCOUNT": "Adicionar Conta"
 	},
 	"SEARCH": {
 		"TITLE_ADV": "Pesquisa Avançada",
@@ -109,6 +111,7 @@
 		"NEW_MESSAGE_NOTIFICATION": "Você tem %COUNT% novas mensagens!",
 		"QUOTA_SIZE": "Utilizando <strong>%SIZE% (%PROC%%)<\/strong> de <strong>%LIMIT%<\/strong>",
 		"SORT": "Sort",
+		"NO_SORT": "Mail server does not support sorting",
 		"SORT_DATE_ASC": "Date ascending",
 		"SORT_DATE_DESC": "Date descending",
 		"SORT_SIZE_ASC": "Size ascending",
@@ -137,6 +140,7 @@
 		"MENU_VIEW_ORIGINAL": "Mostrar original",
 		"HTML_VIEW": "View HTML message",
 		"PLAIN_VIEW": "View plain text message",
+		"SWAP_COLORS": "Swap default (background)color",
 		"MENU_DOWNLOAD_ORIGINAL": "Baixar como arquivo .eml",
 		"MENU_FILTER_SIMILAR": "Filtrar mensagens como esta",
 		"MENU_PRINT": "Imprimir",
@@ -151,7 +155,9 @@
 		"SPAM_SCORE": "Spam Score",
 		"HAS_VIRUS_WARNING": "WARNING: virus detected",
 		"TAGS": "Tags",
-		"NEW_TAG": "New tag"
+		"NEW_TAG": "New tag",
+		"ENABLE_TRACKING_LINKS": "Enable tracking links",
+		"TRACKING_ENABLED": "Links are now tracked when clicked!"
 	},
 	"MESSAGE_TAGS": {
 		"$important": "Important",
@@ -207,7 +213,8 @@
 		"ADD_MENU_BIRTHDAY": "Aniversário",
 		"ADD_MENU_TAGS": "Tags",
 		"BUTTON_SHARE_ALL": "Todos",
-		"BUTTON_SYNC": "Sincronização (CardDAV)"
+		"BUTTON_SYNC": "Sincronização (CardDAV)",
+		"SEND_TO_ALL_CONTACT_EMAILS": "Send to all contact emails"
 	},
 	"COMPOSE": {
 		"LINK_SHOW_INPUTS": "Exibir todos os campos",
@@ -226,11 +233,15 @@
 		"ATTACHMENTS_ERROR_DESC": "Alerta! Nem todos os arquivos foram anexados.",
 		"ATTACHMENTS_UPLOAD_ERROR_DESC": "Alguns anexos ainda não foram completamente enviados",
 		"ALLOW_SPELLCHECK": "Enable browser spelling checker",
+		"ALLOW_DRAFT_AUTOSAVE": "Salvar automaticamente rascunho",
 		"BUTTON_REQUEST_READ_RECEIPT": "Pedir recibo de leitura",
 		"BUTTON_MARK_AS_IMPORTANT": "Marcar como importante",
-		"BUTTON_REQUEST_DSN": "Pedir recibo de entrega"
+		"BUTTON_REQUEST_DSN": "Pedir recibo de entrega",
+		"BUTTON_REQUIRE_TLS": "Require secure delivery",
+		"ERROR_EMPTY_BODY": "Message body is empty"
 	},
 	"POPUPS_ASK": {
+		"EXIT_ARE_YOU_SURE": "Are you sure you want to exit?",
 		"DESC_WANT_CLOSE_THIS_WINDOW": "Você tem certeza que deseja fechar esta janela?",
 		"DESC_WANT_DELETE_MESSAGES": "Você tem certeza de que deseja excluir essa(s) mensagem(s)?"
 	},
@@ -246,8 +257,10 @@
 	"POPUPS_IDENTITY": {
 		"TITLE_ADD_IDENTITY": "Adicionar identidade",
 		"TITLE_UPDATE_IDENTITY": "Atualizar identidade?",
+		"LABEL": "Label",
 		"BUTTON_ADD_IDENTITY": "Adicionar",
 		"BUTTON_UPDATE_IDENTITY": "Atualizar",
+		"SIGNATURE": "Signature",
 		"LABEL_SIGNATURE_INSERT_BEFORE": "Inserir esta assinatura antes do texto citado nas respostas"
 	},
 	"POPUPS_CREATE_FOLDER": {
@@ -263,6 +276,21 @@
 		"DANGER_DESC_HTML_2": "Uma vez iniciado, o processo não poderá ser interrompido ou cancelado.",
 		"TITLE_CLEARING_PROCESS": "Excluindo a pasta..."
 	},
+	"CRYPTO": {
+		"SIGN": "Assinar",
+		"ENCRYPT": "Criptografar",
+		"DECRYPT": "Decrypt",
+		"VERIFY": "Verify",
+		"GOOD_SIGNATURE": "Boa assinatura de %USER%",
+		"ERROR": "Erro %TYPE%: %ERROR%",
+		"CREATE_SELF_SIGNED": "Create self-signed",
+		"VALID_UNTIL": "Valid until",
+		"PRIVATE_KEY": "Private key",
+		"CHANGE_PASS": "Change passphrase",
+		"CURRENT_PASS": "Current passphrase",
+		"NEW_PASS": "New passphrase",
+		"ASK_CRYPTKEY_PASS": "Your login passphrase has changed. Please fill in your old login passphrase to decrypt data"
+	},
 	"OPENPGP": {
 		"POPUP_IMPORT_TITLE": "Importar chave OpenPGP",
 		"POPUP_IMPORT_BUTTON": "Importar",
@@ -271,16 +299,22 @@
 		"POPUP_GENERATE_TITLE": "Gerar chave OpenPGP",
 		"POPUP_GENERATE_BUTTON": "Gerar",
 		"LABEL_KEY_TYPE": "Type",
-		"LABEL_SIGN": "Assinar",
-		"LABEL_ENCRYPT": "Criptografar",
-		"BUTTON_DECRYPT": "Decrypt",
-		"BUTTON_VERIFY": "Verify",
 		"SIGNED_MESSAGE": "Mensagem assinada com OpenPGP",
 		"ENCRYPTED_MESSAGE": "Mensagem criptografada com OpenPGP",
 		"STORE_IN_GNUPG": "Store on server in GnuPG",
+		"STORE_PUBLIC_KEY_IN_GNUPG": "Store public key on server in GnuPG",
+		"STORE_PRIVATE_KEY_IN_GNUPG": "Store private key on server in GnuPG",
 		"BACKUP_ON_SERVER": "Store (encrypted) on server",
-		"GOOD_SIGNATURE": "Boa assinatura de %USER%",
-		"ERROR": "Erro OpenPGP: %ERROR%"
+		"BACKUP_PUBLIC_KEY_ON_SERVER": "Backup public key on server",
+		"BACKUP_PRIVATE_KEY_ON_SERVER": "Backup private key on server"
+	},
+	"SMIME": {
+		"POPUP_IMPORT_TITLE": "Import S\/MIME certificate",
+		"CERTIFICATE": "Certificate",
+		"CERTIFICATES": "S\/MIME Certificates",
+		"SIGNED_MESSAGE": "Mensagem assinada com S\/MIME",
+		"ENCRYPTED_MESSAGE": "Mensagem criptografada com S\/MIME",
+		"PRIVATE_KEY_OF": "S\/MIME private key of %EMAIL%"
 	},
 	"POPUPS_FILTER": {
 		"TITLE_CREATE_FILTER": "Criar um filtro?",
@@ -314,7 +348,7 @@
 		"MARK_AS_READ_LABEL": "Marcar como Lida",
 		"REPLY_INTERVAL_LABEL": "Responder intervalo (dias)",
 		"KEEP_LABEL": "Manter",
-		"STOP_LABEL": "Não parar o processamento das regras",
+		"STOP_LABEL": "Stop further processing of rules",
 		"VACATION_SUBJECT_LABEL": "Assunto (opcional)",
 		"VACATION_MESSAGE_LABEL": "Mensagem",
 		"VACATION_RECIPIENTS_LABEL": "Destinatários (separados por vírgulas)",
@@ -353,21 +387,44 @@
 		"ERROR_UNKNOWN": "Ocorreu um erro de envio de arquivo desconhecido"
 	},
 	"EDITOR": {
-		"TEXT_SWITCHER_PLAIN_TEXT": "HTML <-> TEXTO",
-		"TEXT_SWITCHER_SOURCE": "HTML <-> SOURCE"
+		"PLAIN": "HTML <-> TEXTO",
+		"SOURCE": "HTML <-> SOURCE",
+		"FONTFAMILY": "Font family",
+		"FONTSIZE": "Font size",
+		"DIR": "Text direction",
+		"DIR_LTR": "Left to right",
+		"DIR_RTL": "Right to left",
+		"DIR_AUTO": "Automatic",
+		"TEXTCOLOR": "Text color",
+		"BACKGROUNDCOLOR": "Background color",
+		"BOLD": "Bold",
+		"ITALIC": "Italic",
+		"UNDERLINE": "Underline",
+		"STRIKE": "Strikethrough",
+		"SUB": "Subscript",
+		"SUP": "Superscript",
+		"OL": "Ordered list",
+		"UL": "Unordered list",
+		"QUOTE": "Blockquote",
+		"INDENTDECREASE": "Decrease indent",
+		"INDENTINCREASE": "Increase indent",
+		"LINK": "Link",
+		"IMAGEURL": "Image URL",
+		"IMAGEUPLOAD": "Image select",
+		"UNDO": "Undo",
+		"REDO": "Redo",
+		"REMOVESTYLE": "Remove style"
 	},
 	"SETTINGS_LABELS": {
-		"LABEL_PERSONAL_NAME": "Pessoal",
-		"LABEL_GENERAL_NAME": "Geral",
-		"LABEL_CONTACTS_NAME": "Contatos",
-		"LABEL_FOLDERS_NAME": "Pastas",
-		"LABEL_ACCOUNTS_NAME": "Contas",
-		"LABEL_FILTERS_NAME": "Filtros",
-		"LABEL_SECURITY_NAME": "Segurança",
-		"LABEL_THEMES_NAME": "Temas"
+		"GENERAL": "Geral",
+		"CONTACTS": "Contatos",
+		"FOLDERS": "Pastas",
+		"ACCOUNTS": "Contas",
+		"FILTERS": "Filtros",
+		"SECURITY": "Segurança",
+		"THEMES": "Temas"
 	},
 	"SETTINGS_FILTERS": {
-		"LEGEND_FILTERS": "Filtros",
 		"SIMPLE": "Simple",
 		"ADVANCED": "Advanced",
 		"BUTTON_ADD_SCRIPT": "Add a Script",
@@ -380,18 +437,17 @@
 	"SETTINGS_SECURITY": {
 		"LEGEND_SECURITY": "Segurança",
 		"LABEL_AUTOLOGOUT": "Deslogar Automaticamente",
-		"AUTOLOGIN_NEVER_OPTION_NAME": "Nunca",
-		"AUTOLOGIN_MINUTES_OPTION_NAME": "%MINUTES% minutos",
-		"AUTOLOGIN_HOURS_OPTION_NAME": "%HOURS% hora(s)"
+		"AUTOLOGIN_NEVER_OPTION_NAME": "Nunca"
 	},
 	"SETTINGS_GENERAL": {
-		"LEGEND_GENERAL": "Geral",
 		"LANGUAGE": "Idioma",
+		"HOUR_FORMAT": "Hour format",
 		"IDENTITY": "Identidade",
 		"LAYOUT": "Painel de Leitura",
 		"LAYOUT_NO_SPLIT": "Sem divisão",
 		"LAYOUT_VERTICAL_SPLIT": "Divisão Vertical",
 		"LAYOUT_HORIZONTAL_SPLIT": "Divisão Horizontal",
+		"SHOW_NEXT_MESSAGE": "Show next message when (re)move current message",
 		"EDITOR": "Editor de texto padrão",
 		"EDITOR_HTML": "Html",
 		"EDITOR_PLAIN": "Texto Simples",
@@ -400,21 +456,33 @@
 		"HIDE_DELETED_MESSAGES": "Ocultar mensagens marcadas para exclusão",
 		"USE_CHECKBOXES_IN_LIST": "Exibir caixas de seleção na lista",
 		"USE_THREADS": "Agrupar mensagens por conversa",
+		"THREAD_ALGORITHM": "Threads algorithm",
 		"REPLY_SAME_FOLDER": "Colocar resposta na mesma pasta da mensagem respondida",
-		"SHOW_IMAGES": "Sempre exibir imagens no corpo da mensagem",
 		"PREFER_HTML": "Prefer HTML to plain text",
 		"PREFER_HTML_INFO": "Messages sometimes come in both formats. This option controls whether you want the HTML part or the plain text part to be displayed.",
 		"REMOVE_COLORS": "Remove background and text colors from message body",
+		"ALLOW_STYLES": "Allow <style> CSS",
 		"MESSAGE_PER_PAGE": "Mensagens por Página",
+		"CHECK_MAIL_INTERVAL": "Check mail interval",
 		"MARK_MESSAGE_READ_AFTER": "Mark message as read after",
 		"MSG_DEFAULT_ACTION": "Default action",
 		"SECONDS": "seconds",
+		"MINUTES": "minutes",
 		"NOTIFICATIONS": "Notificações",
 		"SOUND_NOTIFICATION": "Notificação sonora",
 		"CHROME_NOTIFICATION_DESC": "Mostrar notificação popup para novas mensagens",
 		"CHROME_NOTIFICATION_DESC_DENIED": "(Bloqueado pelo navegador)",
+		"COLLAPSE_BLOCKQUOTES": "Collapse quoted text",
+		"MAX_QUOTE_LEVEL": "Maximum visible quoted text levels",
 		"LIST_INLINE_ATTACHMENTS": "Show inline attachments in list",
-		"LIST_SIMPLE_ATTACHMENTS": "Simple attachments list"
+		"LIST_SIMPLE_ATTACHMENTS": "Simple attachments list",
+		"LIST_MESSAGES_GROUPED": "List messages grouped (when sorting by date or from)",
+		"EXTERNAL_IMAGES": "External images",
+		"IMAGES_OPTION_ASK": "Always ask",
+		"IMAGES_OPTION_WHITELIST": "Whitelist or ask",
+		"IMAGES_OPTION_ALWAYS": "Show always",
+		"IMAGES_WHITELIST": "Images whitelist",
+		"MESSAGE_POPUP_WINDOW": "Popup in new window instead of tab"
 	},
 	"SETTINGS_CONTACTS": {
 		"LABEL_CONTACTS_AUTOSAVE": "Adicionar automaticamente os destinatários na lista de endereços",
@@ -448,7 +516,7 @@
 		"TO_MANY_FOLDERS_DESC_2": "Mostraremos apenas uma parte delas, para evitar problemas de desempenho.",
 		"HELP_DELETE_FOLDER": "Deletar pasta",
 		"HELP_SHOW_HIDE_FOLDER": "Mostrar\/esconder pasta",
-		"HELP_CHECK_FOR_NEW_MESSAGES": "Ativar\/Desativar verificação por novas mensagens",
+		"HELP_CHECK_FOR_NEW_MESSAGES": "Ativar verificação por novas mensagens",
 		"HIDE_UNSUBSCRIBED": "Hide unsubscribed folders",
 		"UNHIDE_KOLAB_FOLDERS": "Unhide Kolab folders",
 		"TYPE_CALENDAR": "Calendar",
@@ -466,14 +534,14 @@
 		"BUTTON_ADD_ACCOUNT": "Adicionar uma conta",
 		"BUTTON_ADD_IDENTITY": "Adicionar uma identidade",
 		"LOADING_PROCESS": "Atualizando a lista de contas",
-		"DEFAULT_IDENTITY_LABEL": "padrão"
+		"SHOW_UNREAD": "Show unread messages count"
 	},
 	"SETTINGS_OPENPGP": {
 		"BUTTON_IMPORT_KEY": "Importa chave",
 		"BUTTON_GENERATE_KEY_PAIR": "Gerar chave",
+		"IMPORT_FROM_SERVER": "Import from server",
 		"TITLE_PRIVATE": "Privado",
 		"TITLE_PUBLIC": "Público",
-		"LABEL_ALLOW_DRAFT_AUTOSAVE": "Salvar automaticamente rascunho",
 		"GET_MAILVELOPE": "Get Mailvelope browser add-on."
 	},
 	"SHORTCUTS_HELP": {
@@ -487,7 +555,6 @@
 		"LABEL_REPLY_ALL": "Responder todos",
 		"LABEL_FORWARD": "Encaminhar",
 		"LABEL_FORWARD_MULTIPLY": "Encaminhar como anexo",
-		"LABEL_HELP": "Ajuda",
 		"LABEL_CHECK_ALL": "Selecionar todas as mensagens",
 		"LABEL_DELETE": "Excluir",
 		"LABEL_OPEN_THREAD": "Abrir conversa selecionada",
@@ -515,42 +582,43 @@
 		"LABEL_CLOSE_COMPOSE": "Fechar composição"
 	},
 	"NOTIFICATIONS": {
-		"REQUEST_ERROR": "Request failed",
-		"REQUEST_ABORTED": "Request is aborted",
-		"REQUEST_TIMEOUT": "Request timed out",
-		"INVALID_TOKEN": "Senha inválida",
-		"AUTH_ERROR": "Falha na autenticação",
-		"CONNECTION_ERROR": "Não foi possível conectar-se ao servidor",
-		"DOMAIN_ALREADY_EXISTS": "O domínio já existe",
-		"DOMAIN_NOT_ALLOWED": "Este domínio não é permitido",
-		"ACCOUNT_NOT_ALLOWED": "Conta não permitida",
-		"CONTACTS_SYNC_ERROR": "Erro na sincronização dos contatos",
-		"CANT_GET_MESSAGE_LIST": "Não foi possível obter a lista de mensagens",
-		"CANT_GET_MESSAGE": "Não foi possível obter a mensagem",
-		"CANT_DELETE_MESSAGE": "Não foi possível excluir a mensagem",
-		"CANT_COPY_MESSAGE": "Can't copy message",
-		"CANT_MOVE_MESSAGE": "Não foi possível mover a mensagem",
-		"CANT_SAVE_MESSAGE": "Não foi possível salvar a mensagem",
-		"CANT_SEND_MESSAGE": "Não foi possível enviar a mensagem",
-		"INVALID_RECIPIENTS": "Destinatário inválido",
-		"CANT_SAVE_FILTERS": "Não é possível salvar os filtros",
-		"CANT_GET_FILTERS": "Não é possível obter os filtros",
-		"CANT_ACTIVATE_FILTERS_SCRIPT": "Can't activate filters script",
-		"CANT_DELETE_FILTERS_SCRIPT": "Can't delete filters script",
-		"FILTERS_ARE_NOT_CORRECT": "Os filtros não estão corretos",
-		"CANT_CREATE_FOLDER": "Não foi possível criar a pasta",
-		"CANT_RENAME_FOLDER": "Não foi possível renomear a pasta",
-		"CANT_DELETE_FOLDER": "Não foi possível exluir a pasta",
-		"CANT_DELETE_NON_EMPTY_FOLDER": "Não é possível excluir diretório não vazio",
-		"CANT_SUBSCRIBE_FOLDER": "Não foi possível inscrever esta pasta",
-		"CANT_UNSUBSCRIBE_FOLDER": "Não foi possível desinscrever esta pasta",
-		"DEMO_SEND_MESSAGE_ERROR": "Por motivos de segurança, esta conta demo não tem permissão para enviar mensagens para endereços de e-mail externo!",
-		"DEMO_ACCOUNT_ERROR": "For security purposes, this account is not allowed for this action!",
-		"ACCOUNT_ALREADY_EXISTS": "Esta conta já existe",
-		"ACCOUNT_DOES_NOT_EXIST": "Conta não existente",
-		"ACCOUNT_SWITCH_FAILED": "Switch to account \"%EMAIL%\" failed",
-		"MAIL_SERVER_ERROR": "Ocorreu um erro ao acessar o servidor de e-mail",
-		"INVALID_INPUT_ARGUMENT": "Argumento de entrada inválido",
-		"UNKNOWN_ERROR": "Erro desconhecido"
+		"RequestError": "Request failed",
+		"RequestAborted": "Request is aborted",
+		"RequestTimeout": "Request timed out",
+		"InvalidToken": "Senha inválida",
+		"AuthError": "Falha na autenticação",
+		"ConnectionError": "Não foi possível conectar-se ao servidor",
+		"DomainAlreadyExists": "O domínio já existe",
+		"DomainNotAllowed": "Este domínio não é permitido",
+		"AccountNotAllowed": "Conta não permitida",
+		"CryptKeyError": "Your login passphrase has changed",
+		"ContactsSyncError": "Erro na sincronização dos contatos",
+		"CantGetMessageList": "Não foi possível obter a lista de mensagens",
+		"CantGetMessage": "Não foi possível obter a mensagem",
+		"CantDeleteMessage": "Não foi possível excluir a mensagem",
+		"CantCopyMessage": "Can't copy message",
+		"CantMoveMessage": "Não foi possível mover a mensagem",
+		"CantSaveMessage": "Não foi possível salvar a mensagem",
+		"CantSendMessage": "Não foi possível enviar a mensagem",
+		"InvalidRecipients": "Destinatário inválido",
+		"CantSaveFilters": "Não é possível salvar os filtros",
+		"CantGetFilters": "Não é possível obter os filtros",
+		"CantActivateFiltersScript": "Can't activate filters script",
+		"CantDeleteFiltersScript": "Can't delete filters script",
+		"FiltersAreNotCorrect": "Os filtros não estão corretos",
+		"CantCreateFolder": "Não foi possível criar a pasta",
+		"CantRenameFolder": "Não foi possível renomear a pasta",
+		"CantDeleteFolder": "Não foi possível exluir a pasta",
+		"CantDeleteNonEmptyFolder": "Não é possível excluir diretório não vazio",
+		"CantSubscribeFolder": "Não foi possível inscrever esta pasta",
+		"CantUnsubscribeFolder": "Não foi possível desinscrever esta pasta",
+		"DemoSendMessageError": "Por motivos de segurança, esta conta demo não tem permissão para enviar mensagens para endereços de e-mail externo!",
+		"DemoAccountError": "For security purposes, this account is not allowed for this action!",
+		"AccountAlreadyExists": "Esta conta já existe",
+		"AccountDoesNotExist": "Conta não existente",
+		"AccountSwitchFailed": "Switch to account \"%EMAIL%\" failed",
+		"MailServerError": "Ocorreu um erro ao acessar o servidor de e-mail",
+		"InvalidInputArgument": "Argumento de entrada inválido",
+		"UnknownError": "Erro desconhecido"
 	}
 }

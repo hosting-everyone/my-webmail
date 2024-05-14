@@ -9,32 +9,14 @@ use
 ;
 
 class PdoAddressBook
-	extends \RainLoop\Common\PdoAbstract
+	extends \RainLoop\Pdo\Base
 	implements AddressBookInterface
 {
 	use CardDAV;
 
 	private $iUserID = 0;
 
-	/**
-	 * @var string
-	 */
-	private $sDsn;
-
-	/**
-	 * @var string
-	 */
-	private $sDsnType;
-
-	/**
-	 * @var string
-	 */
-	private $sUser;
-
-	/**
-	 * @var string
-	 */
-	private $sPassword;
+	private \RainLoop\Pdo\Settings $settings;
 
 	private static $aSearchInFields = [
 		PropertyType::EMAIl,
@@ -46,29 +28,38 @@ class PdoAddressBook
 	public function __construct()
 	{
 		$oConfig = \RainLoop\Api::Config();
-		$sDsnType = static::validPdoType($oConfig->Get('contacts', 'type', 'sqlite'));
-		if ('sqlite' === $sDsnType) {
-			$sUser = $sPassword = '';
+		$oSettings = new \RainLoop\Pdo\Settings;
+		$oSettings->driver = static::validPdoType($oConfig->Get('contacts', 'type', 'sqlite'));
+		if ('sqlite' === $oSettings->driver) {
 			$sDsn = 'sqlite:' . APP_PRIVATE_DATA . 'AddressBook.sqlite';
-/*
-			// TODO: use local db?
-			$homedir = \RainLoop\Api::Actions()->StorageProvider()->GenerateFilePath(
-				$oAccount,
-				\RainLoop\Providers\Storage\Enumerations\StorageType::ROOT
-			);
-			$sDsn = 'sqlite:' . $homedir . '/AddressBook.sqlite';
-*/
+			if (!$oConfig->Get('contacts', 'sqlite_global', \is_file(APP_PRIVATE_DATA . '/AddressBook.sqlite'))) {
+				$oAccount = \RainLoop\Api::Actions()->getMainAccountFromToken(false);
+				if ($oAccount) {
+					$homedir = \RainLoop\Api::Actions()->StorageProvider()->GenerateFilePath(
+						$oAccount,
+						\RainLoop\Providers\Storage\Enumerations\StorageType::ROOT
+					);
+					// TODO: sync data on switch?
+//					if (!\is_file($homedir . 'AddressBook.sqlite') && \is_file(APP_PRIVATE_DATA . '/AddressBook.sqlite')) {
+//						\copy(APP_PRIVATE_DATA . '/AddressBook.sqlite', $homedir . 'AddressBook.sqlite');
+//					}
+					$sDsn = 'sqlite:' . $homedir . 'AddressBook.sqlite';
+				}
+			}
 		} else {
 			$sDsn = \trim($oConfig->Get('contacts', 'pdo_dsn', ''));
-			$sUser = \trim($oConfig->Get('contacts', 'pdo_user', ''));
-			$sPassword = (string)$oConfig->Get('contacts', 'pdo_password', '');
-			$sDsn = $sDsnType . ':' . \preg_replace('/^[a-z]+:/', '', $sDsn);
+			$oSettings->user = \trim($oConfig->Get('contacts', 'pdo_user', ''));
+			$oSettings->password = (string)$oConfig->Get('contacts', 'pdo_password', '');
+			$sDsn = $oSettings->driver . ':' . \preg_replace('/^[a-z]+:/', '', $sDsn);
+			if ('mysql' === $oSettings->driver) {
+				$oSettings->sslCa = \trim($oConfig->Get('contacts', 'mysql_ssl_ca', ''));
+				$oSettings->sslVerify = !!$oConfig->Get('contacts', 'mysql_ssl_verify', true);
+				$oSettings->sslCiphers = \trim($oConfig->Get('contacts', 'mysql_ssl_ciphers', ''));
+			}
 		}
 
-		$this->sDsn = $sDsn;
-		$this->sUser = $sUser;
-		$this->sPassword = $sPassword;
-		$this->sDsnType = $sDsnType;
+		$oSettings->dsn = $sDsn;
+		$this->settings = $oSettings;
 
 		$this->bExplain = false; // debug
 	}
@@ -82,7 +73,7 @@ class PdoAddressBook
 	public function IsSupported() : bool
 	{
 		$aDrivers = static::getAvailableDrivers();
-		return \is_array($aDrivers) && \in_array($this->sDsnType, $aDrivers);
+		return \is_array($aDrivers) && \in_array($this->settings->driver, $aDrivers);
 	}
 
 	public function SetEmail(string $sEmail) : bool
@@ -101,9 +92,12 @@ class PdoAddressBook
 	private function prepareDatabaseSyncData() : array
 	{
 		$aResult = array();
-		$oStmt = $this->prepareAndExecute('SELECT id_contact, id_contact_str, changed, deleted, etag FROM rainloop_ab_contacts WHERE id_user = :id_user', array(
-			':id_user' => array($this->iUserID, \PDO::PARAM_INT)
-		));
+		$oStmt = $this->prepareAndExecute('SELECT id_contact, id_contact_str, changed, deleted, etag
+			FROM rainloop_ab_contacts
+			WHERE id_user = :id_user
+			ORDER BY deleted DESC',
+			array(':id_user' => array($this->iUserID, \PDO::PARAM_INT))
+		);
 
 		if ($oStmt) {
 			$aFetch = $oStmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -141,7 +135,7 @@ class PdoAddressBook
 			return false;
 		}
 
-		$sPath = $oClient->__UrlPath__;
+		$sPath = $oClient->urlPath;
 
 		$time = \microtime(true);
 		$aRemoteSyncData = $this->prepareDavSyncData($oClient, $sPath);
@@ -150,34 +144,41 @@ class PdoAddressBook
 			return false;
 		}
 		$time = \microtime(true) - $time;
-		\SnappyMail\HTTP\Stream::JSON(['messsage'=>"Fetched remote data in {$time} seconds"]);
+		\SnappyMail\HTTP\Stream::JSON(['messsage'=>"Received ".\count($aRemoteSyncData)." remote contacts in {$time} seconds"]);
+		\SnappyMail\Log::info('PdoAddressBook', \count($aRemoteSyncData) . ' remote contacts');
 
-		$aDatabaseSyncData = $this->prepareDatabaseSyncData();
+		$aLocalSyncData = $this->prepareDatabaseSyncData();
+		\SnappyMail\Log::info('PdoAddressBook', \count($aLocalSyncData) . ' local contacts');
 
 //		$this->oLogger->WriteDump($aRemoteSyncData);
-//		$this->oLogger->WriteDump($aDatabaseSyncData);
+//		$this->oLogger->WriteDump($aLocalSyncData);
 
 		$bReadWrite = $this->isDAVReadWrite();
 
 		// Delete remote when Mode = read + write
 		if ($bReadWrite) {
 			\SnappyMail\Log::info('PdoAddressBook', 'Sync() is import and export');
-			foreach ($aDatabaseSyncData as $sKey => $aData) {
+			$iCount = 0;
+			foreach ($aLocalSyncData as $sKey => $aData) {
 				if ($aData['deleted']) {
-					unset($aDatabaseSyncData[$sKey]);
+					++$iCount;
+					unset($aLocalSyncData[$sKey]);
 					if (isset($aRemoteSyncData[$sKey], $aRemoteSyncData[$sKey]['vcf'])) {
 						\SnappyMail\HTTP\Stream::JSON(['messsage'=>"Delete remote {$sKey}"]);
 						$this->davClientRequest($oClient, 'DELETE', $sPath.$aRemoteSyncData[$sKey]['vcf']);
 					}
 				}
 			}
+			if ($iCount) {
+				\SnappyMail\Log::info('PdoAddressBook', $iCount . ' remote contacts removed');
+			}
 		} else {
 			\SnappyMail\Log::info('PdoAddressBook', 'Sync() is import only');
 		}
 
-		// Delete from db
+		// Delete local
 		$aIdsForDeletion = array();
-		foreach ($aDatabaseSyncData as $sKey => $aData) {
+		foreach ($aLocalSyncData as $sKey => $aData) {
 			if (!empty($aData['etag']) && !isset($aRemoteSyncData[$sKey])) {
 				$aIdsForDeletion[] = $aData['id_contact'];
 			}
@@ -185,39 +186,31 @@ class PdoAddressBook
 		if (\count($aIdsForDeletion)) {
 			\SnappyMail\HTTP\Stream::JSON(['messsage'=>'Delete local ' . \implode(', ', $aIdsForDeletion)]);
 			$this->DeleteContacts($aIdsForDeletion);
+			\SnappyMail\Log::info('PdoAddressBook', \count($aIdsForDeletion) . ' local contacts removed');
 			unset($aIdsForDeletion);
 		}
 
 		$this->flushDeletedContacts();
 
-		//+++new or newer (from db)
-		foreach ($aDatabaseSyncData as $sKey => $aData) {
-			if ((empty($aData['etag']) && !isset($aRemoteSyncData[$sKey])) // new
-				||
-				(!empty($aData['etag']) && isset($aRemoteSyncData[$sKey]) && // newer
-					$aRemoteSyncData[$sKey]['etag'] !== $aData['etag'] &&
-					$aRemoteSyncData[$sKey]['changed'] < $aData['changed']
-				)
-			) {
-				\SnappyMail\HTTP\Stream::JSON(['messsage'=>"Update remote {$sKey}"]);
-				$mID = $aData['id_contact'];
-				$oContact = $this->GetContactByID($mID);
-				if ($oContact) {
-					$sExsistensBody = '';
-					$mExsistenRemoteID = isset($aRemoteSyncData[$sKey]['vcf']) && !empty($aData['etag']) ? $aRemoteSyncData[$sKey]['vcf'] : '';
-					if (\strlen($mExsistenRemoteID)) {
-						$oResponse = $this->davClientRequest($oClient, 'GET', $sPath.$mExsistenRemoteID);
-						if ($oResponse) {
-							$sExsistensBody = \trim($oResponse->body);
-						}
-
-//						$this->oLogger->WriteDump($sExsistensBody);
-					}
-
-					// Add remote when Mode = read + write
-					if ($sExsistensBody && $bReadWrite) {
+		// local is new or newer
+		if ($bReadWrite) {
+			foreach ($aLocalSyncData as $sKey => $aData) {
+				if ((empty($aData['etag']) && !isset($aRemoteSyncData[$sKey])) // new
+				 // newer
+				 || (!empty($aData['etag']) && isset($aRemoteSyncData[$sKey]) &&
+						$aRemoteSyncData[$sKey]['etag'] !== $aData['etag'] &&
+						$aRemoteSyncData[$sKey]['changed'] < $aData['changed']
+					)
+				) {
+					\SnappyMail\HTTP\Stream::JSON(['messsage'=>"Update remote {$sKey}"]);
+					$mID = $aData['id_contact'];
+					$oContact = $this->GetContactByID($mID);
+					if ($oContact) {
+						$sRemoteID = isset($aRemoteSyncData[$sKey]['vcf']) && !empty($aData['etag'])
+							? $aRemoteSyncData[$sKey]['vcf'] : '';
+						\SnappyMail\Log::info('PdoAddressBook', "Update contact {$sKey} in DAV");
 						$oResponse = $this->davClientRequest($oClient, 'PUT',
-							$sPath.(\strlen($mExsistenRemoteID) ? $mExsistenRemoteID : $oContact->IdContactStr.'.vcf'),
+							$sPath . ($sRemoteID ?: $oContact->IdContactStr.'.vcf'),
 							$oContact->vCard->serialize() . "\r\n\r\n");
 						if ($oResponse) {
 							$sEtag = \trim(\trim($oResponse->getHeader('etag')), '"\'');
@@ -233,25 +226,26 @@ class PdoAddressBook
 									)
 								);
 							}
+						} else {
+							\SnappyMail\Log::warning('PdoAddressBook', "Update/create remote failed");
 						}
+					} else {
+						\SnappyMail\Log::warning('PdoAddressBook', "Local contact {$sKey} not found");
 					}
+					unset($oContact);
 				}
-
-				unset($oContact);
 			}
 		}
-		//---new
 
-		//+++new or newer (from carddav)
+		// remote is new or newer
 		foreach ($aRemoteSyncData as $sKey => $aData) {
-			if (!isset($aDatabaseSyncData[$sKey]) // new
-					 ||
-				($aDatabaseSyncData[$sKey]['etag'] !== $aData['etag'] && // newer
-					$aDatabaseSyncData[$sKey]['changed'] < $aData['changed'])
+			if (!isset($aLocalSyncData[$sKey]) // new
+			 // newer
+			 || ($aLocalSyncData[$sKey]['etag'] !== $aData['etag'] && $aLocalSyncData[$sKey]['changed'] < $aData['changed'])
 			) {
 				\SnappyMail\HTTP\Stream::JSON(['messsage'=>"Update local {$sKey}"]);
-				$mExistingContactID = isset($aDatabaseSyncData[$sKey]['id_contact']) ?
-					$aDatabaseSyncData[$sKey]['id_contact'] : '';
+
+				$oVCard = null;
 
 				$oResponse = $this->davClientRequest($oClient, 'GET', $sPath.$aData['vcf']);
 				if ($oResponse) {
@@ -263,41 +257,39 @@ class PdoAddressBook
 					}
 
 					if (!empty($sBody)) {
-						$oVCard = null;
 						try {
 							$oVCard = \Sabre\VObject\Reader::read($sBody);
-						}
-						catch (\Throwable $oExc) {
-							if ($this->oLogger) {
-								$this->oLogger->WriteException($oExc);
-								$this->oLogger->WriteDump($sBody);
-							}
-						}
-
-						if ($oVCard instanceof VCard) {
-							$oVCard->UID = $aData['uid'];
-
-							$oContact = null;
-							if ($mExistingContactID) {
-								$oContact = $this->GetContactByID($mExistingContactID);
-							}
-							if (!$oContact) {
-								$oContact = new Contact();
-							}
-
-							$oContact->setVCard($oVCard);
-
-							$sEtag = \trim($oResponse->getHeader('etag'), " \n\r\t\v\x00\"'");
-							if (!empty($sEtag)) {
-								$oContact->Etag = $sEtag;
-							}
-
-							$this->ContactSave($oContact);
-							unset($oContact);
-//						} else if ($this->oLogger) {
-//							$this->oLogger->WriteDump($sBody);
+						} catch (\Throwable $oExc) {
+							$this->logException($oExc);
+							$this->oLogger && $this->oLogger->WriteDump($sBody);
 						}
 					}
+				}
+
+				if ($oVCard instanceof VCard) {
+					$oVCard->UID = $aData['uid'];
+
+					$oContact = empty($aLocalSyncData[$sKey]['id_contact'])
+						 ? null
+						 : $this->GetContactByID($aLocalSyncData[$sKey]['id_contact']);
+					if ($oContact) {
+						\SnappyMail\Log::info('PdoAddressBook', "Update local contact {$sKey}");
+					} else {
+						\SnappyMail\Log::info('PdoAddressBook', "Create local contact {$sKey}");
+						$oContact = new Contact();
+					}
+
+					$oContact->setVCard($oVCard);
+
+					$sEtag = \trim($oResponse->getHeader('etag'), " \n\r\t\v\x00\"'");
+					if (!empty($sEtag)) {
+						$oContact->Etag = $sEtag;
+					}
+
+					$this->ContactSave($oContact);
+					unset($oContact);
+				} else {
+					\SnappyMail\Log::error('PdoAddressBook', "Import remote contact {$sKey} failed");
 				}
 			}
 		}
@@ -308,6 +300,7 @@ class PdoAddressBook
 	public function Export(string $sType = 'vcf') : bool
 	{
 		if (1 > $this->iUserID) {
+			\SnappyMail\Log::warning('PdoAddressBook', 'Export() invalid $iUserID');
 			return false;
 		}
 
@@ -317,16 +310,21 @@ class PdoAddressBook
 		$aDatabaseSyncData = $this->prepareDatabaseSyncData();
 		if (\count($aDatabaseSyncData)) {
 			foreach ($aDatabaseSyncData as $mData) {
-				if ($mData && isset($mData['id_contact'], $mData['deleted']) && !$mData['deleted']) {
-					$oContact = $this->GetContactByID($mData['id_contact']);
-					if ($oContact) {
-						if ($rCsv) {
-							Utils::VCardToCsv($rCsv, $oContact, $bCsvHeader);
-							$bCsvHeader = false;
-						} else {
-							echo $oContact->vCard->serialize();
+				try {
+//					if ($mData && isset($mData['id_contact'], $mData['deleted']) && !$mData['deleted']) {
+					if ($mData && !empty($mData['id_contact'])) {
+						$oContact = $this->GetContactByID($mData['id_contact']);
+						if ($oContact) {
+							if ($rCsv) {
+								Utils::VCardToCsv($rCsv, $oContact->vCard, $bCsvHeader);
+								$bCsvHeader = false;
+							} else {
+								echo $oContact->vCard->serialize();
+							}
 						}
 					}
+				} catch (\Throwable $oExc) {
+					$this->logException($oExc);
 				}
 			}
 		}
@@ -337,6 +335,7 @@ class PdoAddressBook
 	public function ContactSave(Contact $oContact) : bool
 	{
 		if (1 > $this->iUserID) {
+			\SnappyMail\Log::warning('PdoAddressBook', 'ContactSave() invalid $iUserID');
 			return false;
 		}
 
@@ -436,6 +435,7 @@ class PdoAddressBook
 	public function DeleteContacts(array $aContactIds) : bool
 	{
 		if (1 > $this->iUserID) {
+			\SnappyMail\Log::warning('PdoAddressBook', 'DeleteContacts() invalid $iUserID');
 			return false;
 		}
 
@@ -697,6 +697,40 @@ class PdoAddressBook
 	/**
 	 * @param mixed $mID
 	 */
+	public function GetContactByEmail(string $sEmail) : ?Contact
+	{
+		$sLowerSearch = $this->specialConvertSearchValueLower($sEmail);
+
+		$sSql = 'SELECT
+			DISTINCT id_contact
+		FROM rainloop_ab_properties
+		WHERE id_user = :id_user
+		 AND prop_type = '.PropertyType::JCARD.'
+		 AND ('.
+			'prop_value LIKE :search ESCAPE \'=\''
+				. (\strlen($sLowerSearch) ? ' OR (prop_value_lower <> \'\' AND prop_value_lower LIKE :search_lower ESCAPE \'=\')' : '').
+			')';
+		$aParams = array(
+			':id_user' => array($this->iUserID, \PDO::PARAM_INT),
+			':search' => array($this->specialConvertSearchValue($sEmail, '='), \PDO::PARAM_STR)
+		);
+		if (\strlen($sLowerSearch)) {
+			$aParams[':search_lower'] = array($sLowerSearch, \PDO::PARAM_STR);
+		}
+
+		$oContact = null;
+		$iIdContact = 0;
+
+		$aContacts = $this->getContactsFromPDO(
+			$this->prepareAndExecute($sSql, $aParams)
+		);
+
+		return $aContacts ? $aContacts[0] : null;
+	}
+
+	/**
+	 * @param mixed $mID
+	 */
 	public function GetContactByID($mID, bool $bIsStrID = false) : ?Contact
 	{
 		$mID = \trim($mID);
@@ -710,7 +744,7 @@ class PdoAddressBook
 			p.prop_value as jcard
 		FROM rainloop_ab_contacts AS c
 		LEFT JOIN rainloop_ab_properties AS p ON (p.id_contact = c.id_contact AND p.prop_type = :prop_type)
-		WHERE c.deleted = 0 AND c.id_user = :id_user';
+		WHERE c.id_user = :id_user AND c.deleted = 0';
 
 		$aParams = array(
 			':id_user' => array($this->iUserID, \PDO::PARAM_INT),
@@ -738,7 +772,7 @@ class PdoAddressBook
 	}
 
 	/**
-	 * @throws \InvalidArgumentException
+	 * @throws \ValueError
 	 */
 	public function GetSuggestions(string $sSearch, int $iLimit = 20) : array
 	{
@@ -748,7 +782,7 @@ class PdoAddressBook
 
 		$sSearch = \trim($sSearch);
 		if (!\strlen($sSearch)) {
-			throw new \InvalidArgumentException('Empty Search argument');
+			throw new \ValueError('Empty Search argument');
 		}
 
 		$sTypes = \implode(',', static::$aSearchInFields);
@@ -902,6 +936,9 @@ class PdoAddressBook
 		return array();
 	}
 
+	/**
+	 * @throws \ValueError
+	 */
 	public function IncFrec(array $aEmails, bool $bCreateAuto = true) : bool
 	{
 		if (1 > $this->iUserID) {
@@ -925,7 +962,7 @@ class PdoAddressBook
 		});
 
 		if (!\count($aEmailsObjects)) {
-			throw new \InvalidArgumentException('Empty Emails argument');
+			throw new \ValueError('Empty Emails argument');
 		}
 
 		$aExists = array();
@@ -1027,7 +1064,7 @@ class PdoAddressBook
 		$sResult = '';
 		try {
 			$this->SyncDatabase();
-			if (0 >= $this->getVersion($this->sDsnType.'-ab-version')) {
+			if (0 >= $this->getVersion($this->settings->driver.'-ab-version')) {
 				$sResult = 'Unknown database error';
 			}
 		}
@@ -1045,127 +1082,6 @@ class PdoAddressBook
 		return $sResult;
 	}
 
-	private function getInitialTablesArray(string $sDbType) : array
-	{
-		switch ($sDbType) {
-			case 'mysql':
-				$sInitial = <<<MYSQLINITIAL
-
-CREATE TABLE IF NOT EXISTS rainloop_ab_contacts (
-
-	id_contact     bigint UNSIGNED  NOT NULL AUTO_INCREMENT,
-	id_contact_str varchar(128)     NOT NULL DEFAULT '',
-	id_user        int UNSIGNED     NOT NULL,
-	display        varchar(255)     NOT NULL DEFAULT '',
-	changed        int UNSIGNED     NOT NULL DEFAULT 0,
-	deleted        tinyint UNSIGNED NOT NULL DEFAULT 0,
-	etag           varchar(128)     CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL DEFAULT '',
-
-	PRIMARY KEY(id_contact),
-	INDEX id_user_rainloop_ab_contacts_index (id_user)
-
-) ENGINE=INNODB CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
-
-CREATE TABLE IF NOT EXISTS rainloop_ab_properties (
-
-	id_prop           bigint UNSIGNED  NOT NULL AUTO_INCREMENT,
-	id_contact        bigint UNSIGNED  NOT NULL,
-	id_user           int UNSIGNED     NOT NULL,
-	prop_type         tinyint UNSIGNED NOT NULL,
-	prop_type_str     varchar(255)     CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL DEFAULT '',
-	prop_value        MEDIUMTEXT         NOT NULL,
-	prop_value_custom MEDIUMTEXT         NOT NULL,
-	prop_frec         int UNSIGNED     NOT NULL DEFAULT 0,
-
-	PRIMARY KEY(id_prop),
-	INDEX id_user_rainloop_ab_properties_index (id_user),
-	INDEX id_user_id_contact_rainloop_ab_properties_index (id_user, id_contact),
-	INDEX id_contact_prop_type_rainloop_ab_properties_index (id_contact, prop_type)
-
-) ENGINE=INNODB CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
-
-MYSQLINITIAL;
-				break;
-
-			case 'pgsql':
-				$sInitial = <<<POSTGRESINITIAL
-
-CREATE TABLE rainloop_ab_contacts (
-	id_contact     bigserial    PRIMARY KEY,
-	id_contact_str varchar(128) NOT NULL DEFAULT '',
-	id_user        integer      NOT NULL,
-	display        varchar(255) NOT NULL DEFAULT '',
-	changed        integer      NOT NULL default 0,
-	deleted        integer      NOT NULL default 0,
-	etag           varchar(128) NOT NULL DEFAULT ''
-);
-
-CREATE INDEX id_user_rainloop_ab_contacts_index ON rainloop_ab_contacts (id_user);
-
-CREATE TABLE rainloop_ab_properties (
-	id_prop           bigserial    PRIMARY KEY,
-	id_contact        integer      NOT NULL,
-	id_user           integer      NOT NULL,
-	prop_type         integer      NOT NULL,
-	prop_type_str     varchar(255) NOT NULL DEFAULT '',
-	prop_value        text         NOT NULL DEFAULT '',
-	prop_value_custom text         NOT NULL DEFAULT '',
-	prop_frec         integer      NOT NULL default 0
-);
-
-CREATE INDEX id_user_rainloop_ab_properties_index ON rainloop_ab_properties (id_user);
-CREATE INDEX id_user_id_contact_rainloop_ab_properties_index ON rainloop_ab_properties (id_user, id_contact);
-
-POSTGRESINITIAL;
-				break;
-
-			case 'sqlite':
-				$sInitial = <<<SQLITEINITIAL
-
-CREATE TABLE rainloop_ab_contacts (
-	id_contact     integer NOT NULL PRIMARY KEY,
-	id_contact_str text    NOT NULL DEFAULT '',
-	id_user        integer NOT NULL,
-	display        text    NOT NULL DEFAULT '',
-	changed        integer NOT NULL DEFAULT 0,
-	deleted        integer NOT NULL DEFAULT 0,
-	etag           text    NOT NULL DEFAULT ''
-);
-
-CREATE INDEX id_user_rainloop_ab_contacts_index ON rainloop_ab_contacts (id_user);
-
-CREATE TABLE rainloop_ab_properties (
-	id_prop           integer NOT NULL PRIMARY KEY,
-	id_contact        integer NOT NULL,
-	id_user           integer NOT NULL,
-	prop_type         integer NOT NULL,
-	prop_type_str     text    NOT NULL DEFAULT '',
-	prop_value        text    NOT NULL DEFAULT '',
-	prop_value_custom text    NOT NULL DEFAULT '',
-	prop_frec         integer NOT NULL DEFAULT 0
-);
-
-CREATE INDEX id_user_rainloop_ab_properties_index ON rainloop_ab_properties (id_user);
-CREATE INDEX id_user_id_contact_rainloop_ab_properties_index ON rainloop_ab_properties (id_user, id_contact);
-
-SQLITEINITIAL;
-				break;
-		}
-
-		$aResult = array();
-		if (\strlen($sInitial)) {
-			$aList = \explode(';', \trim($sInitial));
-			foreach ($aList as $sV) {
-				$sV = \trim($sV);
-				if (\strlen($sV)) {
-					$aResult[] = $sV;
-				}
-			}
-		}
-
-		return $aResult;
-	}
-
 	private function SyncDatabase() : bool
 	{
 		static $mCache = null;
@@ -1174,44 +1090,14 @@ SQLITEINITIAL;
 		}
 
 		$mCache = false;
-		switch ($this->sDsnType) {
+		switch ($this->settings->driver) {
 			case 'mysql':
-				$mCache = $this->dataBaseUpgrade($this->sDsnType.'-ab-version', array(
-					1 => $this->getInitialTablesArray($this->sDsnType),
-					2 => array(
-'ALTER TABLE rainloop_ab_properties ADD prop_value_lower MEDIUMTEXT NOT NULL AFTER prop_value_custom;'
-					),
-					3 => array(
-'ALTER TABLE rainloop_ab_properties CHANGE prop_value prop_value MEDIUMTEXT NOT NULL;',
-'ALTER TABLE rainloop_ab_properties CHANGE prop_value_custom prop_value_custom MEDIUMTEXT NOT NULL;',
-'ALTER TABLE rainloop_ab_properties CHANGE prop_value_lower prop_value_lower MEDIUMTEXT NOT NULL;'
-					),
-					4 => array(
-'ALTER TABLE rainloop_ab_properties CHANGE prop_value prop_value MEDIUMTEXT NOT NULL;',
-'ALTER TABLE rainloop_ab_properties CHANGE prop_value_custom prop_value_custom MEDIUMTEXT NOT NULL;',
-'ALTER TABLE rainloop_ab_properties CHANGE prop_value_lower prop_value_lower MEDIUMTEXT NOT NULL;'
-					)
-				));
-				break;
 			case 'pgsql':
-				$mCache = $this->dataBaseUpgrade($this->sDsnType.'-ab-version', array(
-					1 => $this->getInitialTablesArray($this->sDsnType),
-					2 => array(
-'ALTER TABLE rainloop_ab_properties ADD prop_value_lower text NOT NULL DEFAULT \'\';'
-					),
-					3 => array(),
-					4 => array()
-				));
-				break;
 			case 'sqlite':
-				$mCache = $this->dataBaseUpgrade($this->sDsnType.'-ab-version', array(
-					1 => $this->getInitialTablesArray($this->sDsnType),
-					2 => array(
-'ALTER TABLE rainloop_ab_properties ADD prop_value_lower text NOT NULL DEFAULT \'\';'
-					),
-					3 => array(),
-					4 => array()
-				));
+				$mCache = $this->dataBaseUpgrade(
+					$this->settings->driver.'-ab-version',
+					PdoSchema::getForDbType($this->settings->driver)
+				);
 				break;
 		}
 
@@ -1257,18 +1143,27 @@ SQLITEINITIAL;
 				(string) \mb_strtolower($sSearch)).'%';
 	}
 
-	protected function getPdoAccessData() : array
+	protected function getPdoSettings() : \RainLoop\Pdo\Settings
 	{
-		return array($this->sDsnType, $this->sDsn, $this->sUser, $this->sPassword);
+		$sSslCa = $this->settings->sslCa;
+		if ($sSslCa && !\is_file($sSslCa)) {
+			$sFile = \APP_PRIVATE_DATA . 'configs/contacts_mysql_ssl_ca.pem';
+//			$sSslCa = (\is_file($sFile) || \file_put_contents($sFile, $sSslCa)) ? $sFile : '';
+			$this->settings->sslCa = \file_put_contents($sFile, $sSslCa) ? $sFile : '';
+		}
+		return $this->settings;
 	}
 
+	/**
+	 * @throws \ValueError
+	 */
 	protected function getUserId(string $sEmail, bool $bSkipInsert = false, bool $bCache = true) : int
 	{
 		static $aCache = array();
 
-		$sEmail = \MailSo\Base\Utils::IdnToAscii(\trim($sEmail), true);
+		$sEmail = \SnappyMail\IDN::emailToAscii(\trim($sEmail));
 		if (empty($sEmail)) {
-			throw new \InvalidArgumentException('Empty Email argument');
+			throw new \ValueError('Empty Email argument');
 		}
 
 		if ($bCache && isset($aCache[$sEmail])) {

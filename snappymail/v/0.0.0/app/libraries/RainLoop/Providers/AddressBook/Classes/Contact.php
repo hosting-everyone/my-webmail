@@ -2,7 +2,7 @@
 
 namespace RainLoop\Providers\AddressBook\Classes;
 
-use \Sabre\VObject\Component\VCard;
+use Sabre\VObject\Component\VCard;
 
 class Contact implements \JsonSerializable
 {
@@ -47,7 +47,7 @@ class Contact implements \JsonSerializable
 */
 	public function setVCard(VCard $oVCard) : void
 	{
-		if ($oVCard->PHOTO && $oVCard->PHOTO->parameters['ENCODING']) {
+		if ($oVCard->PHOTO && !empty($oVCard->PHOTO->parameters['ENCODING'])) {
 			$oVCard->VERSION = '3.0';
 		}
 		if (VCard::VCARD40 != $oVCard->getDocumentType()) {

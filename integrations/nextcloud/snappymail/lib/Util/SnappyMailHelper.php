@@ -2,6 +2,19 @@
 
 namespace OCA\SnappyMail\Util;
 
+class SnappyMailResponse extends \OCP\AppFramework\Http\Response
+{
+	public function render(): string
+	{
+		$data = '';
+		$i = \ob_get_level();
+		while ($i--) {
+			$data .= \ob_get_clean();
+		}
+		return $data;
+	}
+}
+
 class SnappyMailHelper
 {
 
@@ -19,7 +32,6 @@ class SnappyMailHelper
 			}
 		});
 
-		$_ENV['SNAPPYMAIL_NEXTCLOUD'] = true; // Obsolete
 		$_ENV['SNAPPYMAIL_INCLUDE_AS_API'] = true;
 
 //		define('APP_VERSION', '0.0.0');
@@ -27,78 +39,32 @@ class SnappyMailHelper
 //		include APP_INDEX_ROOT_PATH.'snappymail/v/'.APP_VERSION.'/include.php';
 //		define('APP_DATA_FOLDER_PATH', \rtrim(\trim(\OC::$server->getSystemConfig()->getValue('datadirectory', '')), '\\/').'/appdata_snappymail/');
 
-		require_once \dirname(\dirname(__DIR__)) . '/app/index.php';
-
-		$oConfig = \RainLoop\Api::Config();
-		$bSave = false;
-
-		if (!$oConfig->Get('webmail', 'app_path')) {
-			$oConfig->Set('webmail', 'app_path', \OC::$server->getAppManager()->getAppWebPath('snappymail') . '/app/');
-			$bSave = true;
-		}
-
-		if (!\is_dir(APP_PLUGINS_PATH . 'nextcloud')) {
-			\SnappyMail\Repository::installPackage('plugin', 'nextcloud');
-			$oConfig->Set('plugins', 'enable', true);
-			$aList = \SnappyMail\Repository::getEnabledPackagesNames();
-			$aList[] = 'nextcloud';
-			$oConfig->Set('plugins', 'enabled_list', \implode(',', \array_unique($aList)));
-			$oConfig->Set('webmail', 'theme', 'Nextcloud@custom');
-			$bSave = true;
-		}
-
-		$sPassword = $oConfig->Get('security', 'admin_password');
-		if ('12345' == $sPassword || !$sPassword) {
-			$sPassword = \substr(\base64_encode(\random_bytes(16)), 0, 12);
-			$oConfig->SetPassword($sPassword);
-			\RainLoop\Utils::saveFile(APP_PRIVATE_DATA . 'admin_password.txt', $sPassword . "\n");
-			$bSave = true;
-		}
-
-		// Pre-configure domain
-		$ocConfig = \OC::$server->getConfig();
-		if ($ocConfig->getAppValue('snappymail', 'snappymail-autologin', false)
-		 || $ocConfig->getAppValue('snappymail', 'snappymail-autologin-with-email', false)
-		) {
-			$oProvider = \RainLoop\Api::Actions()->DomainProvider();
-			$oDomain = $oProvider->Load('nextcloud');
-			if (!$oDomain) {
-//				$oDomain = \RainLoop\Model\Domain::fromIniArray('nextcloud', []);
-				$oDomain = new \RainLoop\Model\Domain('nextcloud');
-				$iSecurityType = \MailSo\Net\Enumerations\ConnectionSecurityType::NONE;
-				$oDomain->SetConfig(
-					'localhost', 143, $iSecurityType, true,
-					true, 'localhost', 4190, $iSecurityType,
-					'localhost', 25, $iSecurityType, true, true, false, false,
-					'');
-				$oProvider->Save($oDomain);
-				if (!$oConfig->Get('login', 'default_domain', '')) {
-					$oConfig->Set('login', 'default_domain', 'nextcloud');
-					$bSave = true;
-				}
-			}
-		}
-
-		$bSave && $oConfig->Save();
+		$app_dir = \dirname(\dirname(__DIR__)) . '/app';
+		require_once $app_dir . '/index.php';
 	}
 
-	public static function startApp(bool $handle = false) : void
+	public static function startApp(bool $handle = false)
 	{
 		static::loadApp();
 
+		$oConfig = \RainLoop\Api::Config();
+
+		if (false !== \stripos(\php_sapi_name(), 'cli')) {
+			return;
+		}
+
 		try {
 			$oActions = \RainLoop\Api::Actions();
-			$oConfig = \RainLoop\Api::Config();
 			if (isset($_GET[$oConfig->Get('security', 'admin_panel_key', 'admin')])) {
 				if ($oConfig->Get('security', 'allow_admin_panel', true)
-				 && \OC_User::isAdminUser(\OC::$server->getUserSession()->getUser()->getUID())
-				 && !$oActions->IsAdminLoggined(false)
+				&& \OC_User::isAdminUser(\OC::$server->getUserSession()->getUser()->getUID())
+				&& !$oActions->IsAdminLoggined(false)
 				) {
 					$sRand = \MailSo\Base\Utils::Sha1Rand();
 					if ($oActions->Cacher(null, true)->Set(\RainLoop\KeyPathHelper::SessionAdminKey($sRand), \time())) {
 						$sToken = \RainLoop\Utils::EncodeKeyValuesQ(array('token', $sRand));
 //						$oActions->setAdminAuthToken($sToken);
-						\RainLoop\Utils::SetCookie('smadmin', $sToken);
+						\SnappyMail\Cookies::set('smadmin', $sToken);
 					}
 				}
 			} else {
@@ -124,58 +90,93 @@ class SnappyMailHelper
 				}
 */
 				if ($doLogin && $aCredentials[1] && $aCredentials[2]) {
-					$oActions->Logger()->AddSecret($aCredentials[2]);
-					$oAccount = $oActions->LoginProcess($aCredentials[1], $aCredentials[2], false);
-					if ($oAccount) {
-						$oActions->Plugins()->RunHook('login.success', array($oAccount));
-						$oActions->SetAuthToken($oAccount);
+					try {
+						$oAccount = $oActions->LoginProcess($aCredentials[1], $aCredentials[2]);
+						if ($oAccount && $oConfig->Get('login', 'sign_me_auto', \RainLoop\Enumerations\SignMeType::DefaultOff) === \RainLoop\Enumerations\SignMeType::DefaultOn) {
+							$oActions->SetSignMeToken($oAccount);
+						}
+					} catch (\Throwable $e) {
+						// Login failure, reset password to prevent more attempts
+						$sUID = \OC::$server->getUserSession()->getUser()->getUID();
+						\OC::$server->getSession()['snappymail-passphrase'] = '';
+						\OC::$server->getConfig()->setUserValue($sUID, 'snappymail', 'passphrase', '');
+						\SnappyMail\Log::error('Nextcloud', $e->getMessage());
 					}
 				}
+			}
+
+			if ($handle) {
+				\header_remove('Content-Security-Policy');
+				\RainLoop\Service::Handle();
+				// https://github.com/the-djmaze/snappymail/issues/1069
+				exit;
+//				return new SnappyMailResponse();
 			}
 		} catch (\Throwable $e) {
 			// Ignore login failure
 		}
-
-		if ($handle) {
-			\header_remove('Content-Security-Policy');
-			\RainLoop\Service::Handle();
-			exit;
-		}
 	}
 
-	public static function getLoginCredentials() : array
+	private static function getLoginCredentials() : array
 	{
-		$sEmail = '';
-		$sPassword = '';
-		$config = \OC::$server->getConfig();
 		$sUID = \OC::$server->getUserSession()->getUser()->getUID();
+		$config = \OC::$server->getConfig();
 		$ocSession = \OC::$server->getSession();
-		// Only use the user's password in the current session if they have
-		// enabled auto-login using Nextcloud username or email address.
-		if ($ocSession['snappymail-nc-uid'] == $sUID) {
-			if ($config->getAppValue('snappymail', 'snappymail-autologin', false)) {
-				$sEmail = $sUID;
-				$sPassword = $ocSession['snappymail-password'];
-			} else if ($config->getAppValue('snappymail', 'snappymail-autologin-with-email', false)) {
-				$sEmail = $config->getUserValue($sUID, 'settings', 'email', '');
-				$sPassword = $ocSession['snappymail-password'];
-			}
+
+		// If the user has set credentials for SnappyMail in their personal settings,
+		// this has the first priority.
+		$sEmail = $config->getUserValue($sUID, 'snappymail', 'snappymail-email');
+		$sPassword = $config->getUserValue($sUID, 'snappymail', 'passphrase')
+			?: $config->getUserValue($sUID, 'snappymail', 'snappymail-password');
+		if ($sEmail && $sPassword) {
+			$sPassword = static::decodePassword($sPassword, \md5($sEmail));
 			if ($sPassword) {
-				$sPassword = static::decodePassword($sPassword, $sUID);
+				return [$sUID, $sEmail, $sPassword];
+			} else {
+				\SnappyMail\Log::debug('Nextcloud', 'decodePassword failed for getUserValue');
 			}
 		}
 
-		// If the user has set credentials for SnappyMail in their personal
-		// settings, override everything before and use those instead.
-		$sCustomEmail = $config->getUserValue($sUID, 'snappymail', 'snappymail-email', '');
-		if ($sCustomEmail) {
-			$sEmail = $sCustomEmail;
-			$sPassword = $config->getUserValue($sUID, 'snappymail', 'snappymail-password', '');
-			if ($sPassword) {
-				$sPassword = static::decodePassword($sPassword, \md5($sEmail));
+		// If the current user ID is identical to login ID (not valid when using account switching),
+		// this has the second priority.
+		if ($ocSession['snappymail-nc-uid'] == $sUID) {
+/*
+			// If OpenID Connect (OIDC) is enabled and used for login, use this.
+			// https://apps.nextcloud.com/apps/oidc_login
+			// DISABLED https://github.com/the-djmaze/snappymail/issues/1420#issuecomment-1933045917
+			if ($config->getAppValue('snappymail', 'snappymail-autologin-oidc', false)) {
+				if ($ocSession->get('is_oidc')) {
+					// IToken->getPassword() ???
+					if ($sAccessToken = $ocSession->get('oidc_access_token')) {
+						return [$sUID, 'oidc@nextcloud', $sAccessToken];
+					}
+					\SnappyMail\Log::debug('Nextcloud', 'OIDC access_token missing');
+				} else {
+					\SnappyMail\Log::debug('Nextcloud', 'No OIDC login');
+				}
 			}
+*/
+			// Only use the user's password in the current session if they have
+			// enabled auto-login using Nextcloud username or email address.
+			$sEmail = '';
+			$sPassword = '';
+			if ($config->getAppValue('snappymail', 'snappymail-autologin', false)) {
+				$sEmail = $sUID;
+				$sPassword = $ocSession['snappymail-passphrase'];
+			} else if ($config->getAppValue('snappymail', 'snappymail-autologin-with-email', false)) {
+				$sEmail = $config->getUserValue($sUID, 'settings', 'email');
+				$sPassword = $ocSession['snappymail-passphrase'];
+			} else {
+				\SnappyMail\Log::debug('Nextcloud', 'snappymail-autologin is off');
+			}
+			if ($sPassword) {
+				return [$sUID, $sEmail, static::decodePassword($sPassword, $sUID)];
+			}
+		} else {
+			\SnappyMail\Log::debug('Nextcloud', "snappymail-nc-uid mismatch '{$ocSession['snappymail-nc-uid']}' != '{$sUID}'");
 		}
-		return [$sUID, $sEmail, $sPassword ?: ''];
+
+		return [$sUID, '', ''];
 	}
 
 	public static function getAppUrl() : string
@@ -199,68 +200,10 @@ class SnappyMailHelper
 		return \SnappyMail\Crypt::EncryptUrlSafe($sPassword, $sSalt);
 	}
 
-	public static function decodePassword(string $sPassword, string $sSalt)/* : mixed */
+	public static function decodePassword(string $sPassword, string $sSalt) : ?\SnappyMail\SensitiveString
 	{
 		static::loadApp();
-		return \SnappyMail\Crypt::DecryptUrlSafe($sPassword, $sSalt);
+		$result = \SnappyMail\Crypt::DecryptUrlSafe($sPassword, $sSalt);
+		return $result ? new \SnappyMail\SensitiveString($result) : null;
 	}
-
-	// Imports data from RainLoop
-	public static function importRainLoop() : array
-	{
-		$result = [];
-
-		$dir = \rtrim(\trim(\OC::$server->getSystemConfig()->getValue('datadirectory', '')), '\\/');
-		$dir_snappy = $dir . '/appdata_snappymail/';
-		$dir_rainloop = $dir . '/rainloop-storage';
-		$rainloop_plugins = [];
-		if (\is_dir($dir_rainloop)) {
-			\is_dir($dir_snappy) || \mkdir($dir_snappy, 0755, true);
-			$iterator = new \RecursiveIteratorIterator(
-				new \RecursiveDirectoryIterator($dir_rainloop, \RecursiveDirectoryIterator::SKIP_DOTS),
-				\RecursiveIteratorIterator::SELF_FIRST
-			);
-			foreach ($iterator as $item) {
-				$target = $dir_snappy . $iterator->getSubPathname();
-				if (\preg_match('@/plugins/([^/])@', $target, $match)) {
-					$rainloop_plugins[$match[1]] = $match[1];
-				} else if (!\strpos($target, '/cache/')) {
-					if ($item->isDir()) {
-						\is_dir($target) || \mkdir($target, 0755, true);
-					} else if (\file_exists($target)) {
-						$result[] = "skipped: {$target}";
-					} else {
-						\copy($item, $target);
-						$result[] = "copied : {$target}";
-					}
-				}
-			}
-		}
-
-//		$password = APP_PRIVATE_DATA . 'admin_password.txt';
-//		\is_file($password) && \unlink($password);
-
-		static::loadApp();
-
-		// Attempt to install same plugins as RainLoop
-		if ($rainloop_plugins) {
-			foreach (\SnappyMail\Repository::getPackagesList()['List'] as $plugin) {
-				if (\in_array($plugin['id'], $rainloop_plugins)) {
-					$result[] = "install plugin : {$plugin['id']}";
-					\SnappyMail\Repository::installPackage('plugin', $plugin['id']);
-					unset($rainloop_plugins[$plugin['id']]);
-				}
-			}
-			foreach ($rainloop_plugins as $plugin) {
-				$result[] = "skipped plugin : {$plugin}";
-			}
-		}
-
-		$oConfig = \RainLoop\Api::Config();
-		$oConfig->Set('webmail', 'theme', 'Nextcloud@custom');
-		$oConfig->Save();
-
-		return $result;
-	}
-
 }

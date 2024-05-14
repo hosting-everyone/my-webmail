@@ -16,7 +16,7 @@ class ImapContactsSuggestions implements \RainLoop\Providers\Suggestions\ISugges
 		$oMailClient = $oActions->MailClient();
 		if (!$oMailClient->IsLoggined()) {
 			$oAccount = $oActions->getAccountFromToken();
-			$oAccount->ImapConnectAndLoginHelper($oActions->Plugins(), $oMailClient, $oActions->Config());
+			$oAccount->ImapConnectAndLogin($oActions->Plugins(), $oMailClient->ImapClient(), $oActions->Config());
 		}
 		$oImapClient = $oMailClient->ImapClient();
 
@@ -24,7 +24,7 @@ class ImapContactsSuggestions implements \RainLoop\Providers\Suggestions\ISugges
 
 		$sQuery = \MailSo\Imap\SearchCriterias::escapeSearchString($oImapClient, $sQuery);
 		$aUids = \array_slice(
-			$oImapClient->MessageSimpleSearch("FROM {$sQuery}"),
+			$oImapClient->MessageSearch("FROM {$sQuery}"),
 			0, $iLimit
 		);
 

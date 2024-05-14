@@ -1,8 +1,30 @@
 import { doc, createElement, addEventsListeners } from 'Common/Globals';
 import { EmailModel } from 'Model/Email';
+import { addressparser } from 'Mime/Address';
 
 const contentType = 'snappymail/emailaddress',
-	getAddressKey = li => li?.emailaddress?.key;
+	getAddressKey = li => li?.emailaddress?.key,
+
+	parseEmailLine = line => addressparser(line).map(item =>
+			(item.name || item.email)
+				? new EmailModel(item.email, item.name) : null
+		).filter(v => v),
+	splitEmailLine = line => {
+		const result = [];
+		let exists = false;
+		addressparser(line).forEach(item => {
+			const address = (item.name || item.email)
+				? new EmailModel(item.email, item.name)
+				: null;
+
+			if (address?.email) {
+				exists = true;
+			}
+
+			result.push(address ? address.toLine() : item.name);
+		});
+		return exists ? result : null;
+	};
 
 let dragAddress, datalist;
 
@@ -144,7 +166,9 @@ export class EmailAddressesComponent {
 
 	_parseInput(force) {
 		let val = this.input.value;
-		if ((force || val.includes(',') || val.includes(';')) && this._parseValue(val)) {
+		if ((force || val.includes(',') || val.includes(';')
+				|| (val.charAt(val.length-1)===' ' && this._simpleEmailMatch(val)))
+			&& this._parseValue(val)) {
 			this.input.value = '';
 		}
 		this._resizeInput();
@@ -154,8 +178,8 @@ export class EmailAddressesComponent {
 		if (val) {
 			const self = this,
 				v = val.trim(),
-				hook = (v && [',', ';', '\n'].includes(v.slice(-1))) ? EmailModel.splitEmailLine(val) : null,
-				values = (hook || [val]).map(value => EmailModel.parseEmailLine(value))
+				hook = (v && [',', ';', '\n'].includes(v.slice(-1))) ? splitEmailLine(val) : null,
+				values = (hook || [val]).map(value => parseEmailLine(value))
 						.flat(Infinity)
 						.map(item => (item.toLine ? [item.toLine(), item] : [item, null]));
 
@@ -261,6 +285,13 @@ export class EmailAddressesComponent {
 			this.element.value = value;
 			this.options.onChange(value);
 		}
+	}
+
+	_simpleEmailMatch(value) {
+		// A very SIMPLE test to check if the value might be an email
+		const val = value.trim();
+		return /^[^@]*<[^\s@]{1,128}@[^\s@]{1,256}\.[\w]{2,32}>$/g.test(val)
+			|| /^[^\s@]{1,128}@[^\s@]{1,256}\.[\w]{2,32}$/g.test(val);
 	}
 
 	_renderTags() {

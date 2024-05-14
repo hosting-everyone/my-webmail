@@ -14,8 +14,15 @@ class Cram extends \SnappyMail\SASL
 		$this->algo = $algo;
 	}
 
-	public function authenticate(string $authcid, string $passphrase, ?string $challenge = null) : string
+	public function authenticate(string $authcid,
+		#[\SensitiveParameter]
+		string $passphrase,
+		?string $challenge = null
+	) : string
 	{
+		if (empty($challenge)) {
+			$this->writeLogException(new \MailSo\Smtp\Exceptions\NegativeResponseException);
+		}
 		return $this->encode($authcid . ' ' . \hash_hmac($this->algo, $this->decode($challenge), $passphrase));
 	}
 

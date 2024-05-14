@@ -1,24 +1,5 @@
 
 #V-SettingsMenu {
-
-	.b-footer {
-		position: absolute;
-		bottom: 10px;
-		right: 0;
-		left: 0;
-		padding: 0 10px 0 5px;
-		z-index: 101;
-	}
-
-	.b-content {
-		position: absolute;
-		top: 50px + @rlLowMargin + 10px;
-		bottom: @rlLowMargin;
-		left: 0;
-		right: 0;
-		overflow: hidden;
-	}
-
 	nav {
 
 		a {
@@ -26,7 +7,7 @@
 			color: var(--settings-menu-color, #333);
 			cursor: pointer;
 			display: block;
-			font-size: 18px;
+			font-size: 128%;
 			line-height: 2em;
 			max-height: 2em;
 			overflow: hidden;
@@ -49,15 +30,22 @@
 }
 
 #V-SettingsPane {
-	height: 100%;
+	height: calc(100% - 50px - @rlLowMargin);
+	margin: 50px @rlLowMargin 0 0;
+	padding:20px;
+	width: 100%;
+
+	background-color: var(--panel-bg-clr, #fff);
+	border: 1px solid var(--border-color, #aaa);
+	border-radius: var(--border-radius, 5px);
+	box-shadow: var(--smMainShadow);
+	overflow-y: auto;
+	scroll-behavior: smooth;
 
 	.btn-toolbar {
 		position: absolute;
-		top: 0;
-		right: 0;
-		left: 0;
-		padding: 8px 0;
-		color: #fff;
+		top: 8px;
+		left: @rlLowMargin;
 	}
 
 	td {
@@ -66,21 +54,7 @@
 	}
 }
 
-#rl-settings-subscreen {
-	margin: 50px @rlLowMargin @rlLowMargin 0;
-	overflow-y: auto;
-	scroll-behavior: smooth;
-	padding:20px;
-
-	height: calc(100% - 50px - @rlLowMargin - @rlLowMargin);
-
-	background-color: var(--settings-bg-clr, #fff);
-	border: 1px solid var(--border-color, #aaa);
-	box-shadow: @rlMainShadow;
-	border-radius: var(--border-radius, 5px);
-}
-
-.firefox-drag #rl-settings-subscreen,
+.firefox-drag #V-SettingsPane,
 .firefox-drag .modal-body {
 	overflow: hidden;
 }

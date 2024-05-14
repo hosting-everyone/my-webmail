@@ -1,6 +1,7 @@
 <?php
 
 use MailSo\Net\ConnectSettings;
+use SnappyMail\SensitiveString;
 
 class ChangePasswordPoppassdDriver extends \MailSo\Net\NetClient
 {
@@ -17,10 +18,6 @@ class ChangePasswordPoppassdDriver extends \MailSo\Net\NetClient
 		$this->oLogger = $oLogger;
 	}
 
-	public static function isSupported() : bool
-	{
-		return true;
-	}
 
 	public static function configMapping() : array
 	{
@@ -37,7 +34,7 @@ class ChangePasswordPoppassdDriver extends \MailSo\Net\NetClient
 		);
 	}
 
-	public function ChangePassword(\RainLoop\Model\Account $oAccount, string $sPrevPassword, string $sNewPassword) : bool
+	public function ChangePassword(\RainLoop\Model\Account $oAccount, SensitiveString $oPrevPassword, SensitiveString $oNewPassword) : bool
 	{
 		if (!\RainLoop\Plugins\Helper::ValidateWildcardValues($oAccount->Email(), $this->oConfig->Get('plugin', 'poppassd_allowed_emails', ''))) {
 			return false;
@@ -58,8 +55,8 @@ class ChangePasswordPoppassdDriver extends \MailSo\Net\NetClient
 
 			try
 			{
-				$this->sendRequestWithCheck('user', $oAccount->Login(), true);
-				$this->sendRequestWithCheck('pass', $sPrevPassword, true);
+				$this->sendRequestWithCheck('user', $oAccount->IncLogin(), true);
+				$this->sendRequestWithCheck('pass', $oPrevPassword, true);
 			}
 			catch (\Throwable $oException)
 			{
@@ -69,7 +66,7 @@ class ChangePasswordPoppassdDriver extends \MailSo\Net\NetClient
 			$this->bIsLoggined = true;
 
 			if ($this->bIsLoggined) {
-				$this->sendRequestWithCheck('newpass', $sNewPassword);
+				$this->sendRequestWithCheck('newpass', $oNewPassword);
 			} else {
 				$this->writeLogException(
 					new \RuntimeException('Required login'),
@@ -97,6 +94,16 @@ class ChangePasswordPoppassdDriver extends \MailSo\Net\NetClient
 		$this->iRequestTime = \microtime(true);
 		parent::Connect($oSettings);
 		$this->validateResponse();
+	}
+
+	public function supportsAuthType(string $sasl_type) : bool
+	{
+		return true;
+	}
+
+	public static function isSupported() : bool
+	{
+		return true;
 	}
 
 	public function Logout() : void
@@ -146,13 +153,13 @@ class ChangePasswordPoppassdDriver extends \MailSo\Net\NetClient
 
 	private function validateResponse(bool $bAuthRequestValidate = false) : self
 	{
-		$this->getNextBuffer();
+		$sResponseBuffer = $this->getNextBuffer();
 
-		$bResult = \preg_match($bAuthRequestValidate ? '/^[23]\d\d/' : '/^2\d\d/', trim($this->sResponseBuffer));
+		$bResult = \preg_match($bAuthRequestValidate ? '/^[23]\d\d/' : '/^2\d\d/', \trim($sResponseBuffer));
 
 		if (!$bResult) {
 			// POP3 validation hack
-			$bResult = '+OK ' === \substr(\trim($this->sResponseBuffer), 0, 4);
+			$bResult = '+OK ' === \substr(\trim($sResponseBuffer), 0, 4);
 		}
 
 		if (!$bResult) {

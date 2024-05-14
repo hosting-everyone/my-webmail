@@ -1,5 +1,6 @@
 import { addObservablesTo } from 'External/ko';
 import { getNotification } from 'Common/Translator';
+import { loadAccountsAndIdentities } from 'Common/UtilsUser';
 
 import Remote from 'Remote/User/Fetch';
 
@@ -22,10 +23,14 @@ export class AccountPopupView extends AbstractViewPopup {
 		});
 	}
 
+	hideError() {
+		this.submitError('');
+	}
+
 	submitForm(form) {
 		if (!this.submitRequest() && form.reportValidity()) {
 			const data = new FormData(form);
-			data.set('New', this.isNew() ? 1 : 0);
+			data.set('new', this.isNew() ? 1 : 0);
 			this.submitRequest(true);
 			Remote.request('AccountSetup', (iError, data) => {
 					this.submitRequest(false);
@@ -33,7 +38,7 @@ export class AccountPopupView extends AbstractViewPopup {
 						this.submitError(getNotification(iError));
 						this.submitErrorAdditional(data?.ErrorMessageAdditional);
 					} else {
-						rl.app.accountsAndIdentities();
+						loadAccountsAndIdentities();
 						this.close();
 					}
 				}, data

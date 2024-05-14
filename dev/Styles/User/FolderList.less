@@ -2,13 +2,35 @@
 @folderItemPadding: 7px;
 @subPadding: 15px;
 
-.b-folders {
+#V-MailFolderList,
+#V-MailFolderList .b-content {
+	height: 100%;
+}
 
-	> * {
-		position: absolute;
-		right: 0;
-		left: 0;
-	}
+.focused .b-folders a.focused {
+	background-color: var(--folders-focused-bg-color, #333);
+	border-color: #fff;
+	color: var(--folders-focused-color, #eee);
+}
+
+#folderSearchInput {
+	width: 100%;
+}
+
+/* https://github.com/the-djmaze/snappymail/issues/1427 */
+#V-MailFolderList .e-checkbox {
+	margin: 0 4px;
+	width: calc(100% - 8px);
+}
+#V-MailFolderList .unreadOnly li a:not(.unread-sub):not([data-unread]) {
+    display:none;
+}
+
+.b-folders {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	padding-right: 2px;
 
 	ul {
 		margin: 0;
@@ -30,32 +52,24 @@
 	}
 
 	.b-toolbar {
-		top: 0;
-		padding: 10px 0 0 @rlLowMargin;
 		color: #fff;
-		z-index: 101;
 	}
 
 	.b-footer {
-		bottom: 10px;
-		padding: 0 10px 0 5px;
-		z-index: 101;
-
+		padding: 10px @rlLowMargin;
 		overflow: hidden;
 		white-space: nowrap;
 	}
 
 	.b-content {
-		bottom: 32px + @rlLowMargin + @rlBottomMargin;
-		top: 50px + @rlLowMargin;
 		overflow: hidden;
 		overflow-y: auto;
 		min-width: 100px;
+		color: var(--folders-color, #333);
 	}
 
 	hr {
 		margin: 10px;
-		border-color: #999;
 	}
 
 	li {
@@ -64,22 +78,18 @@
 		white-space: nowrap;
 
 		a {
-			display: block;
-			position: relative;
-			z-index: 1;
-			line-height: 34px;
 			background-color: transparent;
-			vertical-align: middle;
-			color: var(--folders-disabled-color, #666);
 			border-left: 3px solid transparent;
-
+			color: var(--folders-color, #333);
+			display: block;
+			line-height: 34px;
 			padding: 0 2em 0 @folderItemPadding;
-
+			position: relative;
 			text-decoration: none;
+			vertical-align: middle;
+			z-index: 1;
 
 			&.selectable {
-
-				color: var(--folders-color, #333);
 				cursor: pointer;
 
 				&:hover {
@@ -100,20 +110,11 @@
 					background-color: var(--folders-selected-bg-color, #333);
 					color: var(--folders-selected-color, #eee);
 				}
-
-				&.focused {
-					background-color: var(--folders-focused-bg-color, #333);
-					color: var(--folders-focused-color, #eee);
-				}
 			}
 			&:not(.selectable) {
+				color: var(--folders-disabled-color, #666);
 				cursor: default;
 				font-style: italic;
-			}
-
-			&.focused {
-				background-color: #888;
-				border-left-color: #fff;
 			}
 
 			&.unread-sub {
@@ -123,6 +124,7 @@
 			.e-collapsed-sign {
 				cursor: pointer;
 				font-size: 150%;
+				text-indent: 0;
 				vertical-align: inherit;
 			}
 		}
@@ -145,17 +147,18 @@
 	{
 		content: attr(data-unread);
 		background-color: var(--unread-count-bg-color, #999);
-		border-radius: 9px;
+		border-radius: 1em;
 		color: var(--unread-count-color, #fff);
-		font-size: 11px;
-		line-height: 19px;
-		margin-top: 5px;
-		min-width: 1em;
+		font-size: 80%;
+		line-height: 1.5em;
+		margin-top: 7px;
+		min-width: 1.7em;
 		padding: 1px 4px;
 		text-align: center;
 		text-shadow: 0 -1px 0 rgba(0,0,0,.25);
 		position: absolute;
 		right: 3px;
+		text-indent: 0;
 	}
 
 	.flag-icon {
@@ -178,67 +181,33 @@
 	}
 
 	li li a {
-		padding-left: @subPadding * 1 + @folderItemPadding;
+		text-indent: 1em;
 	}
 	li li li a {
-		padding-left: @subPadding * 2 + @folderItemPadding;
+		text-indent: 2em;
 	}
 	li li li li a {
-		padding-left: @subPadding * 3 + @folderItemPadding;
+		text-indent: 3em;
 	}
 	li li li li li a {
-		padding-left: @subPadding * 4 + @folderItemPadding;
+		text-indent: 4em;
 	}
-
-/**/
-	&.single-root-inbox .b-folders-user > li > a {
-		display: none !important;
-	}
-
-	&.single-root-inbox {
-		li li a {
-			padding-left: @folderItemPadding;
-		}
-		li li li a {
-			padding-left: @subPadding * 1 + @folderItemPadding;
-		}
-		li li li li a {
-			padding-left: @subPadding * 2 + @folderItemPadding;
-		}
-		li li li li li a {
-			padding-left: @subPadding * 3 + @folderItemPadding;
-		}
-	}
-/**/
 }
 
-.btn {
-	&.buttonCompose {
-		width: calc(100% - 68px);
-		max-width: -moz-fit-content;
-		max-width: -webkit-fit-content;
-		max-width: fit-content;
-		overflow: hidden;
-		max-height: 2em;
-	}
+#rl-left .buttonCompose {
+	max-height: 2em;
+	max-width: fit-content;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	width: calc(100% - 48px);
 }
 
 html.rl-left-panel-disabled {
-	.buttonComposeText{
+	.buttonComposeText,
+	.buttonContacts {
 		display: none;
 	}
-	.btn.buttonCompose {
+	#rl-left .buttonCompose {
 		width: auto;
 	}
-	.btn.buttonContacts {
-		margin-top: 10px !important;
-		margin-left: 0 !important;
-	}
-	&.rl-mobile #rl-left {
-		visibility: hidden;
-	}
-}
-
-html.rl-mobile .b-folders .b-content {
-	bottom: 0;
 }

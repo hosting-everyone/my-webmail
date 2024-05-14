@@ -1,12 +1,12 @@
 import 'External/ko';
 import ko from 'ko';
-import { HtmlEditor } from 'Common/Html';
+import { RFC822 } from 'Common/File';
+import { HtmlEditor } from 'Common/HtmlEditor';
 import { timeToNode } from 'Common/Translator';
-import { doc, elementById, addEventsListeners, dropdowns } from 'Common/Globals';
-import { dropdownsDetectVisibility, moveAction } from 'Common/UtilsUser';
+import { doc, elementById, addEventsListeners, dropdowns, leftPanelDisabled } from 'Common/Globals';
 import { EmailAddressesComponent } from 'Component/EmailAddresses';
 import { ThemeStore } from 'Stores/Theme';
-import { moveMessagesToFolder, dropFilesInFolder } from 'Common/Folders';
+import { dropFilesInFolder } from 'Common/Folders';
 import { setExpandedFolder } from 'Model/FolderCollection';
 import { FolderUserStore } from 'Stores/User/Folder';
 import { MessagelistUserStore } from 'Stores/User/Messagelist';
@@ -29,39 +29,43 @@ const rlContentType = 'snappymail/action',
 	},
 
 	dragTimer = {
-		id: 0,
-		stop: () => clearTimeout(dragTimer.id),
-		start: fn => dragTimer.id = setTimeout(fn, 500)
+		id: 0
 	},
 
-	fnStop = (e, element) => {
+	dragStop = (e, element) => {
 		e.preventDefault();
-		element.classList.remove('droppableHover');
-		dragTimer.stop();
+		element?.classList.remove('droppableHover');
+		if (dragTimer.node == element) {
+			dragTimer.node = null;
+			clearTimeout(dragTimer.id);
+		}
 	},
-	fnHover = (e, element, folder) => {
+	dragEnter = (e, element, folder) => {
 		let files = false;
 //		if (e.dataTransfer.types.includes('Files'))
 		for (const item of e.dataTransfer.items) {
-			files |= 'file' === item.kind && 'message/rfc822' === item.type;
+			files |= 'file' === item.kind && RFC822 === item.type;
 		}
 		if (files || dragMessages()) {
-			fnStop(e, element);
-			files && e.stopPropagation();
+			e.stopPropagation();
+			dragStop(e, dragTimer.node);
 			e.dataTransfer.dropEffect = files ? 'copy' : (e.ctrlKey ? 'copy' : 'move');
 			element.classList.add('droppableHover');
 			if (folder.collapsed()) {
-				dragTimer.start(() => {
+				dragTimer.node = element;
+				dragTimer.id = setTimeout(() => {
 					folder.collapsed(false);
 					setExpandedFolder(folder.fullName, true);
 				}, 500);
 			}
 		}
 	},
-	fnDrop = (e, element, folder, dragData) => {
-		fnStop(e, element);
+	dragDrop = (e, element, folder, dragData) => {
+		dragStop(e, element);
 		if (dragMessages() && 'copyMove' == e.dataTransfer.effectAllowed) {
-			moveMessagesToFolder(FolderUserStore.currentFolderFullName(), dragData.data, folder.fullName, e.ctrlKey);
+			MessagelistUserStore.moveMessages(
+				FolderUserStore.currentFolderFullName(), dragData.data, folder.fullName, e.ctrlKey
+			);
 		} else if (e.dataTransfer.types.includes('Files')) {
 			dropFilesInFolder(folder.fullName, e.dataTransfer.files);
 		}
@@ -79,15 +83,15 @@ Object.assign(ko.bindingHandlers, {
 			let editor = null;
 
 			const fValue = fValueAccessor(),
-				fUpdateEditorValue = () => fValue?.__editor?.setHtmlOrPlain(fValue()),
-				fUpdateKoValue = () => fValue?.__editor && fValue(fValue.__editor.getDataWithHtmlMark()),
+				fUpdateEditorValue = () => fValue.__editor?.setHtmlOrPlain(fValue()),
+				fUpdateKoValue = () => fValue.__editor && fValue(fValue.__editor.getDataWithHtmlMark()),
 				fOnReady = () => {
 					fValue.__editor = editor;
 					fUpdateEditorValue();
 				};
 
 			if (ko.isObservable(fValue)) {
-				editor = new HtmlEditor(element, fUpdateKoValue, fOnReady, fUpdateKoValue);
+				editor = new HtmlEditor(element, fOnReady, fUpdateKoValue, fUpdateKoValue);
 
 				fValue.__fetchEditorValue = fUpdateKoValue;
 
@@ -99,7 +103,7 @@ Object.assign(ko.bindingHandlers, {
 		}
 	},
 
-	moment: {
+	time: {
 		init: ttn,
 		update: ttn
 	},
@@ -145,16 +149,13 @@ Object.assign(ko.bindingHandlers, {
 					// Remove the Chrome visibility
 					dragImage.style.cssText = '';
 
-					moveAction(true);
+					leftPanelDisabled(false);
 				} else {
 					e.preventDefault();
 				}
 
 			}, false);
-			element.addEventListener("dragend", () => {
-				dragData = null;
-				moveAction(false);
-			});
+			element.addEventListener("dragend", () => dragData = null);
 		}
 	},
 
@@ -163,10 +164,10 @@ Object.assign(ko.bindingHandlers, {
 		init: (element, fValueAccessor) => {
 			const folder = fValueAccessor(); // ko.dataFor(element)
 			folder && addEventsListeners(element, {
-				dragenter: e => fnHover(e, element, folder),
-				dragover: e => fnHover(e, element, folder),
-				dragleave: e => fnStop(e, element),
-				drop: e => fnDrop(e, element, folder, dragData)
+				dragenter: e => dragEnter(e, element, folder),
+				dragover: e => e.preventDefault(),
+				dragleave: e => dragStop(e, element),
+				drop: e => dragDrop(e, element, folder, dragData)
 			});
 		}
 	},
@@ -193,10 +194,6 @@ Object.assign(ko.bindingHandlers, {
 				};
 			addEventsListeners(element, {
 				dragstart: e => {
-					dragData = {
-						action: 'sortable',
-						element: element
-					};
 					setDragAction(e, 'sortable', 'move', element, element);
 					element.style.opacity = 0.25;
 				},
@@ -245,19 +242,6 @@ Object.assign(ko.bindingHandlers, {
 		init: element => {
 			dropdowns.push(element);
 			element.ddBtn = new BSN.Dropdown(element.querySelector('.dropdown-toggle'));
-		}
-	},
-
-	openDropdownTrigger: {
-		update: (element, fValueAccessor) => {
-			if (ko.unwrap(fValueAccessor())) {
-				const el = element.ddBtn;
-				el.open || el.toggle();
-	//			el.focus();
-
-				dropdownsDetectVisibility();
-				fValueAccessor()(false);
-			}
 		}
 	}
 });

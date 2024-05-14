@@ -86,6 +86,7 @@ export class ContactModel extends AbstractModel {
 			focused: false,
 			selected: false,
 			checked: false,
+			sendToAll: true,
 
 			deleted: false,
 			readOnly: false,
@@ -119,7 +120,7 @@ export class ContactModel extends AbstractModel {
 
 			display: () => {
 				let a = this.fullName(),
-					b = this.email()?.[0]?.value(),
+					b = this.email()[0]?.value(),
 					c = this.nickname();
 				return a || b || c;
 			}
@@ -132,22 +133,6 @@ export class ContactModel extends AbstractModel {
 			}
 */
 		});
-	}
-
-	/**
-	 * @returns {Array|null}
-	 */
-	getNameAndEmailHelper() {
-		let name = (this.givenName() + ' ' + this.surName()).trim(),
-			email = this.email()[0];
-/*
-//		this.jCard.getOne('fn')?.notEmpty() ||
-		this.jCard.parseFullName({set:true});
-//		let name = this.jCard.getOne('nickname'),
-		let name = this.jCard.getOne('fn'),
-			email = this.jCard.getOne('email');
-*/
-		return email ? [email, name] : null;
 	}
 
 	/**
@@ -209,19 +194,15 @@ export class ContactModel extends AbstractModel {
 		return contact;
 	}
 
-	/**
-	 * @returns {string}
-	 */
-	generateUid() {
-		return '' + this.id;
-	}
-
 	addEmail() {
 		// home, work
 		this.email.push({
 			value: ko.observable('')
 //			type: prop.params.type
 		});
+
+		if (this.sendToAllDisplayStatus())
+			document.getElementById('send-to-all').style.display = 'block';
 	}
 
 	addTel() {
@@ -304,7 +285,7 @@ export class ContactModel extends AbstractModel {
 //		jCard.set('rev', '2022-05-21T10:59:52Z')
 
 		return {
-			Uid: this.id,
+			uid: this.id,
 			jCard: JSON.stringify(jCard)
 		};
 	}
@@ -318,4 +299,9 @@ export class ContactModel extends AbstractModel {
 			+ (this.checked() ? ' checked' : '')
 			+ (this.focused() ? ' focused' : '');
 	}
+
+	sendToAllDisplayStatus() {
+		return this.email.length > 1
+	}
+
 }

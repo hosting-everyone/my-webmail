@@ -22,10 +22,7 @@ class CacheClient
 	 */
 	private $oDriver;
 
-	/**
-	 * @var string
-	 */
-	private $sCacheIndex = '';
+	private string $sCacheIndex = '';
 
 	public function Set(string $sKey, string $sValue) : bool
 	{
@@ -52,20 +49,20 @@ class CacheClient
 		return '1' === $this->Get($sKey.'/LOCK');
 	}
 
-	public function Get(string $sKey, bool $bClearAfterGet = false)
+	public function Exists(string $sKey) : bool
 	{
-		$sValue = '';
+		return $this->oDriver && $this->oDriver->Exists($sKey.$this->sCacheIndex);
+	}
 
-		if ($this->oDriver)
-		{
+	public function Get(string $sKey, bool $bClearAfterGet = false) : ?string
+	{
+		$sValue = null;
+		if ($this->oDriver) {
 			$sValue = $this->oDriver->Get($sKey.$this->sCacheIndex);
+			if ($bClearAfterGet) {
+				$this->Delete($sKey);
+			}
 		}
-
-		if ($bClearAfterGet)
-		{
-			$this->Delete($sKey);
-		}
-
 		return $sValue;
 	}
 
@@ -73,8 +70,7 @@ class CacheClient
 	{
 		$iTimer = 0;
 		$sValue = $this->Get($sKey.'/TIMER');
-		if (\strlen($sValue) && is_numeric($sValue))
-		{
+		if (\strlen($sValue) && \is_numeric($sValue)) {
 			$iTimer = (int) $sValue;
 		}
 
@@ -83,8 +79,7 @@ class CacheClient
 
 	public function Delete(string $sKey) : self
 	{
-		if ($this->oDriver)
-		{
+		if ($this->oDriver) {
 			$this->oDriver->Delete($sKey.$this->sCacheIndex);
 		}
 
@@ -117,11 +112,9 @@ class CacheClient
 
 	public function Verify(bool $bCache = false) : bool
 	{
-		if ($this->oDriver)
-		{
+		if ($this->oDriver) {
 			$sCacheData = \gmdate('Y-m-d-H');
-			if ($bCache && $sCacheData === $this->Get('__verify_key__'))
-			{
+			if ($bCache && $sCacheData === $this->Get('__verify_key__')) {
 				return true;
 			}
 

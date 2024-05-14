@@ -165,17 +165,6 @@ abstract class Utils
 			|| !\preg_match('/[^\x09\x10\x13\x0A\x0D\x20-\x7E]/', $sValue);
 	}
 
-	public static function StrMailDomainToLower(string $sValue) : string
-	{
-		$aParts = \explode('@', $sValue);
-		$iLast = \count($aParts) - 1;
-		if ($iLast) {
-			$aParts[$iLast] = \mb_strtolower($aParts[$iLast]);
-		}
-
-		return \implode('@', $aParts);
-	}
-
 	public static function StripSpaces(string $sValue) : string
 	{
 		return static::Trim(
@@ -190,17 +179,16 @@ abstract class Utils
 	public static function FormatFileSize(int $iSize, int $iRound = 0) : string
 	{
 		$aSizes = array('B', 'KB', 'MB');
-		for ($iIndex = 0; $iSize > 1024 && isset($aSizes[$iIndex + 1]); $iIndex++)
-		{
+		for ($iIndex = 0; $iSize > 1024 && isset($aSizes[$iIndex + 1]); ++$iIndex) {
 			$iSize /= 1024;
 		}
 		return \round($iSize, $iRound).$aSizes[$iIndex];
 	}
 
-	public static function DecodeEncodingValue(string $sEncodedValue, string $sEncodeingType) : string
+	public static function DecodeEncodingValue(string $sEncodedValue, string $sEncodingType) : string
 	{
 		$sResult = $sEncodedValue;
-		switch (\strtolower($sEncodeingType))
+		switch (\strtolower($sEncodingType))
 		{
 			case 'q':
 			case 'quoted_printable':
@@ -220,15 +208,13 @@ abstract class Utils
 		return \preg_replace('/ ([\r]?[\n])/m', ' ', $sInputValue);
 	}
 
-	public static function DecodeHeaderValue(string $sEncodedValue, string $sIncomingCharset = '', string $sForcedIncomingCharset = '') : string
+	public static function DecodeHeaderValue(string $sEncodedValue, string $sIncomingCharset = '') : string
 	{
 		$sValue = $sEncodedValue;
-		if (\strlen($sIncomingCharset))
-		{
+		if (\strlen($sIncomingCharset)) {
 			$sIncomingCharset = static::NormalizeCharsetByValue($sIncomingCharset, $sValue);
 
-			$sValue = static::ConvertEncoding($sValue, $sIncomingCharset,
-				Enumerations\Charset::UTF_8);
+			$sValue = static::ConvertEncoding($sValue, $sIncomingCharset, Enumerations\Charset::UTF_8);
 		}
 
 		$sValue = \preg_replace('/\?=[\n\r\t\s]{1,5}=\?/m', '?==?', $sValue);
@@ -239,15 +225,11 @@ abstract class Utils
 //		\preg_match_all('/=\?[^\?]+\?[q|b|Q|B]\?[^\?]*?\?=/', $sValue, $aMatch);
 		\preg_match_all('/=\?[^\?]+\?[q|b|Q|B]\?.*?\?=/', $sValue, $aMatch);
 
-		if (isset($aMatch[0]) && \is_array($aMatch[0]))
-		{
-			for ($iIndex = 0, $iLen = \count($aMatch[0]); $iIndex < $iLen; $iIndex++)
-			{
-				if (isset($aMatch[0][$iIndex]))
-				{
+		if (isset($aMatch[0]) && \is_array($aMatch[0])) {
+			for ($iIndex = 0, $iLen = \count($aMatch[0]); $iIndex < $iLen; ++$iIndex) {
+				if (isset($aMatch[0][$iIndex])) {
 					$iPos = \strpos($aMatch[0][$iIndex], '*');
-					if (false !== $iPos)
-					{
+					if (false !== $iPos) {
 						$aMatch[0][$iIndex][0] = \substr($aMatch[0][$iIndex][0], 0, $iPos);
 					}
 				}
@@ -261,11 +243,9 @@ abstract class Utils
 		$sMainCharset = '';
 		$bOneCharset = true;
 
-		for ($iIndex = 0, $iLen = \count($aEncodeArray); $iIndex < $iLen; $iIndex++)
-		{
+		for ($iIndex = 0, $iLen = \count($aEncodeArray); $iIndex < $iLen; ++$iIndex) {
 			$aTempArr = array('', $aEncodeArray[$iIndex]);
-			if ('=?' === \substr(\trim($aTempArr[1]), 0, 2))
-			{
+			if ('=?' === \substr(\trim($aTempArr[1]), 0, 2)) {
 				$iPos = \strpos($aTempArr[1], '?', 2);
 				$aTempArr[0] = \substr($aTempArr[1], 2, $iPos - 2);
 				$sEncType = \strtoupper($aTempArr[1][$iPos + 1]);
@@ -284,17 +264,12 @@ abstract class Utils
 				}
 			}
 
-			if (\strlen($aTempArr[0]))
-			{
-				$sCharset = \strlen($sForcedIncomingCharset) ? $sForcedIncomingCharset : $aTempArr[0];
-				$sCharset = static::NormalizeCharset($sCharset, true);
+			if (\strlen($aTempArr[0])) {
+				$sCharset = static::NormalizeCharset($aTempArr[0], true);
 
-				if ('' === $sMainCharset)
-				{
+				if ('' === $sMainCharset) {
 					$sMainCharset = $sCharset;
-				}
-				else if ($sMainCharset !== $sCharset)
-				{
+				} else if ($sMainCharset !== $sCharset) {
 					$bOneCharset = false;
 				}
 			}
@@ -308,14 +283,10 @@ abstract class Utils
 			unset($aTempArr);
 		}
 
-		for ($iIndex = 0, $iLen = \count($aParts); $iIndex < $iLen; $iIndex++)
-		{
-			if ($bOneCharset)
-			{
+		for ($iIndex = 0, $iLen = \count($aParts); $iIndex < $iLen; ++$iIndex) {
+			if ($bOneCharset) {
 				$sValue = \str_replace($aParts[$iIndex][0], $aParts[$iIndex][1], $sValue);
-			}
-			else
-			{
+			} else {
 				$aParts[$iIndex][2] = static::NormalizeCharsetByValue($aParts[$iIndex][2], $aParts[$iIndex][1]);
 
 				$sValue = \str_replace($aParts[$iIndex][0],
@@ -324,8 +295,7 @@ abstract class Utils
 			}
 		}
 
-		if ($bOneCharset && \strlen($sMainCharset))
-		{
+		if ($bOneCharset && \strlen($sMainCharset)) {
 			$sMainCharset = static::NormalizeCharsetByValue($sMainCharset, $sValue);
 			$sValue = static::ConvertEncoding($sValue, $sMainCharset, Enumerations\Charset::UTF_8);
 		}
@@ -337,8 +307,7 @@ abstract class Utils
 	{
 		$sResultHeaders = $sIncHeaders;
 
-		if ($aHeadersToRemove)
-		{
+		if ($aHeadersToRemove) {
 			$aHeadersToRemove = \array_map('strtolower', $aHeadersToRemove);
 
 			$sIncHeaders = \preg_replace('/[\r\n]+/', "\n", $sIncHeaders);
@@ -347,31 +316,21 @@ abstract class Utils
 			$bSkip = false;
 			$aResult = array();
 
-			foreach ($aHeaders as $sLine)
-			{
-				if (\strlen($sLine))
-				{
+			foreach ($aHeaders as $sLine) {
+				if (\strlen($sLine)) {
 					$sFirst = \substr($sLine,0,1);
-					if (' ' === $sFirst || "\t" === $sFirst)
-					{
-						if (!$bSkip)
-						{
+					if (' ' === $sFirst || "\t" === $sFirst) {
+						if (!$bSkip) {
 							$aResult[] = $sLine;
 						}
-					}
-					else
-					{
+					} else {
 						$bSkip = false;
 						$aParts = \explode(':', $sLine, 2);
 
-						if (!empty($aParts) && !empty($aParts[0]))
-						{
-							if (\in_array(\strtolower(\trim($aParts[0])), $aHeadersToRemove))
-							{
+						if (!empty($aParts) && !empty($aParts[0])) {
+							if (\in_array(\strtolower(\trim($aParts[0])), $aHeadersToRemove)) {
 								$bSkip = true;
-							}
-							else
-							{
+							} else {
 								$aResult[] = $sLine;
 							}
 						}
@@ -385,23 +344,23 @@ abstract class Utils
 		return $sResultHeaders;
 	}
 
-	public static function EncodeUnencodedValue(string $sEncodeType, string $sValue) : string
+	/**
+	 * https://datatracker.ietf.org/doc/html/rfc2047
+	 */
+	public static function EncodeHeaderValue(string $sValue, string $sEncodeType = 'B') : string
 	{
 		$sValue = \trim($sValue);
-		if (\strlen($sValue) && !static::IsAscii($sValue))
-		{
+		if (\strlen($sValue) && !static::IsAscii($sValue)) {
 			switch (\strtoupper($sEncodeType))
 			{
 				case 'B':
-					$sValue = '=?'.\strtolower(Enumerations\Charset::UTF_8).
+					return '=?'.\strtolower(Enumerations\Charset::UTF_8).
 						'?B?'.\base64_encode($sValue).'?=';
-					break;
 
 				case 'Q':
-					$sValue = '=?'.\strtolower(Enumerations\Charset::UTF_8).
+					return '=?'.\strtolower(Enumerations\Charset::UTF_8).
 						'?Q?'.\str_replace(array('?', ' ', '_'), array('=3F', '_', '=5F'),
 							\quoted_printable_encode($sValue)).'?=';
-					break;
 			}
 		}
 
@@ -410,7 +369,7 @@ abstract class Utils
 
 	public static function AttributeRfc2231Encode(string $sAttrName, string $sValue, string $sCharset = 'utf-8', string $sLang = '', int $iLen = 1000) : string
 	{
-		$sValue = \strtoupper($sCharset).'\''.$sLang.'\''.
+		$sValue = \strtoupper($sCharset)."'{$sLang}'".
 			\preg_replace_callback('/[\x00-\x20*\'%()<>@,;:\\\\"\/[\]?=\x80-\xFF]/', function ($match) {
 				return \rawurlencode($match[0]);
 			}, $sValue);
@@ -418,28 +377,22 @@ abstract class Utils
 		$iNlen = \strlen($sAttrName);
 		$iVlen = \strlen($sValue);
 
-		if (\strlen($sAttrName) + $iVlen > $iLen - 3)
-		{
+		if (\strlen($sAttrName) + $iVlen > $iLen - 3) {
 			$sections = array();
 			$section = 0;
 
-			for ($i = 0, $j = 0; $i < $iVlen; $i += $j)
-			{
+			for ($i = 0, $j = 0; $i < $iVlen; $i += $j) {
 				$j = $iLen - $iNlen - \strlen($section) - 4;
 				$sections[$section++] = \substr($sValue, $i, $j);
 			}
 
-			for ($i = 0, $n = $section; $i < $n; $i++)
-			{
+			for ($i = 0, $n = $section; $i < $n; ++$i) {
 				$sections[$i] = ' '.$sAttrName.'*'.$i.'*='.$sections[$i];
 			}
 
 			return \implode(";\r\n", $sections);
 		}
-		else
-		{
-			return $sAttrName.'*='.$sValue;
-		}
+		return $sAttrName.'*='.$sValue;
 	}
 
 	public static function EncodeHeaderUtf8AttributeValue(string $sAttrName, string $sValue) : string
@@ -447,43 +400,39 @@ abstract class Utils
 		$sAttrName = \trim($sAttrName);
 		$sValue = \trim($sValue);
 
-		if (\strlen($sValue) && !static::IsAscii($sValue))
-		{
+		if (\strlen($sValue) && !static::IsAscii($sValue)) {
 			$sValue = static::AttributeRfc2231Encode($sAttrName, $sValue);
-		}
-		else
-		{
+		} else {
 			$sValue = $sAttrName.'="'.\str_replace('"', '\\"', $sValue).'"';
 		}
 
 		return \trim($sValue);
 	}
 
+	/**
+	 * @deprecated use getEmailAddressLocalPart
+	 */
 	public static function GetAccountNameFromEmail(string $sEmail) : string
 	{
-		$sResult = '';
-		if (\strlen($sEmail))
-		{
-			$iPos = \strrpos($sEmail, '@');
-			$sResult = (false === $iPos) ? $sEmail : \substr($sEmail, 0, $iPos);
-		}
-
-		return $sResult;
+		return static::getEmailAddressLocalPart($sEmail);
+	}
+	public static function getEmailAddressLocalPart(string $sEmail) : string
+	{
+		$iPos = \strrpos($sEmail, '@');
+		return (false === $iPos) ? $sEmail : \substr($sEmail, 0, $iPos);
 	}
 
+	/**
+	 * @deprecated use getEmailAddressDomain
+	 */
 	public static function GetDomainFromEmail(string $sEmail) : string
 	{
-		$sResult = '';
-		if (\strlen($sEmail))
-		{
-			$iPos = \strrpos($sEmail, '@');
-			if (false !== $iPos && 0 < $iPos)
-			{
-				$sResult = \substr($sEmail, $iPos + 1);
-			}
-		}
-
-		return $sResult;
+		return static::getEmailAddressDomain($sEmail);
+	}
+	public static function getEmailAddressDomain(string $sEmail) : string
+	{
+		$iPos = \strrpos($sEmail, '@');
+		return (false === $iPos) ? '' : \substr($sEmail, $iPos + 1);
 	}
 
 	public static function GetClearDomainName(string $sDomain) : string
@@ -501,70 +450,13 @@ abstract class Utils
 		return false === $iLast ? '' : \strtolower(\substr($sFileName, $iLast + 1));
 	}
 
-	public static function ContentTypeType(string $sContentType, string $sFileName) : string
-	{
-		$sContentType = \strtolower($sContentType);
-		if (\str_starts_with($sContentType, 'image/')) {
-			return 'image';
-		}
-
-		switch ($sContentType)
-		{
-			case 'application/zip':
-			case 'application/x-7z-compressed':
-			case 'application/x-rar-compressed':
-			case 'application/x-msdownload':
-			case 'application/vnd.ms-cab-compressed':
-			case 'application/gzip':
-			case 'application/x-gzip':
-			case 'application/x-bzip':
-			case 'application/x-bzip2':
-			case 'application/x-debian-package':
-			case 'application/x-tar':
-			case 'application/gtar':
-				return 'archive';
-
-			case 'application/msword':
-			case 'application/rtf':
-			case 'application/vnd.ms-excel':
-			case 'application/vnd.ms-powerpoint':
-			case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-			case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-			case 'application/vnd.openxmlformats-officedocument.wordprocessingml.template':
-			case 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
-			case 'application/vnd.oasis.opendocument.text':
-			case 'application/vnd.oasis.opendocument.spreadsheet':
-				return 'doc';
-
-			case 'application/pdf':
-			case 'application/x-pdf':
-				return 'pdf';
-		}
-
-		switch (\strtolower(static::GetFileExtension($sFileName)))
-		{
-			case 'zip':
-			case '7z':
-			case 'rar':
-			case 'tar':
-			case 'tgz':
-				return 'archive';
-
-			case 'pdf':
-				return 'pdf';
-		}
-
-		return '';
-	}
-
 	/**
 	 * @staticvar bool $bValidateAction
 	 */
 	public static function ResetTimeLimit(int $iTimeToReset = 15, int $iTimeToAdd = 120) : bool
 	{
 		$iTime = \time();
-		if ($iTime < $_SERVER['REQUEST_TIME_FLOAT'] + 5)
-		{
+		if ($iTime < $_SERVER['REQUEST_TIME_FLOAT'] + 5) {
 			// do nothing first 5s
 			return true;
 		}
@@ -572,18 +464,15 @@ abstract class Utils
 		static $bValidateAction = null;
 		static $iResetTimer = null;
 
-		if (null === $bValidateAction)
-		{
+		if (null === $bValidateAction) {
 			$iResetTimer = 0;
 
 			$bValidateAction = static::FunctionCallable('set_time_limit');
 		}
 
-		if ($bValidateAction && $iTimeToReset < $iTime - $iResetTimer)
-		{
+		if ($bValidateAction && $iTimeToReset < $iTime - $iResetTimer) {
 			$iResetTimer = $iTime;
-			if (!\set_time_limit($iTimeToAdd))
-			{
+			if (!\set_time_limit($iTimeToAdd)) {
 				$bValidateAction = false;
 				return false;
 			}
@@ -594,11 +483,13 @@ abstract class Utils
 		return false;
 	}
 
-	# Replace ampersand, spaces and reserved characters (based on Win95 VFAT)
-	# en.wikipedia.org/wiki/Filename#Reserved_characters_and_words
+	/**
+	 * Replace control characters, ampersand and reserved characters (based on Win95 VFAT)
+	 * en.wikipedia.org/wiki/Filename#Reserved_characters_and_words
+	 */
 	public static function SecureFileName(string $sFileName) : string
 	{
-		return \preg_replace('#[|\\\\?*<":>+\\[\\]/&\\s\\pC]#su', '-', $sFileName);
+		return \preg_replace('#[|\\\\?*<":>+\\[\\]/&\\pC]#su', '-', $sFileName);
 	}
 
 	public static function Trim(string $sValue) : string
@@ -608,24 +499,7 @@ abstract class Utils
 
 	public static function RecRmDir(string $sDir) : bool
 	{
-		\clearstatcache();
-		if (\is_dir($sDir)) {
-			$iterator = new \RecursiveIteratorIterator(
-				new \RecursiveDirectoryIterator($sDir, \FilesystemIterator::SKIP_DOTS),
-				\RecursiveIteratorIterator::CHILD_FIRST);
-			foreach ($iterator as $path) {
-				if ($path->isDir()) {
-					\rmdir($path);
-				} else {
-					\unlink($path);
-				}
-			}
-			\clearstatcache();
-//			\realpath_cache_size() && \clearstatcache(true);
-			return \rmdir($sDir);
-		}
-
-		return false;
+		return static::RecTimeDirRemove($sDir, 0);
 	}
 
 	public static function RecTimeDirRemove(string $sDir, int $iTime2Kill) : bool
@@ -637,9 +511,10 @@ abstract class Utils
 				new \RecursiveDirectoryIterator($sDir, \FilesystemIterator::SKIP_DOTS),
 				\RecursiveIteratorIterator::CHILD_FIRST);
 			foreach ($iterator as $path) {
-				if ($path->isFile() && $path->getMTime() < $iTime) {
+				if ($path->isFile() && (!$iTime2Kill || $path->getMTime() < $iTime)) {
+					\is_callable('opcache_invalidate') && \opcache_invalidate($path, true);
 					\unlink($path);
-				} else if ($path->isDir() && !(new \FilesystemIterator($path))->valid()) {
+				} else if ($path->isDir() && (!$iTime2Kill || !(new \FilesystemIterator($path))->valid())) {
 					\rmdir($path);
 				}
 			}
@@ -675,24 +550,19 @@ abstract class Utils
 	public static function Base64Decode(string $sString) : string
 	{
 		$sResultString = \base64_decode($sString, true);
-		if (false === $sResultString)
-		{
+		if (false === $sResultString) {
 			$sString = \str_replace(array(' ', "\r", "\n", "\t"), '', $sString);
 			$sString = \preg_replace('/[^a-zA-Z0-9=+\/](.*)$/', '', $sString);
 
-			if (false !== \strpos(\trim(\trim($sString), '='), '='))
-			{
+			if (false !== \strpos(\trim(\trim($sString), '='), '=')) {
 				$sString = \preg_replace('/=([^=])/', '= $1', $sString);
 				$aStrings = \explode(' ', $sString);
-				foreach ($aStrings as $iIndex => $sParts)
-				{
+				foreach ($aStrings as $iIndex => $sParts) {
 					$aStrings[$iIndex] = \base64_decode($sParts);
 				}
 
 				$sResultString = \implode('', $aStrings);
-			}
-			else
-			{
+			} else {
 				$sResultString = \base64_decode($sString);
 			}
 		}
@@ -707,7 +577,7 @@ abstract class Utils
 
 	public static function UrlSafeBase64Decode(string $sValue) : string
 	{
-		return \base64_decode(\strtr($sValue, '-_', '+/'), '=');
+		return \base64_decode(\strtr($sValue, '-_', '+/'), true);
 	}
 
 	/**
@@ -715,23 +585,16 @@ abstract class Utils
 	 */
 	public static function FpassthruWithTimeLimitReset($fResource, int $iBufferLen = 8192) : bool
 	{
-		$bResult = false;
-		if (\is_resource($fResource))
-		{
-			while (!\feof($fResource))
-			{
+		$bResult = \is_resource($fResource);
+		if ($bResult) {
+			while (!\feof($fResource)) {
 				$sBuffer = \fread($fResource, $iBufferLen);
-				if (false !== $sBuffer)
-				{
-					echo $sBuffer;
-					static::ResetTimeLimit();
-					continue;
+				if (false === $sBuffer) {
+					break;
 				}
-
-				break;
+				echo $sBuffer;
+				static::ResetTimeLimit();
 			}
-
-			$bResult = true;
 		}
 
 		return $bResult;
@@ -739,63 +602,44 @@ abstract class Utils
 
 	/**
 	 * @param resource $rRead
+	 * @param resource $rWrite
 	 */
-	public static function MultipleStreamWriter($rRead, array $aWrite, int $iBufferLen = 8192, bool $bResetTimeLimit = true, bool $bFixCrLf = false, bool $bRewindOnComplete = false) : int
+	public static function WriteStream($rRead, $rWrite, int $iBufferLen = 8192, bool $bFixCrLf = false, bool $bRewindOnComplete = false) : int
 	{
-		$mResult = false;
-		if (\is_resource($rRead) && \count($aWrite))
-		{
-			$mResult = 0;
-			while (!\feof($rRead))
-			{
-				$sBuffer = \fread($rRead, $iBufferLen);
-				if (false === $sBuffer)
-				{
-					$mResult = false;
-					break;
-				}
-
-				if ('' === $sBuffer)
-				{
-					break;
-				}
-
-				if ($bFixCrLf)
-				{
-					$sBuffer = \str_replace("\n", "\r\n", \str_replace("\r", '', $sBuffer));
-				}
-
-				$mResult += \strlen($sBuffer);
-
-				foreach ($aWrite as $rWriteStream)
-				{
-					$mWriteResult = \fwrite($rWriteStream, $sBuffer);
-					if (false === $mWriteResult)
-					{
-						$mResult = false;
-						break 2;
-					}
-				}
-
-				if ($bResetTimeLimit)
-				{
-					static::ResetTimeLimit();
-				}
-			}
+		if (!\is_resource($rRead) || !\is_resource($rWrite)) {
+			return -1;
 		}
 
-		if ($mResult && $bRewindOnComplete)
-		{
-			foreach ($aWrite as $rWriteStream)
-			{
-				if (\is_resource($rWriteStream))
-				{
-					\rewind($rWriteStream);
-				}
+		$iResult = 0;
+
+		while (!\feof($rRead)) {
+			$sBuffer = \fread($rRead, $iBufferLen);
+			if (false === $sBuffer) {
+				return -1;
 			}
+
+			if ('' === $sBuffer) {
+				break;
+			}
+
+			if ($bFixCrLf) {
+				$sBuffer = \str_replace("\n", "\r\n", \str_replace("\r", '', $sBuffer));
+			}
+
+			$iResult += \strlen($sBuffer);
+
+			if (false === \fwrite($rWrite, $sBuffer)) {
+				return -1;
+			}
+
+			static::ResetTimeLimit();
 		}
 
-		return $mResult;
+		if ($bRewindOnComplete) {
+			\rewind($rWrite);
+		}
+
+		return $iResult;
 	}
 
 	public static function Utf7ModifiedToUtf8(string $sStr) : string
@@ -840,60 +684,42 @@ abstract class Utils
 		return \sha1($sAdditionalSalt . \random_bytes(16));
 	}
 
-	public static function ValidateDomain(string $sDomain, bool $bSimple = false) : bool
-	{
-		$aMatch = array();
-		if ($bSimple)
-		{
-			return \preg_match('/.+(\.[a-zA-Z]+)$/', $sDomain, $aMatch) && !empty($aMatch[1]);
-		}
-
-		return \preg_match('/.+(\.[a-zA-Z]+)$/', $sDomain, $aMatch) && !empty($aMatch[1]) && \in_array($aMatch[1], \explode(' ',
-			'.academy .actor .agency .audio .bar .beer .bike .blue .boutique .cab .camera .camp .capital .cards .careers .cash .catering .center .cheap .city .cleaning .clinic .clothing .club .coffee .community .company .computer .construction .consulting .contractors .cool .credit .dance .dating .democrat .dental .diamonds .digital .direct .directory .discount .domains .education .email .energy .equipment .estate .events .expert .exposed .fail .farm .fish .fitness .florist .fund .futbol .gallery .gift .glass .graphics .guru .help .holdings .holiday .host .hosting .house .institute .international .kitchen .land .life .lighting .limo .link .management .market .marketing .media .menu .moda .partners .parts .photo .photography .photos .pics .pink .press .productions .pub .red .rentals .repair .report .rest .sexy .shoes .social .solar .solutions .space .support .systems .tattoo .tax .technology .tips .today .tools .town .toys .trade .training .university .uno .vacations .vision .vodka .voyage .watch .webcam .wiki .work .works .wtf .zone .aero .asia .biz .cat .com .coop .edu .gov .info .int .jobs .mil .mobi .museum .name .net .org .pro .tel .travel .xxx .xyz '.
-			'.ac .ad .ae .af .ag .ai .al .am .an .ao .aq .ar .as .at .au .aw .ax .az .ba .bb .bd .be .bf .bg .bh .bi .bj .bm .bn .bo .br .bs .bt .bv .bw .by .bz .ca .cc .cd .cf .cg .ch .ci .ck .cl .cm .cn .co .cr .cs .cu .cv .cx .cy .cz .dd .de .dj .dk .dm .do .dz .ec .ee .eg .er .es .et .eu .fi .fj .fk .fm .fo .fr .ga .gb .gd .ge .gf .gg .gh .gi .gl .gm .gn .gp .gq .gr .gs .gt .gu .gw .gy .hk .hm .hn .hr .ht .hu .id .ie .il .im .in .io .iq .ir .is .it .je .jm .jo .jp .ke .kg .kh .ki .km .kn .kp .kr .kw .ky .kz .la .lb .lc .li .lk .lr .ls .lt .lu .lv .ly .ma .mc .md .me .mg .mh .mk .ml .mm .mn .mo .mp .mq .mr .ms .mt .mu .mv .mw .mx .my .mz .na .nc .ne .nf .ng .ni .nl .no .np .nr .nu .nz .om .pa .pe .pf .pg .ph .pk .pl .pm .pn .pr .ps .pt .pw .py .qa .re .ro .rs .ru . .rw .sa .sb .sc .sd .se .sg .sh .si .sj .sk .sl .sm .sn .so .sr .st .su .sv .sy .sz .tc .td .tf .tg .th .tj .tk .tl .tm .tn .to .tp .tr .tt .tv .tw .tz .ua .ug .uk .us .uy .uz .va .vc .ve .vg .vi .vn .vu .wf .ws .ye .yt .za .zm .zw'
-		));
-	}
-
 	public static function ValidateIP(string $sIp) : bool
 	{
 		return !empty($sIp) && $sIp === \filter_var($sIp, FILTER_VALIDATE_IP);
 	}
 
-	public static function IdnToUtf8(string $sStr, bool $bLowerIfAscii = false) : string
+	/**
+	 * @deprecated
+	 */
+	public static function IdnToUtf8(string $sStr) : string
 	{
-		if (\strlen($sStr) && \preg_match('/(^|\.|@)xn--/i', $sStr))
-		{
-			try
-			{
-				$sStr = \SnappyMail\IDN::anyToUtf8($sStr);
-			}
-			catch (\Throwable $oException) {}
+		$trace = \debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2)[1];
+		\SnappyMail\Log::warning('MailSo', "Deprecated function IdnToUtf8 called at {$trace['file']}#{$trace['line']}");
+		if (\preg_match('/(^|\.|@)xn--/i', $sStr)) {
+			$sStr = \str_contains($sStr, '@')
+			? \SnappyMail\IDN::emailToUtf8($string)
+			: \idn_to_utf8($string);
 		}
-
-		return $bLowerIfAscii ? static::StrMailDomainToLower($sStr) : $sStr;
+		return $sStr;
 	}
 
-	public static function IdnToAscii(string $sStr, bool $bLowerIfAscii = false) : string
+	/**
+	 * @deprecated
+	 */
+	public static function IdnToAscii(string $sStr, bool $bLowerCase = false) : string
 	{
-		$sStr = $bLowerIfAscii ? static::StrMailDomainToLower($sStr) : $sStr;
-
-		$sUser = '';
-		$sDomain = $sStr;
-		if (false !== \strpos($sStr, '@'))
-		{
-			$sUser = static::GetAccountNameFromEmail($sStr);
-			$sDomain = static::GetDomainFromEmail($sStr);
+		$trace = \debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2)[1];
+		\SnappyMail\Log::warning('MailSo', "Deprecated function IdnToAscii called at {$trace['file']}#{$trace['line']}");
+		$aParts = \explode('@', $sStr);
+		$sDomain = \array_pop($aParts);
+		if (\preg_match('/[^\x20-\x7E]/', $sDomain)) {
+			$sDomain = \idn_to_ascii($string);
 		}
-
-		if (\strlen($sDomain) && \preg_match('/[^\x20-\x7E]/', $sDomain))
-		{
-			try
-			{
-				$sDomain = \SnappyMail\IDN::anyToAscii($sDomain);
-			}
-			catch (\Throwable $oException) {}
+		if ($bLowerCase) {
+			$sDomain = \strtolower($sDomain);
 		}
-
-		return ('' === $sUser ? '' : $sUser.'@').$sDomain;
+		$aParts[] = $sDomain;
+		return \implode('@', $aParts);
 	}
 }

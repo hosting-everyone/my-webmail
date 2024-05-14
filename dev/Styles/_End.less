@@ -8,18 +8,18 @@
 	border: 1px solid #999;
 	color: red;
 	content: attr(data-rainloopErrorTip);
-	font-size: 13px;
-	left: 100%;
+	font-size: 90%;
+	left: 0;
 	opacity: 1;
 	padding: 0.25em;
 	position : absolute;
-	text-align: left;
+	text-align: var(--left, left);
 	top: 100%;
 	transition: opacity 0.2s ease-in-out;
-	white-space: nowrap;
+	white-space: pre;
 	z-index: 2001;
 }
-@media only screen and (max-width: 600px) {
+@media screen and (max-width: @maxMobileWidth) {
 	[data-rainloopErrorTip]::before {
 		min-width: 60vw;
 		white-space: normal;

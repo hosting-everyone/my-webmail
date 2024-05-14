@@ -11,8 +11,11 @@ export const
 
 	elementById = id => doc.getElementById(id),
 
+	appEl = elementById('rl-app'),
+
 	Settings = rl.settings,
 	SettingsGet = Settings.get,
+	SettingsAdmin = name => (SettingsGet('Admin') || {})[name],
 	SettingsCapa = name => name && !!(SettingsGet('Capa') || {})[name],
 
 	dropdowns = [],
@@ -30,6 +33,11 @@ export const
 	fireEvent = (name, detail, cancelable) => dispatchEvent(
 		new CustomEvent(name, {detail:detail, cancelable: !!cancelable})
 	),
+
+	stopEvent = event => {
+		event.preventDefault();
+		event.stopPropagation();
+	},
 
 	formFieldFocused = () => doc.activeElement?.matches('input,textarea'),
 

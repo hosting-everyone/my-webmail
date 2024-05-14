@@ -15,17 +15,11 @@ namespace MailSo\Mime;
  * @category MailSo
  * @package Mime
  */
-class Parameter
+class Parameter implements \JsonSerializable
 {
-	/**
-	 * @var string
-	 */
-	private $sName;
+	private string $sName;
 
-	/**
-	 * @var string
-	 */
-	private $sValue;
+	private string $sValue;
 
 	function __construct(string $sName, string $sValue)
 	{
@@ -33,18 +27,17 @@ class Parameter
 		$this->sValue = $sValue;
 	}
 
-	public static function CreateFromParameterLine(string $sRawParam) : self
+	public static function FromString(string $sRawParam) : self
 	{
 		$oParameter = new self('', '');
-		return $oParameter->Parse($sRawParam);
-	}
 
-	public function Reset() : self
-	{
-		$this->sName = '';
-		$this->sValue = '';
+		$aParts = \explode('=', $sRawParam, 2);
+		$oParameter->sName = \trim(\trim($aParts[0]), '"\'');
+		if (2 === \count($aParts)) {
+			$oParameter->sValue = \trim(\trim($aParts[1]), '"\'');
+		}
 
-		return $this;
+		return $oParameter;
 	}
 
 	public function Name() : string
@@ -62,42 +55,34 @@ class Parameter
 		$this->sValue = $sValue;
 	}
 
-	public function Parse(string $sRawParam, string $sSeparator = '=') : self
-	{
-		$this->Reset();
-
-		$aParts = explode($sSeparator, $sRawParam, 2);
-
-		$this->sName = trim(trim($aParts[0]), '"\'');
-		if (2 === count($aParts))
-		{
-			$this->sValue = trim(trim($aParts[1]), '"\'');
-		}
-
-		return $this;
-	}
-
 	public function ToString(bool $bConvertSpecialsName = false) : string
 	{
-		$sResult = '';
-		if (\strlen($this->sName))
-		{
-			$sResult = $this->sName.'=';
-			if ($bConvertSpecialsName && in_array(strtolower($this->sName), array(
-				strtolower(Enumerations\Parameter::NAME),
-				strtolower(Enumerations\Parameter::FILENAME)
-			)))
-			{
-				$sResult .= '"'.\MailSo\Base\Utils::EncodeUnencodedValue(
-					\MailSo\Base\Enumerations\Encoding::BASE64_SHORT,
-					$this->sValue).'"';
-			}
-			else
-			{
-				$sResult .= '"'.$this->sValue.'"';
-			}
+		if (!\strlen($this->sName)) {
+			return '';
 		}
 
-		return $sResult;
+		if ($bConvertSpecialsName && \in_array(\strtolower($this->sName), array(
+			\strtolower(Enumerations\Parameter::NAME),
+			\strtolower(Enumerations\Parameter::FILENAME)
+		)))
+		{
+			return $this->sName . '="' . \MailSo\Base\Utils::EncodeHeaderValue($this->sValue) . '"';
+		}
+
+		return $this->sName . '="' . $this->sValue . '"';
+	}
+
+	public function __toString() : string
+	{
+		return $this->ToString();
+	}
+
+	#[\ReturnTypeWillChange]
+	public function jsonSerialize()
+	{
+		return array(
+			'name' => $this->sName,
+			'value' => $this->sValue
+		);
 	}
 }

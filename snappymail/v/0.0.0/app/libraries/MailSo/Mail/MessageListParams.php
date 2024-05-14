@@ -13,20 +13,31 @@ namespace MailSo\Mail;
 
 class MessageListParams
 {
-	public
-		$sFolderName, // string
-		$sSearch = '', // string
-		$oCacher = null, // ?\MailSo\Cache\CacheClient
-		$bUseSortIfSupported = false, // bool
-		$bUseThreads = false, // bool
-		$bHideDeleted = true, // bool
-		$sSort = ''; // string
+	public string
+		$sFolderName,
+		$sSearch = '',
+		$sSort = '',
+		$sThreadAlgorithm = '';
 
-	protected
+	public ?\MailSo\Cache\CacheClient
+		$oCacher = null;
+
+	public bool
+		$bUseSort = true,
+		$bUseThreads = false,
+		$bHideDeleted = true,
+		$bSearchFuzzy = false;
+
+	protected int
 		$iOffset = 0,
-		$iLimit = 10,
+		$iLimit = 0,
 		$iPrevUidNext = 0, // used to check for new messages
 		$iThreadUid = 0;
+
+	/**
+	 * Messages with message sequence numbers corresponding to the specified message sequence number set.
+	 */
+	public ?\MailSo\Imap\SequenceSet $oSequenceSet = null;
 
 	public function __get($k)
 	{
@@ -38,7 +49,74 @@ class MessageListParams
 		if ('i' === $k[0]) {
 			$this->$k = \max(0, (int) $v);
 		}
-//		\MailSo\Base\Validator::RangeInt($oParams->iOffset, 0)
-//		\MailSo\Base\Validator::RangeInt($oParams->iLimit, 0, 999)
+//		0 > $oParams->iOffset
+//		0 > $oParams->iLimit
+//		999 < $oParams->iLimit
 	}
+
+	public function hash() : string
+	{
+		return \md5(\implode('-', [
+			$this->sFolderName,
+			$this->iOffset,
+			$this->iLimit,
+			$this->bHideDeleted ? '1' : '0',
+			$this->sSearch,
+			$this->bSearchFuzzy ? '1' : '0',
+			$this->bUseSort ? $this->sSort : '0',
+			$this->bUseThreads ? $this->iThreadUid : '',
+			$this->bUseThreads ? $this->sThreadAlgorithm : '',
+//			$this->oSequenceSet ? $this->oSequenceSet : '',
+			$this->iPrevUidNext
+		]));
+	}
+
+/*
+	public function sortValid($oImapClient) : bool
+	{
+		if (!$this->sSort) {
+			return true;
+		}
+		/(REVERSE\s+)?(ARRIVAL|CC|DATE|FROM|SIZE|SUBJECT|TO|DISPLAYFROM|DISPLAYTO)/
+			ARRIVAL
+				Internal date and time of the message.  This differs from the
+				ON criteria in SEARCH, which uses just the internal date.
+
+			CC
+				[IMAP] addr-mailbox of the first "cc" address.
+
+			DATE
+				Sent date and time, as described in section 2.2.
+
+			FROM
+				[IMAP] addr-mailbox of the first "From" address.
+
+			REVERSE
+				Followed by another sort criterion, has the effect of that
+				criterion but in reverse (descending) order.
+				Note: REVERSE only reverses a single criterion, and does not
+				affect the implicit "sequence number" sort criterion if all
+				other criteria are identical.  Consequently, a sort of
+				REVERSE SUBJECT is not the same as a reverse ordering of a
+				SUBJECT sort.  This can be avoided by use of additional
+				criteria, e.g., SUBJECT DATE vs. REVERSE SUBJECT REVERSE
+				DATE.  In general, however, it's better (and faster, if the
+				client has a "reverse current ordering" command) to reverse
+				the results in the client instead of issuing a new SORT.
+
+			SIZE
+				Size of the message in octets.
+
+			SUBJECT
+				Base subject text.
+
+			TO
+				[IMAP] addr-mailbox of the first "To" address.
+
+			RFC 5957:
+				$oImapClient->hasCapability('SORT=DISPLAY')
+				DISPLAYFROM, DISPLAYTO
+	}
+*/
+
 }

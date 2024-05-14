@@ -3,8 +3,10 @@ import ko from 'ko';
 import { logoutLink } from 'Common/Links';
 import { i18nToNodes, initOnStartOrLangChange } from 'Common/Translator';
 
+import { arePopupsVisible } from 'Knoin/Knoin';
+
 import { LanguageStore } from 'Stores/Language';
-import { ThemeStore } from 'Stores/Theme';
+import { initThemes } from 'Stores/Theme';
 
 import { SelectComponent } from 'Component/Select';
 import { CheckboxComponent } from 'Component/Checkbox';
@@ -18,6 +20,7 @@ export class AbstractApp {
 	}
 
 	logoutReload(url) {
+		arePopupsVisible(false);
 		url = url || logoutLink();
 		if (location.href !== url) {
 			setTimeout(() => location.href = url, 100);
@@ -46,7 +49,7 @@ export class AbstractApp {
 		initOnStartOrLangChange();
 
 		LanguageStore.populate();
-		ThemeStore.populate();
+		initThemes();
 
 		this.start();
 	}

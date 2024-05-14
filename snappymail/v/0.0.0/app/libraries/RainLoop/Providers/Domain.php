@@ -57,12 +57,12 @@ class Domain extends AbstractProvider
 
 	public function LoadOrCreateNewFromAction(\RainLoop\Actions $oActions, string $sNameForTest = null) : ?\RainLoop\Model\Domain
 	{
-		$sName = (string) $oActions->GetActionParam('Name', '');
+		$sName = \mb_strtolower((string) $oActions->GetActionParam('name', ''));
 		if (\strlen($sName) && $sNameForTest && !\str_contains($sName, '*')) {
 			$sNameForTest = null;
 		}
 		if (\strlen($sName) || $sNameForTest) {
-			if (!$sNameForTest && !empty($oActions->GetActionParam('Create', 0)) && $this->Load($sName)) {
+			if (!$sNameForTest && !empty($oActions->GetActionParam('create', 0)) && $this->Load($sName)) {
 				throw new \RainLoop\Exceptions\ClientException(\RainLoop\Notifications::DomainAlreadyExists);
 			}
 			return \RainLoop\Model\Domain::fromArray($sNameForTest ?: $sName, [
@@ -78,5 +78,17 @@ class Domain extends AbstractProvider
 	public function IsActive() : bool
 	{
 		return $this->oDriver instanceof Domain\DomainInterface;
+	}
+
+	public function getByEmailAddress(string $sEmail) : \RainLoop\Model\Domain
+	{
+		$oDomain = $this->Load(\MailSo\Base\Utils::getEmailAddressDomain($sEmail), true);
+		if (!$oDomain) {
+			throw new ClientException(Notifications::DomainNotAllowed);
+		}
+		if (!$oDomain->ValidateWhiteList($sEmail)) {
+			throw new ClientException(Notifications::AccountNotAllowed);
+		}
+		return $oDomain;
 	}
 }

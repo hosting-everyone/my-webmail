@@ -16,11 +16,10 @@ namespace MailSo\Imap;
  * @category MailSo
  * @package Mail
  */
-abstract class SearchCriterias
+class SearchCriterias
 {
 	const
-		RegEx = 'in|e?mail|from|to|subject|has|is|date|since|before|text|body|size|larger|bigger|smaller|maxsize|minsize|keyword|older_than|newer_than';
-
+		RegEx = 'in|e?mail|from|to|subject|has|is|date|since|before|text|body|size|larger|bigger|smaller|maxsize|minsize|keyword|older_than|newer_than|on|senton|sentsince|sentbefore|header';
 	/**
 		https://datatracker.ietf.org/doc/html/rfc3501#section-6.4.4
 
@@ -66,22 +65,22 @@ abstract class SearchCriterias
 		☐ NOT <search-key>
 			Messages that do not match the specified search key.
 
-		☐ ON <date>
+		✔ ON <date>
 			Messages whose internal date (disregarding time and timezone)
 			is within the specified date.
 
 		✔ OR <search-key1> <search-key2>
 			Messages that match either search key.
 
-		☐ SENTBEFORE <date>
+		✔ SENTBEFORE <date>
 			Messages whose [RFC-2822] Date: header (disregarding time and
 			timezone) is earlier than the specified date.
 
-		☐ SENTON <date>
+		✔ SENTON <date>
 			Messages whose [RFC-2822] Date: header (disregarding time and
 			timezone) is within the specified date.
 
-		☐ SENTSINCE <date>
+		✔ SENTSINCE <date>
 			Messages whose [RFC-2822] Date: header (disregarding time and
 			timezone) is within or later than the specified date.
 
@@ -127,15 +126,32 @@ abstract class SearchCriterias
 		X RECENT
 	*/
 
-	public static function fromString(\MailSo\Imap\ImapClient $oImapClient, string $sFolderName, string $sSearch, bool $bHideDeleted, bool &$bUseCache = true) : string
+	private array $criterias = [];
+	public bool $fuzzy = false;
+
+	function prepend(string $rule)
+	{
+		\array_unshift($this->criterias, $rule);
+	}
+
+	function __toString() : string
+	{
+		if ($this->fuzzy) {
+			$keys = ['BCC','BODY','CC','FROM','SUBJECT','TEXT','TO'];
+			foreach ($this->criterias as $i => $key) {
+				if (\in_array($key, $keys)) {
+					$this->criterias[$i] = "FUZZY {$key}";
+				}
+			}
+		}
+		$sCriteriasResult = \trim(\implode(' ', $this->criterias));
+		return $sCriteriasResult ?: 'ALL';
+	}
+
+	public static function fromString(\MailSo\Imap\ImapClient $oImapClient, string $sFolderName, string $sSearch, bool $bHideDeleted, bool &$bUseCache = true) : self
 	{
 		$iTimeFilter = 0;
 		$aCriteriasResult = array();
-
-		if (0 < \MailSo\Config::$MessageListDateFilter) {
-			$iD = \time() - 3600 * 24 * 30 * \MailSo\Config::$MessageListDateFilter;
-			$iTimeFilter = \gmmktime(1, 1, 1, \gmdate('n', $iD), 1, \gmdate('Y', $iD));
-		}
 
 		$sSearch = \trim($sSearch);
 		if (\strlen($sSearch)) {
@@ -146,7 +162,7 @@ abstract class SearchCriterias
 			if (!$aLines) {
 				$sValue = static::escapeSearchString($oImapClient, $sSearch);
 
-				if (\MailSo\Config::$MessageListFastSimpleSearch) {
+				if ($oImapClient->Settings->fast_simple_search) {
 					$aCriteriasResult[] = 'OR OR OR';
 					$aCriteriasResult[] = 'FROM';
 					$aCriteriasResult[] = $sValue;
@@ -161,7 +177,7 @@ abstract class SearchCriterias
 					$aCriteriasResult[] = $sValue;
 				}
 			} else {
-				if (isset($aLines['IN']) && $oImapClient->IsSupported('MULTISEARCH') && \in_array($aLines['IN'], ['subtree','subtree-one','mailboxes'])) {
+				if (isset($aLines['IN']) && $oImapClient->hasCapability('MULTISEARCH') && \in_array($aLines['IN'], ['subtree','subtree-one','mailboxes'])) {
 					$aCriteriasResult[] = "IN ({$aLines['IN']} \"{$sFolderName}\")";
 				}
 
@@ -218,6 +234,14 @@ abstract class SearchCriterias
 							$aCriteriasResult[] = 'HEADER Content-Type multipart/report';
 							break;
 
+						case 'HEADER':
+							$aValue = \explode(' ', $sRawValue, 2);
+							$aCriteriasResult[] = 'HEADER '
+								. static::escapeSearchString($oImapClient, $aValue[0])
+								. ' '
+								. static::escapeSearchString($oImapClient, $aValue[1]);
+							break;
+
 						case 'FLAGGED':
 						case 'UNFLAGGED':
 						case 'SEEN':
@@ -242,10 +266,14 @@ abstract class SearchCriterias
 								$iTimeFilter = \max($iTimeFilter, $sValue);
 							}
 							break;
+						case 'ON':
+						case 'SENTON':
+						case 'SENTSINCE':
+						case 'SENTBEFORE':
 						case 'BEFORE':
 							$sValue = static::parseSearchDate($sRawValue);
 							if ($sValue) {
-								$aCriteriasResult[] = 'BEFORE';
+								$aCriteriasResult[] = $sName;
 								$aCriteriasResult[] = \gmdate('j-M-Y', $sValue);
 							}
 							break;
@@ -276,6 +304,17 @@ abstract class SearchCriterias
 							}
 							break;
 
+						// https://www.rfc-editor.org/rfc/rfc5032.html
+						case 'OLDER':
+						case 'YOUNGER':
+							// time interval in seconds
+							$sValue = \intval($sRawValue);
+							if (0 < $sValue && $oImapClient->hasCapability('WITHIN')) {
+								$aCriteriasResult[] = $sName;
+								$aCriteriasResult[] = $sValue;
+							}
+							break;
+
 						// https://github.com/the-djmaze/snappymail/issues/625
 						case 'READ':
 						case 'UNREAD':
@@ -283,14 +322,26 @@ abstract class SearchCriterias
 							$bUseCache = false;
 							break;
 						case 'OLDER_THAN':
-							$aCriteriasResult[] = 'BEFORE';
-							$aCriteriasResult[] = (new \DateTime())->sub(new \DateInterval("P{$sRawValue}"))->format('j-M-Y');
+							$oDate = (new \DateTime())->sub(new \DateInterval("P{$sRawValue}"));
+							if ($oImapClient->hasCapability('WITHIN')) {
+								$aCriteriasResult[] = 'OLDER';
+								$aCriteriasResult[] = \time() - $oDate->getTimestamp();
+							} else {
+								$aCriteriasResult[] = 'BEFORE';
+								$aCriteriasResult[] = $oDate->format('j-M-Y');
+							}
 							break;
 						case 'NEWER_THAN':
-							$iTimeFilter = \max(
-								$iTimeFilter,
-								(new \DateTime())->sub(new \DateInterval("P{$sRawValue}"))->getTimestamp()
-							);
+							$oDate = (new \DateTime())->sub(new \DateInterval("P{$sRawValue}"));
+							if ($oImapClient->hasCapability('WITHIN')) {
+								$aCriteriasResult[] = 'YOUNGER';
+								$aCriteriasResult[] = \time() - $oDate->getTimestamp();
+							} else {
+								$iTimeFilter = \max(
+									$iTimeFilter,
+									(new \DateTime())->sub(new \DateInterval("P{$sRawValue}"))->getTimestamp()
+								);
+							}
 							break;
 					}
 				}
@@ -307,19 +358,23 @@ abstract class SearchCriterias
 			$aCriteriasResult[] = 'UNDELETED';
 		}
 
-		if (\MailSo\Config::$MessageListPermanentFilter) {
-			$aCriteriasResult[] = \MailSo\Config::$MessageListPermanentFilter;
+		if ($oImapClient->Settings->search_filter) {
+			$aCriteriasResult[] = $oImapClient->Settings->search_filter;
 		}
 
-		$sCriteriasResult = \trim(\implode(' ', $aCriteriasResult));
-
-		return $sCriteriasResult ?: 'ALL';
+		$search = new self;
+		$search->criterias = $aCriteriasResult;
+		return $search;
 	}
 
 	public static function escapeSearchString(\MailSo\Imap\ImapClient $oImapClient, string $sSearch) : string
 	{
-		return !\MailSo\Base\Utils::IsAscii($sSearch)
-			? '{'.\strlen($sSearch).'}'."\r\n".$sSearch : $oImapClient->EscapeString($sSearch);
+		// https://github.com/the-djmaze/snappymail/issues/836
+//		return $oImapClient->EscapeString($sSearch);
+//		return \MailSo\Base\Utils::IsAscii($sSearch) || $oImapClient->hasCapability('QQMail'))
+		return (\MailSo\Base\Utils::IsAscii($sSearch) || !$oImapClient->hasCapability('LITERAL+'))
+			? $oImapClient->EscapeString($sSearch)
+			: '{'.\strlen($sSearch).'}'."\r\n{$sSearch}";
 	}
 
 	private static function parseSearchDate(string $sDate) : int
@@ -379,7 +434,14 @@ abstract class SearchCriterias
 				case 'SMALLER':
 				case 'LARGER':
 				case 'SINCE':
+				case 'ON':
+				case 'SENTON':
+				case 'SENTSINCE':
+				case 'SENTBEFORE':
 				case 'BEFORE':
+				case 'OLDER':
+				case 'YOUNGER':
+				case 'HEADER':
 					if (\strlen($mValue)) {
 						$aResult[$sName] = $mValue;
 					}

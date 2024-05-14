@@ -4,16 +4,16 @@
  * https://tools.ietf.org/html/rfc7677
  */
 
-
 namespace SnappyMail\SASL;
+
+use SnappyMail\SensitiveString;
 
 class Scram extends \SnappyMail\SASL
 {
-
+	protected ?SensitiveString $passphrase;
 	protected
 		$algo,
 		$nonce,
-		$passphrase,
 		$gs2_header,
 		$auth_message,
 		$server_key;
@@ -31,13 +31,17 @@ class Scram extends \SnappyMail\SASL
 		$this->algo = $algo;
 	}
 
-	public function authenticate(string $authcid, string $passphrase, ?string $authzid = null) : string
+	public function authenticate(string $authcid,
+		#[\SensitiveParameter]
+		string $passphrase,
+		?string $authzid = null
+	) : string
 	{
 		// SASLprep
 		$authcid = \str_replace(array('=',','), array('=3D','=2C'), $authcid);
 
 		$this->nonce = \bin2hex(\random_bytes(16));
-		$this->passphrase = $passphrase;
+		$this->passphrase = new SensitiveString($passphrase);
 		$this->gs2_header = 'n,' . (empty($authzid) ? '' : 'a=' . $authzid) . ',';
 		$this->auth_message = "n={$authcid},r={$this->nonce}";
 		return $this->encode($this->gs2_header . $this->auth_message);
@@ -67,7 +71,7 @@ class Scram extends \SnappyMail\SASL
 			throw new \Exception('Server invalid salt');
 		}
 
-		$pass = \hash_pbkdf2($this->algo, $this->passphrase, $salt, \intval($values['i']), 0, true);
+		$pass = \hash_pbkdf2($this->algo, $this->passphrase->getValue(), $salt, \intval($values['i']), 0, true);
 		$this->passphrase = null;
 
 		$ckey = \hash_hmac($this->algo, 'Client Key', $pass, true);
@@ -85,7 +89,12 @@ class Scram extends \SnappyMail\SASL
 		return $this->encode("{$cfmb},p={$proof}");
 	}
 
-	public function verify(string $data) : bool
+	public function hasChallenge() : bool
+	{
+		return true;
+	}
+
+	public function verify(string $data) : void
 	{
 		$v = static::parseMessage($this->decode($data));
 		if (empty($v['v'])) {
@@ -94,7 +103,6 @@ class Scram extends \SnappyMail\SASL
 		if (\base64_encode($this->server_key) !== $v['v']) {
 			throw new \Exception('Server signature invalid');
 		}
-		return true;
 	}
 
 	protected static function parseMessage(string $msg) : array

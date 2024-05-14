@@ -1,13 +1,9 @@
 import ko from 'ko';
 
-import {
-	isArray
-} from 'Common/Utils';
-
 import { addObservablesTo, addSubscribablesTo, addComputablesTo } from 'External/ko';
 
 import { SaveSettingStatus } from 'Common/Enums';
-import { Settings, SettingsGet, SettingsCapa } from 'Common/Globals';
+import { SettingsAdmin, SettingsGet, SettingsCapa } from 'Common/Globals';
 import { translatorReload, convertLangName } from 'Common/Translator';
 
 import { AbstractViewSettings } from 'Knoin/AbstractViews';
@@ -24,20 +20,14 @@ export class AdminSettingsGeneral extends AbstractViewSettings {
 		super();
 
 		this.language = LanguageStore.language;
-		this.languages = LanguageStore.languages;
-
-		const aLanguagesAdmin = Settings.app('languagesAdmin');
-		this.languagesAdmin = ko.observableArray(isArray(aLanguagesAdmin) ? aLanguagesAdmin : []);
-		this.languageAdmin = ko.observable(SettingsGet('LanguageAdmin'));
+		this.languageAdmin = ko.observable(SettingsAdmin('language'));
 
 		this.theme = ThemeStore.theme;
 		this.themes = ThemeStore.themes;
 
-		this.addSettings(['AllowLanguagesOnSettings']);
+		this.addSettings(['allowLanguagesOnSettings']);
 
 		addObservablesTo(this, {
-			attachmentLimitTrigger: SaveSettingStatus.Idle,
-			themeTrigger: SaveSettingStatus.Idle,
 			capaThemes: SettingsCapa('Themes'),
 			capaUserBackground: SettingsCapa('UserBackground'),
 			capaAdditionalAccounts: SettingsCapa('AdditionalAccounts'),
@@ -55,14 +45,14 @@ export class AdminSettingsGeneral extends AbstractViewSettings {
 		*/
 
 		this.attachmentLimit = ko
-			.observable(SettingsGet('AttachmentLimit') / (1024 * 1024))
+			.observable(SettingsGet('attachmentLimit') / (1024 * 1024))
 			.extend({ debounce: 500 });
 
-		this.addSetting('Language');
-		this.addSetting('AttachmentLimit');
+		this.addSetting('language');
+		this.addSetting('attachmentLimit');
 		this.addSetting('Theme', value => changeTheme(value, this.themeTrigger));
 
-		this.uploadData = SettingsGet('PhpUploadSizes');
+		this.uploadData = SettingsGet('phpUploadSizes');
 		this.uploadDataDesc =
 			(this.uploadData?.upload_max_filesize || this.uploadData?.post_max_size)
 				? [
@@ -91,9 +81,9 @@ export class AdminSettingsGeneral extends AbstractViewSettings {
 		addSubscribablesTo(this, {
 			languageAdmin: value => {
 				this.languageAdminTrigger(SaveSettingStatus.Saving);
-				translatorReload(true, value)
+				translatorReload(value, 1)
 					.then(fReloadLanguageHelper(SaveSettingStatus.Success), fReloadLanguageHelper(SaveSettingStatus.Failed))
-					.then(() => Remote.saveSetting('LanguageAdmin', value));
+					.then(() => Remote.saveSetting('languageAdmin', value));
 			},
 
 			capaAdditionalAccounts: fSaveHelper('CapaAdditionalAccounts'),
@@ -109,14 +99,18 @@ export class AdminSettingsGeneral extends AbstractViewSettings {
 	}
 
 	selectLanguage() {
-		showScreenPopup(LanguagesPopupView, [this.language, this.languages(), LanguageStore.userLanguage()]);
+		showScreenPopup(LanguagesPopupView, [
+			this.language,
+			LanguageStore.languages,
+			LanguageStore.userLanguage()
+		]);
 	}
 
 	selectLanguageAdmin() {
 		showScreenPopup(LanguagesPopupView, [
 			this.languageAdmin,
-			this.languagesAdmin(),
-			SettingsGet('UserLanguageAdmin')
+			SettingsAdmin('languages'),
+			SettingsAdmin('clientLanguage')
 		]);
 	}
 }

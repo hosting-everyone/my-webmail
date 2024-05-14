@@ -7,7 +7,7 @@ import { koComputable } from 'External/ko';
 	oCallbacks:
 		ItemSelect
 		MiddleClick
-		AutoSelect
+		canSelect
 		ItemGetUid
 		UpOrDown
 */
@@ -21,15 +21,13 @@ export class Selector {
 	 * @param {koProperty} koFocusedItem
 	 * @param {string} sItemSelector
 	 * @param {string} sItemCheckedSelector
-	 * @param {string} sItemFocusedSelector
 	 */
 	constructor(
 		koList,
 		koSelectedItem,
 		koFocusedItem,
 		sItemSelector,
-		sItemCheckedSelector,
-		sItemFocusedSelector
+		sItemCheckedSelector
 	) {
 		koFocusedItem = (koFocusedItem || ko.observable(null)).extend({ toggleSubscribeProperty: [this, 'focused'] });
 		koSelectedItem = (koSelectedItem || ko.observable(null)).extend({ toggleSubscribeProperty: [null, 'selected'] });
@@ -46,7 +44,7 @@ export class Selector {
 
 		this.sItemSelector = sItemSelector;
 		this.sItemCheckedSelector = sItemCheckedSelector;
-		this.sItemFocusedSelector = sItemFocusedSelector;
+		this.sItemFocusedSelector = sItemSelector + '.focused';
 
 		this.sLastUid = '';
 		this.oCallbacks = {};
@@ -65,8 +63,8 @@ export class Selector {
 		this.listChecked.subscribe(items => {
 			if (items.length) {
 				koSelectedItem() ? koSelectedItem(null) : koSelectedItem.valueHasMutated?.();
-			} else if (this.autoSelect()) {
-				koSelectedItem(koFocusedItem());
+			} else {
+				this.autoSelect();
 			}
 		});
 
@@ -74,7 +72,7 @@ export class Selector {
 
 		koSelectedItem.subscribe(item => {
 			if (item) {
-				koList.forEach(subItem => subItem.checked(false));
+//				koList.forEach(subItem => subItem.checked(false));
 				selectedItemUseCallback && itemSelectedThrottle(item);
 			} else {
 				selectedItemUseCallback && itemSelected();
@@ -87,8 +85,7 @@ export class Selector {
 		 * Below code is used to keep checked/focused/selected states when array is refreshed.
 		 */
 
-		let aCache = [],
-			aCheckedCache = [],
+		let aCheckedCache = [],
 			mFocused = null,
 			mSelected = null;
 
@@ -99,7 +96,6 @@ export class Selector {
 					items.forEach(item => {
 						const uid = this.getItemUid(item);
 						if (uid) {
-							aCache.push(uid);
 							item.checked() && aCheckedCache.push(uid);
 							if (!mFocused && item.focused()) {
 								mFocused = uid;
@@ -118,12 +114,12 @@ export class Selector {
 		koList.subscribe(aItems => {
 			selectedItemUseCallback = false;
 
-			koFocusedItem(null);
-			koSelectedItem(null);
+			this.unselect();
 
 			if (isArray(aItems)) {
 				let temp,
-					isChecked;
+					isChecked,
+					next = this.iFocusedNextHelper || this.iSelectNextHelper;
 
 				aItems.forEach(item => {
 					const uid = this.getItemUid(item);
@@ -148,24 +144,10 @@ export class Selector {
 
 				selectedItemUseCallback = true;
 
-				if (
-					(this.iSelectNextHelper || this.iFocusedNextHelper) &&
-					aItems.length &&
-					!koFocusedItem()
-				) {
-					temp = null;
-					if (this.iFocusedNextHelper) {
-						temp = aItems[-1 === this.iFocusedNextHelper ? aItems.length - 1 : 0];
-					}
-
-					if (!temp && this.iSelectNextHelper) {
-						temp = aItems[-1 === this.iSelectNextHelper ? aItems.length - 1 : 0];
-					}
-
+				if (next && aItems.length && !koFocusedItem()) {
+					temp = aItems[-1 === next ? aItems.length - 1 : 0];
 					if (temp) {
-						if (this.iSelectNextHelper) {
-							koSelectedItem(temp);
-						}
+						this.iSelectNextHelper && koSelectedItem(temp);
 
 						koFocusedItem(temp);
 
@@ -177,12 +159,9 @@ export class Selector {
 					this.iFocusedNextHelper = 0;
 				}
 
-				if (this.autoSelect() && !isChecked && !koSelectedItem()) {
-					koSelectedItem(koFocusedItem());
-				}
+				!isChecked && !koSelectedItem() && this.autoSelect();
 			}
 
-			aCache = [];
 			aCheckedCache = [];
 			mFocused = null;
 			mSelected = null;
@@ -206,10 +185,11 @@ export class Selector {
 
 			addEventsListeners(contentScrollable, {
 				click: event => {
-					let el = event.target.closestWithin(this.sItemSelector, contentScrollable);
-					el && this.actionClick(ko.dataFor(el), event);
+					const el = event.target.closestWithin(this.sItemSelector, contentScrollable);
+					let item = el && ko.dataFor(el);
+					el && (this.oCallbacks.click || (()=>1))(event, item) && this.actionClick(item, event);
 
-					const item = getItem(this.sItemCheckedSelector);
+					item = getItem(this.sItemCheckedSelector);
 					if (item) {
 						if (event.shiftKey) {
 							this.actionClick(item, event);
@@ -254,8 +234,10 @@ export class Selector {
 	/**
 	 * @returns {boolean}
 	 */
-	autoSelect() {
-		return (this.oCallbacks.AutoSelect || (()=>1))() && this.focusedItem();
+	autoSelect(bForce) {
+		(bForce || (this.oCallbacks.canSelect || (()=>1))())
+		&& this.focusedItem()
+		&& this.selectedItem(this.focusedItem());
 	}
 
 	/**
@@ -272,10 +254,11 @@ export class Selector {
 	 * @param {boolean=} bForceSelect = false
 	 */
 	newSelectPosition(sEventKey, bShiftKey, bForceSelect) {
-		let isArrow = 'ArrowUp' === sEventKey || 'ArrowDown' === sEventKey,
-			result;
+		let result;
 
-		const pageStep = 10,
+		const up = 'ArrowUp' === sEventKey,
+			isArrow = up || 'ArrowDown' === sEventKey,
+			pageStep = 10,
 			list = this.list(),
 			listLen = list.length,
 			focused = this.focusedItem();
@@ -287,8 +270,7 @@ export class Selector {
 		} else if (listLen) {
 			if (focused) {
 				if (isArrow) {
-					let i = list.indexOf(focused),
-						up = 'ArrowUp' == sEventKey;
+					let i = list.indexOf(focused);
 					if (bShiftKey) {
 						shiftStart = -1 < shiftStart ? shiftStart : i;
 						shiftStart == i
@@ -331,9 +313,7 @@ export class Selector {
 
 			if (result) {
 				this.focusedItem(result);
-				if ((this.autoSelect() || bForceSelect) && !this.list.hasChecked()) {
-					this.selectedItem(result);
-				}
+				!this.list.hasChecked() && this.autoSelect(bForceSelect);
 				this.scrollToFocused();
 			}
 		}

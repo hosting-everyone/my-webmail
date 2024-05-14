@@ -1,6 +1,7 @@
-import { Notification } from 'Common/Enums';
+import { Notifications } from 'Common/Enums';
 import { isArray, pInt, pString } from 'Common/Utils';
 import { serverRequest } from 'Common/Links';
+import { runHook } from 'Common/Plugins';
 import { getNotification } from 'Common/Translator';
 
 let iJsonErrorCount = 0;
@@ -9,17 +10,17 @@ const getURL = (add = '') => serverRequest('Json') + pString(add),
 
 checkResponseError = data => {
 	const err = data ? data.ErrorCode : null;
-	if (Notification.InvalidToken === err) {
-		alert(getNotification(err));
+	if (Notifications.InvalidToken === err) {
+		console.error(getNotification(err));
+//		alert(getNotification(err));
 		rl.logoutReload();
 	} else if ([
-			Notification.AuthError,
-			Notification.ConnectionError,
-			Notification.DomainNotAllowed,
-			Notification.AccountNotAllowed,
-			Notification.MailServerError,
-			Notification.UnknownNotification,
-			Notification.UnknownError
+			Notifications.AuthError,
+			Notifications.ConnectionError,
+			Notifications.DomainNotAllowed,
+			Notifications.AccountNotAllowed,
+			Notifications.MailServerError,
+			Notifications.UnknownError
 		].includes(err)
 	) {
 		if (7 < ++iJsonErrorCount) {
@@ -31,10 +32,11 @@ checkResponseError = data => {
 oRequests = {},
 
 abort = (sAction, sReason, bClearOnly) => {
-	if (oRequests[sAction]) {
-		bClearOnly || oRequests[sAction].abort(sReason || 'AbortError');
-		oRequests[sAction] = null;
-		delete oRequests[sAction];
+	let controller = oRequests[sAction];
+	oRequests[sAction] = null;
+	if (controller) {
+		clearTimeout(controller.timeoutId);
+		bClearOnly || controller.abort(new DOMException(sAction, sReason || 'AbortError'));
 	}
 },
 
@@ -47,15 +49,18 @@ fetchJSON = (action, sUrl, params, timeout, jsonCallback) => {
 		}
 	}
 	// Don't abort, read https://github.com/the-djmaze/snappymail/issues/487
-//	abort(action);
+//	abort(action, 0, 1);
 	const controller = new AbortController(),
 		signal = controller.signal;
 	oRequests[action] = controller;
 	// Currently there is no way to combine multiple signals, so AbortSignal.timeout() not possible
-	timeout && setTimeout(() => abort(action, 'TimeoutError'), timeout);
-	return rl.fetchJSON(sUrl, {signal: signal}, params).then(jsonCallback).catch(err => {
+	controller.timeoutId = timeout && setTimeout(() => abort(action, 'TimeoutError'), timeout);
+	return rl.fetchJSON(sUrl, {signal: signal}, params).then(data => {
+		abort(action, 0, 1);
+		return jsonCallback ? jsonCallback(data) : Promise.resolve(data);
+	}).catch(err => {
+		clearTimeout(controller.timeoutId);
 		err.aborted = signal.aborted;
-		err.reason = signal.reason;
 		return Promise.reject(err);
 	});
 };
@@ -64,14 +69,14 @@ class FetchError extends Error
 {
 	constructor(code, message) {
 		super(message);
-		this.code = code || Notification.JsonFalse;
+		this.code = code || Notifications.JsonFalse;
 	}
 }
 
 export class AbstractFetchRemote
 {
-	abort(sAction) {
-		abort(sAction);
+	abort(sAction, sReason) {
+		abort(sAction, sReason);
 		return this;
 	}
 
@@ -125,21 +130,9 @@ export class AbstractFetchRemote
 
 		const start = Date.now();
 
-		fetchJSON(sAction, getURL(sGetAdd),
-			sGetAdd ? null : (params || {}),
-			undefined === iTimeout ? 30000 : pInt(iTimeout),
-			data => {
-				let cached = false;
-				if (data?.Time) {
-					cached = pInt(data.Time) > Date.now() - start;
-				}
 
 				let iError = 0;
-				if (sAction && oRequests[sAction]) {
-					abort(sAction, 0, 1);
-				}
-
-				if (!iError && data) {
+				if (data) {
 /*
 					if (sAction !== data.Action) {
 						console.log(sAction + ' !== ' + data.Action);
@@ -149,33 +142,31 @@ export class AbstractFetchRemote
 						iJsonErrorCount = 0;
 					} else {
 						checkResponseError(data);
-						iError = data.ErrorCode || Notification.UnknownError
+						iError = data.ErrorCode || Notifications.UnknownError
 					}
 				}
+
+
 
 				fCallback && fCallback(
 					iError,
 					data,
-					cached,
-					sAction,
-					params
+					/**
+					 * Responses like "304 Not Modified" are returned as "200 OK"
+					 * This is an attempt to detect if the request comes from cache.
+					 * But when client has wrong date/time, it will fail.
+					 */
+					data?.epoch && data.epoch < Math.floor(start / 1000) - 60
 				);
 			}
 		)
 		.catch(err => {
 			console.error({fetchError:err});
 			fCallback && fCallback(
-				'TimeoutError' == err.reason ? 3 : (err.name == 'AbortError' ? 2 : 1),
+				'TimeoutError' == err.name ? 3 : (err.name == 'AbortError' ? 2 : 1),
 				err
 			);
 		});
-	}
-
-	/**
-	 * @param {?Function} fCallback
-	 */
-	getPublicKey(fCallback) {
-		this.request('GetPublicKey', fCallback);
 	}
 
 	setTrigger(trigger, value) {
@@ -194,16 +185,20 @@ export class AbstractFetchRemote
 	post(action, fTrigger, params, timeOut) {
 		this.setTrigger(fTrigger, true);
 		return fetchJSON(action, getURL(), params || {}, pInt(timeOut, 30000),
-			data => {
+			async data => {
 				abort(action, 0, 1);
 
 				if (!data) {
-					return Promise.reject(new FetchError(Notification.JsonParse));
+					return Promise.reject(new FetchError(Notifications.JsonParse));
+				}
+
+				if (111 === data?.ErrorCode && rl.app.ask && await rl.app.ask.cryptkey()) {
+					return this.post(action, fTrigger, params, timeOut);
 				}
 /*
 				let isCached = false, type = '';
-				if (data?.Time) {
-					isCached = pInt(data.Time) > microtime() - start;
+				if (data?.epoch) {
+					isCached = data.epoch > microtime() - start;
 				}
 				// backward capability
 				switch (true) {

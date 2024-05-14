@@ -2,32 +2,17 @@
 
 namespace RainLoop\Config;
 
-abstract class AbstractConfig implements \JsonSerializable
+abstract class AbstractConfig implements \ArrayAccess, \JsonSerializable
 {
-	/**
-	 * @var string
-	 */
-	private $sFile;
+	private string $sFile;
 
-	/**
-	 * @var string
-	 */
-	private $sAdditionalFile = '';
+	private string $sAdditionalFile = '';
 
-	/**
-	 * @var array
-	 */
-	private $aData;
+	private array $aData;
 
-	/**
-	 * @var bool
-	 */
-	private $bUseApcCache;
+	private bool $bUseApcCache;
 
-	/**
-	 * @var string
-	 */
-	private $sFileHeader;
+	private string $sFileHeader;
 
 	public function __construct(string $sFileName, string $sFileHeader = '', string $sAdditionalFileName = '')
 	{
@@ -46,6 +31,27 @@ abstract class AbstractConfig implements \JsonSerializable
 
 		$this->bUseApcCache = defined('APP_USE_APCU_CACHE') && APP_USE_APCU_CACHE &&
 			\MailSo\Base\Utils::FunctionsCallable(array('apcu_fetch', 'apcu_store'));
+	}
+
+	public function offsetExists($offset) : bool
+	{
+	}
+
+	#[\ReturnTypeWillChange]
+	public function offsetGet($offset)
+	{
+		$offset = \explode('/', $offset, 2);
+		$this->Get($offset[0], $offset[1]);
+	}
+
+	public function offsetSet($offset, $value) : void
+	{
+		$offset = \explode('/', $offset, 2);
+		$this->Set($offset[0], $offset[1], $value);
+	}
+
+	public function offsetUnset($offset) : void
+	{
 	}
 
 	protected abstract function defaultValues() : array;
@@ -78,17 +84,19 @@ abstract class AbstractConfig implements \JsonSerializable
 	 */
 	public function Set(string $sSectionKey, string $sParamKey, $mParamValue) : void
 	{
-		if (isset($this->aData[$sSectionKey][$sParamKey][0]))
-		{
-			switch (\gettype($this->aData[$sSectionKey][$sParamKey][0]))
+		if (isset($this->aData[$sSectionKey][$sParamKey][0])) {
+			if (!\is_scalar($mParamValue)) {
+				$mParamValue = null;
+			}
+			switch (\get_debug_type($this->aData[$sSectionKey][$sParamKey][0]))
 			{
-				case 'boolean':
+				case 'bool':
 					$this->aData[$sSectionKey][$sParamKey][0] = (bool) $mParamValue;
 					break;
-				case 'double':
+				case 'float':
 					$this->aData[$sSectionKey][$sParamKey][0] = (float) $mParamValue;
 					break;
-				case 'integer':
+				case 'int':
 					$this->aData[$sSectionKey][$sParamKey][0] = (int) $mParamValue;
 					break;
 				case 'string':
@@ -96,11 +104,26 @@ abstract class AbstractConfig implements \JsonSerializable
 					$this->aData[$sSectionKey][$sParamKey][0] = (string) $mParamValue;
 					break;
 			}
-		}
-		else if ('custom' === $sSectionKey)
-		{
+		} else if ('custom' === $sSectionKey) {
 			$this->aData[$sSectionKey][$sParamKey] = array((string) $mParamValue);
 		}
+	}
+
+	public function getDecrypted(string $sSection, string $sName, $mDefault = null)
+	{
+		// $salt = \basename($this->sFile) not possible due to RainLoop\Plugins\Property
+		if (!empty($this->aData[$sSection][$sName][0])) try {
+			return \SnappyMail\Crypt::DecryptFromJSON($this->aData[$sSection][$sName][0], \APP_SALT);
+		} catch (\Throwable $e) {
+		}
+		return $mDefault;
+	}
+
+	public function setEncrypted(string $sSectionKey, string $sParamKey, $mParamValue) : void
+	{
+		// $salt = \basename($this->sFile) not possible due to RainLoop\Plugins\Property
+		$mParamValue = \SnappyMail\Crypt::EncryptToJSON($mParamValue, \APP_SALT);
+		$this->Set($sSectionKey, $sParamKey, $mParamValue);
 	}
 
 	private function cacheKey() : string
@@ -110,24 +133,20 @@ abstract class AbstractConfig implements \JsonSerializable
 
 	private function loadDataFromCache() : bool
 	{
-		if ($this->bUseApcCache)
-		{
+		if ($this->bUseApcCache) {
 			$iMTime = \filemtime($this->sFile);
 			$iMTime = \is_int($iMTime) && 0 < $iMTime ? $iMTime : 0;
 
 			$iATime = $this->sAdditionalFile ? \filemtime($this->sAdditionalFile) : 0;
 			$iATime = \is_int($iATime) && 0 < $iATime ? $iATime : 0;
 
-			if (0 < $iMTime)
-			{
+			if (0 < $iMTime) {
 				$sKey = $this->cacheKey();
 
 				$sTimeHash = \apcu_fetch($sKey.'time');
-				if ($sTimeHash && $sTimeHash === \md5($iMTime.'/'.$iATime))
-				{
+				if ($sTimeHash && $sTimeHash === \md5($iMTime.'/'.$iATime)) {
 					$aFetchData = \apcu_fetch($sKey.'data');
-					if (\is_array($aFetchData))
-					{
+					if (\is_array($aFetchData)) {
 						$this->aData = $aFetchData;
 						return true;
 					}
@@ -140,16 +159,14 @@ abstract class AbstractConfig implements \JsonSerializable
 
 	private function storeDataToCache() : bool
 	{
-		if ($this->bUseApcCache)
-		{
+		if ($this->bUseApcCache) {
 			$iMTime = \filemtime($this->sFile);
 			$iMTime = \is_int($iMTime) && 0 < $iMTime ? $iMTime : 0;
 
 			$iATime = $this->sAdditionalFile ? \filemtime($this->sAdditionalFile) : 0;
 			$iATime = \is_int($iATime) && 0 < $iATime ? $iATime : 0;
 
-			if (0 < $iMTime)
-			{
+			if (0 < $iMTime) {
 				$sKey = $this->cacheKey();
 
 				\apcu_store($sKey.'time', \md5($iMTime.'/'.$iATime));
@@ -164,8 +181,7 @@ abstract class AbstractConfig implements \JsonSerializable
 
 	private function clearCache() : bool
 	{
-		if ($this->bUseApcCache)
-		{
+		if ($this->bUseApcCache) {
 			$sKey = $this->cacheKey();
 
 			\apcu_delete($sKey.'time');
@@ -183,10 +199,8 @@ abstract class AbstractConfig implements \JsonSerializable
 		if (!\file_exists($sFile) && \str_ends_with($sFile, '.json')) {
 			$sFile = \str_replace('.json', '.ini', $sFile);
 		}
-		if (\file_exists($sFile) && \is_readable($sFile))
-		{
-			if ($this->loadDataFromCache())
-			{
+		if (\file_exists($sFile) && \is_readable($sFile)) {
+			if ($this->loadDataFromCache()) {
 				return true;
 			}
 
@@ -195,14 +209,10 @@ abstract class AbstractConfig implements \JsonSerializable
 			} else {
 				$aData = \parse_ini_file($sFile, true);
 			}
-			if ($aData && \count($aData))
-			{
-				foreach ($aData as $sSectionKey => $aSectionValue)
-				{
-					if (\is_array($aSectionValue))
-					{
-						foreach ($aSectionValue as $sParamKey => $mParamValue)
-						{
+			if ($aData && \count($aData)) {
+				foreach ($aData as $sSectionKey => $aSectionValue) {
+					if (\is_array($aSectionValue)) {
+						foreach ($aSectionValue as $sParamKey => $mParamValue) {
 							$this->Set($sSectionKey, $sParamKey, $mParamValue);
 						}
 					}
@@ -210,21 +220,16 @@ abstract class AbstractConfig implements \JsonSerializable
 
 				unset($aData);
 
-				if (\file_exists($this->sAdditionalFile) && \is_readable($this->sAdditionalFile))
-				{
+				if (\file_exists($this->sAdditionalFile) && \is_readable($this->sAdditionalFile)) {
 					if (\str_ends_with($this->sAdditionalFile, '.json')) {
 						$aData = \json_decode(\file_get_contents($this->sAdditionalFile), true);
 					} else {
 						$aData = \parse_ini_file($this->sAdditionalFile, true);
 					}
-					if ($aData && \count($aData))
-					{
-						foreach ($aData as $sSectionKey => $aSectionValue)
-						{
-							if (\is_array($aSectionValue))
-							{
-								foreach ($aSectionValue as $sParamKey => $mParamValue)
-								{
+					if ($aData && \count($aData)) {
+						foreach ($aData as $sSectionKey => $aSectionValue) {
+							if (\is_array($aSectionValue)) {
+								foreach ($aSectionValue as $sParamKey => $mParamValue) {
 									$this->Set($sSectionKey, $sParamKey, $mParamValue);
 								}
 							}
@@ -245,8 +250,7 @@ abstract class AbstractConfig implements \JsonSerializable
 
 	public function Save() : bool
 	{
-		if (\file_exists($this->sFile) && !\is_writable($this->sFile))
-		{
+		if (\file_exists($this->sFile) && !\is_writable($this->sFile)) {
 			return false;
 		}
 
@@ -285,18 +289,18 @@ abstract class AbstractConfig implements \JsonSerializable
 						$bFirst = false;
 
 						$sValue = '""';
-						switch (\gettype($mParamValue[0]))
+						switch (\get_debug_type($mParamValue[0]))
 						{
-							case 'boolean':
+							case 'bool':
 								$sValue = $mParamValue[0] ? 'On' : 'Off';
 								break;
-							case 'double':
-							case 'integer':
+							case 'float':
+							case 'int':
 								$sValue = $mParamValue[0];
 								break;
 							case 'string':
 							default:
-								$sValue = '"'.\str_replace('"', '\\"', $mParamValue[0]).'"';
+								$sValue = '"'.\addcslashes($mParamValue[0], '\\"').'"';
 								break;
 						}
 

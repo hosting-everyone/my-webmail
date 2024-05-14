@@ -1,7 +1,7 @@
 import ko from 'ko';
 import { addObservablesTo, addComputablesTo, addSubscribablesTo } from 'External/ko';
 
-import { Scope } from 'Common/Enums';
+import { ScopeFolderList, ScopeMessageList, ScopeMessageView } from 'Common/Enums';
 
 import {
 	ComposeType,
@@ -10,28 +10,25 @@ import {
 	FolderType,
 	MessageSetAction
 } from 'Common/EnumsUser';
-
+import { RFC822 } from 'Common/File';
 import {
 	elementById,
-	leftPanelDisabled,
 	keyScopeReal,
 	Settings,
 	SettingsCapa,
 	fireEvent,
+	stopEvent,
 	addShortcut,
 	registerShortcut
 } from 'Common/Globals';
 
 import { arrayLength } from 'Common/Utils';
-import { download, mailToHelper, showMessageComposer, moveAction } from 'Common/UtilsUser';
+import { download, downloadZip, mailToHelper, showMessageComposer, moveAction } from 'Common/UtilsUser';
 import { isFullscreen, exitFullscreen, toggleFullscreen } from 'Common/Fullscreen';
 
 import { SMAudio } from 'Common/Audio';
 
 import { i18n } from 'Common/Translator';
-import { attachmentDownload } from 'Common/Links';
-
-import { MessageFlagsCache } from 'Common/Cache';
 
 import { AppUserStore } from 'Stores/User/App';
 import { SettingsUserStore } from 'Stores/User/Settings';
@@ -39,7 +36,6 @@ import { AccountUserStore } from 'Stores/User/Account';
 import { FolderUserStore, isAllowedKeyword } from 'Stores/User/Folder';
 import { MessageUserStore } from 'Stores/User/Message';
 import { MessagelistUserStore } from 'Stores/User/Messagelist';
-import { ThemeStore } from 'Stores/Theme';
 
 import * as Local from 'Storage/Client';
 
@@ -58,11 +54,19 @@ import { showScreenPopup } from 'Knoin/Knoin';
 import { OpenPgpImportPopupView } from 'View/Popup/OpenPgpImport';
 import { GnuPGUserStore } from 'Stores/User/GnuPG';
 import { OpenPGPUserStore } from 'Stores/User/OpenPGP';
+import { IdentityUserStore } from 'Stores/User/Identity';
+
+import { Passphrases } from 'Storage/Passphrases';
 
 const
 	oMessageScrollerDom = () => elementById('messageItem') || {},
 
 	currentMessage = MessageUserStore.message,
+
+	setAction = action => {
+		const message = currentMessage();
+		message && MessagelistUserStore.setAction(message.folder, action, [message]);
+	},
 
 	fetchRaw = url => rl.fetch(url).then(response => response.ok && response.text());
 
@@ -93,9 +97,9 @@ export class MailMessageView extends AbstractViewRight {
 					const message = currentMessage();
 					if (message) {
 						currentMessage(null);
-						rl.app.moveMessagesToFolderType(folderType, message.folder, [message.uid], bDelete);
+						rl.app.moveMessagesToFolderType(folderType, message.folder, new Set([message.uid]), bDelete);
 					}
-				}, this.messageVisibility);
+				}, this.messageVisible);
 
 		this.msgDefaultAction = SettingsUserStore.msgDefaultAction;
 		this.simpleAttachmentsList = SettingsUserStore.simpleAttachmentsList;
@@ -104,17 +108,15 @@ export class MailMessageView extends AbstractViewRight {
 			showAttachmentControls: !!Local.get(ClientSideKeyNameMessageAttachmentControls),
 			downloadAsZipLoading: false,
 			showFullInfo: '1' === Local.get(ClientSideKeyNameMessageHeaderFullInfo),
-			moreDropdownTrigger: false,
-
+			// bootstrap dropdown
+			actionsMenu: null,
 			// viewer
 			viewFromShort: '',
-			viewFromDkimData: ['none', ''],
-			viewToShort: ''
+			dkimData: ['none', '', ''],
+			nowTracking: false
 		});
 
 		this.moveAction = moveAction;
-
-		this.allowMessageActions = SettingsCapa('MessageActions');
 
 		const attachmentsActions = Settings.app('attachmentsActions');
 		this.attachmentsActions = ko.observableArray(arrayLength(attachmentsActions) ? attachmentsActions : []);
@@ -125,9 +127,8 @@ export class MailMessageView extends AbstractViewRight {
 		this.isDraftFolder = MessagelistUserStore.isDraftFolder;
 		this.isSpamFolder = MessagelistUserStore.isSpamFolder;
 
-		this.message = MessageUserStore.message;
+		this.message = currentMessage;
 		this.messageLoadingThrottle = MessageUserStore.loading;
-		this.messagesBodiesDom = MessageUserStore.bodiesDom;
 		this.messageError = MessageUserStore.error;
 
 		this.fullScreenMode = isFullscreen;
@@ -145,36 +146,54 @@ export class MailMessageView extends AbstractViewRight {
 
 			downloadAsZipAllowed: () => this.attachmentsActions.includes('zip')
 				&& (currentMessage()?.attachments || [])
-					.filter(item => item?.download /*&& !item?.isLinked()*/ && item?.checked())
+					.filter(item => item?.checked() && item?.download /*&& !item?.isLinked()*/)
 					.length,
 
 			tagsAllowed: () => FolderUserStore.currentFolder()?.tagsAllowed(),
 
-			messageVisibility: () => !MessageUserStore.loading() && !!currentMessage(),
+			messageVisible: () => !MessageUserStore.loading() && !!currentMessage(),
 
-			canBeRepliedOrForwarded: () => !MessagelistUserStore.isDraftFolder() && this.messageVisibility(),
+			tagsToHTML: () => currentMessage()?.flags().map(value =>
+					isAllowedKeyword(value)
+					? '<span class="focused msgflag-'+value+'">' + i18n('MESSAGE_TAGS/'+value,0,value) + '</span>'
+					: ''
+				).join(' '),
 
-			viewFromDkimVisibility: () => 'none' !== this.viewFromDkimData()[0],
+			askReadReceipt: () => currentMessage()?.readReceipt
+				&& !(MessagelistUserStore.isDraftFolder() || MessagelistUserStore.isSentFolder())
+				&& !currentMessage()?.flags().includes('$mdnsent')
+				&& !currentMessage()?.flags().includes('\\answered'),
 
-			viewFromDkimStatusIconClass:() => {
-				switch (this.viewFromDkimData()[0]) {
+			listAttachments: () => currentMessage()?.attachments()
+				.filter(item => SettingsUserStore.listInlineAttachments() || !item.isLinked()),
+//			hasAttachments: () => currentMessage()?.attachments()?.length,
+			hasAttachments: () => currentMessage()?.attachments()
+				.some(item => SettingsUserStore.listInlineAttachments() || !item.isLinked()),
+//			listInline: () => currentMessage()?.attachments().filter(item => item.isLinked()),
+//			hasInline: () => currentMessage()?.attachments().some(item => item.isLinked()),
+
+			canBeRepliedOrForwarded: () => !MessagelistUserStore.isDraftFolder() && this.messageVisible(),
+
+			dkimIcon: () => {
+				switch (this.dkimData()[0]) {
 					case 'none':
 						return '';
 					case 'pass':
-						return 'icon-ok iconcolor-green'; // ✔️
+						return '✔';
 					default:
-						return 'icon-cross iconcolor-red'; // ✖ ❌
+						return '✖';
 				}
 			},
+			dkimIconClass: () => 'pass' === this.dkimData()[0] ? 'iconcolor-green' : 'iconcolor-red',
 
-			viewFromDkimStatusTitle:() => {
-				const status = this.viewFromDkimData();
-				if (arrayLength(status) && status[0]) {
-					return status[1] || 'DKIM: ' + status[0];
-				}
-
-				return '';
+			dkimTitle:() => {
+				const dkim = this.dkimData();
+				return dkim[0] ? dkim[2] || 'DKIM: ' + dkim[0] : '';
 			},
+
+			showWhitelistOptions: () => 'match' === SettingsUserStore.viewImages(),
+
+			firstUnsubsribeLink: () => currentMessage()?.unsubsribeLinks()[0] || '',
 
 			pgpSupported: () => currentMessage() && PgpUserStore.isSupported(),
 
@@ -190,9 +209,9 @@ export class MailMessageView extends AbstractViewRight {
 					}
 					this.viewHash = message.hash;
 					// TODO: make first param a user setting #683
-					this.viewFromShort(message.fromToLine(false, true));
-					this.viewFromDkimData(message.fromDkimData());
-					this.viewToShort(message.toToLine(true, true));
+					this.viewFromShort(message.from.toString(false, true));
+					this.dkimData(message.dkim[0] || ['none', '', '']);
+					this.nowTracking(false);
 				} else {
 					MessagelistUserStore.selectedMessage(null);
 
@@ -215,22 +234,50 @@ export class MailMessageView extends AbstractViewRight {
 		this.deleteCommand = createCommandActionHelper(FolderType.Trash);
 		this.deleteWithoutMoveCommand = createCommandActionHelper(FolderType.Trash, true);
 		this.archiveCommand = createCommandActionHelper(FolderType.Archive);
-		this.spamCommand = createCommandActionHelper(FolderType.Spam);
-		this.notSpamCommand = createCommandActionHelper(FolderType.NotSpam);
+		this.spamCommand = createCommandActionHelper(FolderType.Junk);
+		this.notSpamCommand = createCommandActionHelper(FolderType.Inbox);
 
 		decorateKoCommands(this, {
-			messageEditCommand: self => self.messageVisibility(),
+			editCommand: self => self.messageVisible(),
+			moveCommand: self => self.messageVisible(),
+			copyCommand: self => self.messageVisible(),
 			goUpCommand: self => !self.messageListOrViewLoading(),
 			goDownCommand: self => !self.messageListOrViewLoading()
 		});
+	}
+
+	toggleFullInfo() {
+		this.showFullInfo(!this.showFullInfo());
 	}
 
 	closeMessage() {
 		currentMessage(null);
 	}
 
-	messageEditCommand() {
+	editCommand() {
 		currentMessage() && showMessageComposer([ComposeType.Draft, currentMessage()]);
+	}
+
+	moveOrCopy(vm, event, mode) {
+		if (vm && event?.preventDefault) {
+			stopEvent(event);
+		}
+		this.actionsMenu().ddBtn.hide();
+		AppUserStore.focusedState(ScopeFolderList);
+		moveAction(mode);
+	}
+
+	moveCommand(vm, event) {
+		this.moveOrCopy(vm, event, 1);
+	}
+
+	copyCommand(vm, event) {
+		this.moveOrCopy(vm, event, 2);
+	}
+
+	setUnseen() {
+		setAction(MessageSetAction.UnsetSeen);
+		currentMessage(null);
 	}
 
 	goUpCommand() {
@@ -256,22 +303,31 @@ export class MailMessageView extends AbstractViewRight {
 	onBuild(dom) {
 		const eqs = (ev, s) => ev.target.closestWithin(s, dom);
 		dom.addEventListener('click', event => {
-			ThemeStore.isMobile() && leftPanelDisabled(true);
-
 			let el = eqs(event, 'a');
 			if (el && 0 === event.button && mailToHelper(el.href)) {
-				event.preventDefault();
-				event.stopPropagation();
+				stopEvent(event);
 				return;
 			}
 
-			if (eqs(event, '.attachmentsPlace .attachmentIconParent')) {
-				event.stopPropagation();
+			el = eqs(event, '.attachmentsPlace .showPreview');
+			if (el) {
+				const attachment = ko.dataFor(el), url = attachment?.linkDownload();
+//				if (url && FileType.Eml === attachment.fileType) {
+				if (url && RFC822 == attachment.mimeType) {
+					stopEvent(event);
+					fetchRaw(url).then(text => {
+						const oMessage = new MessageModel();
+						MimeToMessage(text, oMessage);
+						// cleanHTML
+						oMessage.popupMessage();
+					});
+				}
+				return;
 			}
 
 			el = eqs(event, '.attachmentsPlace .showPreplay');
 			if (el) {
-				event.stopPropagation();
+				stopEvent(event);
 				const attachment = ko.dataFor(el);
 				if (attachment && SMAudio.supported) {
 					switch (true) {
@@ -287,9 +343,10 @@ export class MailMessageView extends AbstractViewRight {
 						// no default
 					}
 				}
+				return;
 			}
 
-			el = eqs(event, '.attachmentsPlace .attachmentName');
+			el = eqs(event, '.attachmentItem');
 			if (el) {
 				const attachment = ko.dataFor(el), url = attachment?.linkDownload();
 				if (url) {
@@ -298,14 +355,6 @@ export class MailMessageView extends AbstractViewRight {
 						fetchRaw(url).then(text =>
 							showScreenPopup(OpenPgpImportPopupView, [text])
 						);
-					} else if ('message/rfc822' == attachment.mimeType) {
-						// TODO
-						fetchRaw(url).then(text => {
-							const oMessage = new MessageModel();
-							MimeToMessage(text, oMessage);
-							// cleanHTML
-							oMessage.viewPopupMessage();
-						});
 					} else {
 						download(url, attachment.fileName);
 					}
@@ -313,39 +362,27 @@ export class MailMessageView extends AbstractViewRight {
 			}
 
 			if (eqs(event, '.messageItemHeader .subjectParent .flagParent')) {
-				const message = currentMessage();
-				message && MessagelistUserStore.setAction(
-					message.folder,
-					message.isFlagged() ? MessageSetAction.UnsetFlag : MessageSetAction.SetFlag,
-					[message]
-				);
+				setAction(currentMessage()?.isFlagged() ? MessageSetAction.UnsetFlag : MessageSetAction.SetFlag);
 			}
 		});
 
-		AppUserStore.focusedState.subscribe(value => {
-			if (Scope.MessageView !== value) {
-				this.scrollMessageToTop();
-				this.scrollMessageToLeft();
-			}
-		});
-
-		keyScopeReal.subscribe(value => this.messageDomFocused(Scope.MessageView === value));
+		keyScopeReal.subscribe(value => this.messageDomFocused(ScopeMessageView === value));
 
 		// initShortcuts
 
 		// exit fullscreen, back
-		addShortcut('escape', '', Scope.MessageView, () => {
+		addShortcut('escape', '', ScopeMessageView, () => {
 			if (!this.viewModelDom.hidden && currentMessage()) {
 				const preview = SettingsUserStore.usePreviewPane();
 				if (isFullscreen()) {
 					exitFullscreen();
 					if (preview) {
-						AppUserStore.focusedState(Scope.MessageList);
+						AppUserStore.focusedState(ScopeMessageList);
 					}
 				} else if (!preview) {
 					currentMessage(null);
 				} else {
-					AppUserStore.focusedState(Scope.MessageList);
+					AppUserStore.focusedState(ScopeMessageList);
 				}
 
 				return false;
@@ -353,13 +390,13 @@ export class MailMessageView extends AbstractViewRight {
 		});
 
 		// fullscreen
-		addShortcut('enter,open', '', Scope.MessageView, () => {
+		addShortcut('enter,open', '', ScopeMessageView, () => {
 			isFullscreen() || toggleFullscreen();
 			return false;
 		});
 
 		// reply
-		registerShortcut('r,mailreply', '', [Scope.MessageList, Scope.MessageView], () => {
+		registerShortcut('r,mailreply', '', [ScopeMessageList, ScopeMessageView], () => {
 			if (currentMessage()) {
 				this.replyCommand();
 				return false;
@@ -368,13 +405,13 @@ export class MailMessageView extends AbstractViewRight {
 		});
 
 		// replyAll
-		registerShortcut('a', '', [Scope.MessageList, Scope.MessageView], () => {
+		registerShortcut('a', '', [ScopeMessageList, ScopeMessageView], () => {
 			if (currentMessage()) {
 				this.replyAllCommand();
 				return false;
 			}
 		});
-		registerShortcut('mailreply', 'shift', [Scope.MessageList, Scope.MessageView], () => {
+		registerShortcut('mailreply', 'shift', [ScopeMessageList, ScopeMessageView], () => {
 			if (currentMessage()) {
 				this.replyAllCommand();
 				return false;
@@ -382,7 +419,7 @@ export class MailMessageView extends AbstractViewRight {
 		});
 
 		// forward
-		registerShortcut('f,mailforward', '', [Scope.MessageList, Scope.MessageView], () => {
+		registerShortcut('f,mailforward', '', [ScopeMessageList, ScopeMessageView], () => {
 			if (currentMessage()) {
 				this.forwardCommand();
 				return false;
@@ -390,67 +427,60 @@ export class MailMessageView extends AbstractViewRight {
 		});
 
 		// message information
-		registerShortcut('i', 'meta', [Scope.MessageList, Scope.MessageView], () => {
-			if (currentMessage()) {
-				this.showFullInfo(!this.showFullInfo());
-			}
+		registerShortcut('i', 'meta', [ScopeMessageList, ScopeMessageView], () => {
+			currentMessage() && this.toggleFullInfo();
 			return false;
 		});
 
 		// toggle message blockquotes
-		registerShortcut('b', '', [Scope.MessageList, Scope.MessageView], () => {
+		registerShortcut('b', '', [ScopeMessageList, ScopeMessageView], () => {
 			const message = currentMessage();
 			if (message?.body) {
-				message.body.querySelectorAll('.sm-bq-switcher > summary').forEach(node => node.click());
+				message.body.querySelectorAll('details').forEach(node => node.open = !node.open);
 				return false;
 			}
 		});
 
-		addShortcut('arrowup,arrowleft', 'meta', [Scope.MessageList, Scope.MessageView], () => {
+		addShortcut('arrowup,arrowleft', 'meta', [ScopeMessageList, ScopeMessageView], () => {
 			this.goUpCommand();
 			return false;
 		});
 
-		addShortcut('arrowdown,arrowright', 'meta', [Scope.MessageList, Scope.MessageView], () => {
+		addShortcut('arrowdown,arrowright', 'meta', [ScopeMessageList, ScopeMessageView], () => {
 			this.goDownCommand();
 			return false;
 		});
 
 		// delete
-		addShortcut('delete', '', Scope.MessageView, () => {
+		addShortcut('delete', '', ScopeMessageView, () => {
 			this.deleteCommand();
 			return false;
 		});
-		addShortcut('delete', 'shift', Scope.MessageView, () => {
+		addShortcut('delete', 'shift', ScopeMessageView, () => {
 			this.deleteWithoutMoveCommand();
 			return false;
 		});
 
 		// change focused state
-		addShortcut('arrowleft', '', Scope.MessageView, () => {
+		addShortcut('arrowleft', '', ScopeMessageView, () => {
 			if (!isFullscreen() && currentMessage() && SettingsUserStore.usePreviewPane()
 			 && !oMessageScrollerDom().scrollLeft) {
-				AppUserStore.focusedState(Scope.MessageList);
+				AppUserStore.focusedState(ScopeMessageList);
 				return false;
 			}
 		});
-		addShortcut('tab', 'shift', Scope.MessageView, () => {
+		addShortcut('tab', 'shift', ScopeMessageView, () => {
 			if (!isFullscreen() && currentMessage() && SettingsUserStore.usePreviewPane()) {
-				AppUserStore.focusedState(Scope.MessageList);
+				AppUserStore.focusedState(ScopeMessageList);
 			}
 			return false;
 		});
-	}
 
-	/**
-	 * @returns {boolean}
-	 */
-	isDraftOrSentFolder() {
-		return MessagelistUserStore.isDraftFolder() || MessagelistUserStore.isSentFolder();
+		MessageUserStore.bodiesDom(dom.querySelector('.bodyText'));
 	}
 
 	scrollMessageToTop() {
-		oMessageScrollerDom().scrollTop = (50 < oMessageScrollerDom().scrollTop) ? 50 : 0;
+		oMessageScrollerDom().scrollTop = 0;
 	}
 
 	scrollMessageToLeft() {
@@ -467,21 +497,12 @@ export class MailMessageView extends AbstractViewRight {
 		const hashes = (currentMessage()?.attachments || [])
 			.map(item => item?.checked() /*&& !item?.isLinked()*/ ? item.download : '')
 			.filter(v => v);
-		if (hashes.length) {
-			Remote.post('AttachmentsActions', this.downloadAsZipLoading, {
-				Do: 'Zip',
-				Hashes: hashes
-			})
-			.then(result => {
-				let hash = result?.Result?.FileHash;
-				if (hash) {
-					download(attachmentDownload(hash), hash+'.zip');
-				} else {
-					this.downloadAsZipError(true);
-				}
-			})
-			.catch(() => this.downloadAsZipError(true));
-		}
+		downloadZip(
+			currentMessage().subject(),
+			hashes,
+			() => this.downloadAsZipError(true),
+			this.downloadAsZipLoading
+		);
 	}
 
 	/**
@@ -490,6 +511,29 @@ export class MailMessageView extends AbstractViewRight {
 	 */
 	showImages() {
 		currentMessage().showExternalImages();
+	}
+
+	showTracking() {
+		const msg = currentMessage(), body = msg?.body;
+		if (body && msg.hasTracking()) {
+			let attr = 'data-x-href-tracking';
+			body.querySelectorAll('a['+attr+']').forEach(node => node.href = node.getAttribute(attr));
+//			attr = 'data-x-src-tracking';
+//			body.querySelectorAll('img['+attr+']').forEach(node => node.src = node.getAttribute(attr));
+			this.nowTracking(true);
+		}
+	}
+
+	whitelistText(txt) {
+		let value = (SettingsUserStore.viewImagesWhitelist().trim() + '\n' + txt).trim();
+/*
+		if ('pass' === currentMessage().spf[0]?.[0]) value += '+spf';
+		if ('pass' === currentMessage().dkim[0]?.[0]) value += '+dkim';
+		if ('pass' === currentMessage().dmarc[0]?.[0]) value += '+dmarc';
+*/
+		SettingsUserStore.viewImagesWhitelist(value);
+		Remote.saveSetting('ViewImagesWhitelist', value);
+		currentMessage().showExternalImages(1);
 	}
 
 	/**
@@ -505,22 +549,19 @@ export class MailMessageView extends AbstractViewRight {
 	 * @returns {void}
 	 */
 	readReceipt() {
-		let oMessage = currentMessage()
-		if (oMessage.readReceipt()) {
-			Remote.request('SendReadReceiptMessage', iError => {
-				if (!iError) {
-					oMessage.flags.push('$mdnsent');
-//					oMessage.flags.valueHasMutated();
-					MessageFlagsCache.store(oMessage);
-					MessagelistUserStore.reloadFlagsAndCachedMessage();
+		let oMessage = currentMessage();
+		if (oMessage.readReceipt) {
+			oMessage.flags.push('$mdnsent');
+			Remote.request('SendReadReceiptMessage',
+				iError => iError && oMessage.flags.remove('$mdnsent'),
+				{
+					messageFolder: oMessage.folder,
+					messageUid: oMessage.uid,
+					readReceipt: oMessage.readReceipt,
+					subject: i18n('READ_RECEIPT/SUBJECT', { SUBJECT: oMessage.subject() }),
+					plain: i18n('READ_RECEIPT/BODY', { 'READ-RECEIPT': AccountUserStore.email() })
 				}
-			}, {
-				MessageFolder: oMessage.folder,
-				MessageUid: oMessage.uid,
-				ReadReceipt: oMessage.readReceipt(),
-				subject: i18n('READ_RECEIPT/SUBJECT', { SUBJECT: oMessage.subject() }),
-				Text: i18n('READ_RECEIPT/BODY', { 'READ-RECEIPT': AccountUserStore.email() })
-			});
+			);
 		}
 	}
 
@@ -536,40 +577,45 @@ export class MailMessageView extends AbstractViewRight {
 	}
 
 	pgpDecrypt() {
-		const oMessage = currentMessage();
+		const oMessage = currentMessage(),
+			data = oMessage.pgpEncrypted();
+		delete data.error;
 		PgpUserStore.decrypt(oMessage).then(result => {
-			if (result) {
-				oMessage.pgpDecrypted(true);
-				if (result.data) {
-					MimeToMessage(result.data, oMessage);
-					oMessage.html() ? oMessage.viewHtml() : oMessage.viewPlain();
-					if (result.signatures?.length) {
-						oMessage.pgpSigned(true);
-						oMessage.pgpVerified({
-							signatures: result.signatures,
-							success: !!result.signatures.length
-						});
-					}
-				}
-			} else {
+			if (!result) {
 				// TODO: translate
-				alert('Decryption failed, canceled or not possible');
+				throw Error('Decryption failed, canceled or not possible');
+			}
+			oMessage.pgpDecrypted(true);
+			if (result.data) {
+				MimeToMessage(result.data, oMessage);
+				oMessage.html() ? oMessage.viewHtml() : oMessage.viewPlain();
+				if (result.signatures?.length) {
+					oMessage.pgpSigned({
+						signatures: result.signatures,
+						success: !!result.signatures.length
+					});
+				}
 			}
 		})
-		.catch(e => console.error(e));
+		.catch(e => {
+			data.error = e.message;
+		})
+		.finally(() => {
+			oMessage.pgpEncrypted(data);
+		});
 	}
 
 	pgpVerify(/*self, event*/) {
 		const oMessage = currentMessage()/*, ctrl = event.target.closest('.openpgp-control')*/;
 		PgpUserStore.verify(oMessage).then(result => {
 			if (result) {
-				oMessage.pgpVerified(result);
+				oMessage.pgpSigned(result);
 			} else {
 				alert('Verification failed or no valid public key found');
 			}
 /*
 			if (result?.success) {
-				i18n('OPENPGP/GOOD_SIGNATURE', {
+				i18n('CRYPTO/GOOD_SIGNATURE', {
 					USER: validKey.user + ' (' + validKey.id + ')'
 				});
 				message.getText()
@@ -579,12 +625,77 @@ export class MailMessageView extends AbstractViewRight {
 						? keyIds.map(item => item?.toHex?.()).filter(v => v).join(', ')
 						: '';
 
-				i18n('OPENPGP/ERROR', {
+				i18n('CRYPTO/ERROR', {
+					TYPE: 'OpenPGP',
 					ERROR: 'message'
 				}) + (additional ? ' (' + additional + ')' : '');
 			}
 */
 		});
+	}
+
+	async smimeDecrypt() {
+		const message = currentMessage();
+		const addresses = message.from.concat(message.to, message.cc, message.bcc).map(item => item.email),
+			identity = IdentityUserStore.find(item => addresses.includes(item.email())),
+			data = message.smimeEncrypted(); // { partId: "1" }
+		if (data && identity) {
+			delete data.error;
+			let pass, params = { ...data }; // clone
+			params.folder = message.folder;
+			params.uid = message.uid;
+//			params.bodyPart = params.bodyPart?.raw;
+			params.certificate = identity.smimeCertificate();
+			params.privateKey = identity.smimeKey();
+			if (identity.smimeKeyEncrypted()) {
+				pass = await Passphrases.ask(identity,
+					i18n('SMIME/PRIVATE_KEY_OF', {EMAIL: identity.email()}),
+					'CRYPTO/DECRYPT'
+				);
+				if (!pass) {
+					return;
+				}
+				params.passphrase = pass?.password;
+			}
+			Remote.post('SMimeDecryptMessage', null, params).then(response => {
+				if (response?.Result?.data) {
+					message.smimeDecrypted(true);
+					MimeToMessage(response.Result.data, message);
+					message.html() ? message.viewHtml() : message.viewPlain();
+					pass && pass.remember && Passphrases.handle(identity, pass.password);
+					if ('signed' in response.Result) {
+						message.smimeSigned(response.Result.signed);
+					}
+				}
+			}).catch(e => {
+				data.error = e.message
+			})
+			.finally(() => {
+				message.smimeEncrypted(data);
+			});
+		}
+	}
+
+	smimeVerify(/*self, event*/) {
+		const message = currentMessage(),
+			data = message.smimeSigned(); // { partId: "1", micAlg: "pgp-sha256" }
+		if (data) {
+			const params = { ...data }; // clone
+			params.folder = message.folder;
+			params.uid = message.uid;
+			params.bodyPart = data.bodyPart?.raw;
+			params.sigPart = data.sigPart?.bodyRaw;
+			Remote.post('SMimeVerifyMessage', null, params).then(response => {
+				if (response?.Result) {
+					if (response.Result.body) {
+						MimeToMessage(response.Result.body, message);
+						message.html() ? message.viewHtml() : message.viewPlain();
+					}
+					data.success = response.Result.success;
+					message.smimeSigned(data);
+				}
+			});
+		}
 	}
 
 }

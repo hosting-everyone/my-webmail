@@ -1,3 +1,7 @@
+.attachmentList {
+	margin: 0;
+}
+
 .attachmentItem {
 
 	background-color: rgba(128, 128, 128, 0.1);
@@ -9,8 +13,7 @@
 	line-height: 20px;
 	margin: 5px;
 	min-height: 48px;
-	max-width: 200px;
-	min-width: 60px;
+	width: 16em;
 	overflow: hidden;
 	position: relative;
 
@@ -31,7 +34,7 @@
 		}
 	}
 
-	.attachmentIconParent {
+	.attachmentIcon {
 		position: absolute;
 		height: 48px;
 		width: 48px;
@@ -52,7 +55,7 @@
 	}
 
 	.iconBG {
-		font-size: 18px;
+		font-size: 128%;
 		font-weight: bold;
 		line-height: 55px;
 		text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
@@ -78,14 +81,16 @@
 	}
 
 	.attachmentSize {
-		font-size: 12px;
+		font-size: 85%;
 		opacity: 0.7;
 	}
 
 	.iconMain, .iconPreview {
 		padding: 6px 0 0;
-		font-size: 36px;
-		color: #aaa;
+		font-size: 257%;
+		color: var(--main-color);
+		filter: invert(33%);
+		mix-blend-mode: difference;
 
 		&.icon-none {
 			display: none;
@@ -100,21 +105,21 @@
 	}
 */
 
-	.showPreview, .showPreplay,
+	.showPreview,
 	.hasPreview:hover .iconMain,
-	.hasPreplay:hover .iconMain,
-	.hasPreview .hidePreview,
-	.hasPreplay .hidePreview {
+	.hasPreview .hidePreview {
 		display: none;
 	}
 
-	.hasPreview:hover .iconPreview,
-	.hasPreplay:hover .iconPreview {
+	.hasPreview:hover .iconPreview {
 		display: inline-block;
 	}
 
-	.hasPreview .showPreview,
-	.hasPreplay .showPreplay {
+	.hasPreplay:hover .iconMain::before {
+		content: "▶";
+	}
+
+	.hasPreview .showPreview {
 		display: inline;
 		cursor: pointer;
 	}

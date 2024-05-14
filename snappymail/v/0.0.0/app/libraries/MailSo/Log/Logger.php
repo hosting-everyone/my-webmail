@@ -17,23 +17,67 @@ namespace MailSo\Log;
  */
 class Logger extends \SplFixedArray
 {
-	private $bUsed = false;
+	private bool $bUsed = false;
 
-	private $iLevel = \LOG_WARNING;
+	private int $iLevel = \LOG_WARNING;
 
-	private $aSecretWords = [];
+	private array $aSecretWords = [];
 
-	private $bShowSecrets = false;
+	private bool $bShowSecrets = false;
+
+	private static $SIGNALS = [
+		'SIGABRT',
+		'SIGALRM',
+		'SIGBABY',
+		'SIGBUS',
+		'SIGCHLD',
+		'SIGCLD',
+//		'SIGCONT',
+		'SIGFPE',
+		'SIGHUP',
+		'SIGILL',
+//		'SIGINT',
+		'SIGIO',
+		'SIGIOT',
+//		'SIGKILL',
+		'SIGPIPE',
+		'SIGPOLL',
+		'SIGPROF',
+		'SIGPWR',
+		'SIGQUIT',
+		'SIGSEGV',
+		'SIGSTKFLT',
+//		'SIGSTOP',
+		'SIGSYS',
+		'SIGTERM',
+		'SIGTRAP',
+		'SIGTSTP',
+		'SIGTTIN',
+		'SIGTTOU',
+		'SIGURG',
+		'SIGUSR1',
+		'SIGUSR2',
+		'SIGVTALRM',
+		'SIGWINCH',
+		'SIGXCPU',
+		'SIGXFSZ'
+	];
 
 	function __construct(bool $bMainLogger = false)
 	{
 		parent::__construct();
 
-		if ($bMainLogger)
-		{
-			\set_error_handler(array($this, '__phpErrorHandler'));
-			\set_exception_handler(array($this, '__phpExceptionHandler'));
-			\register_shutdown_function(array($this, '__loggerShutDown'));
+		if ($bMainLogger) {
+			\set_error_handler([$this, '__phpErrorHandler']);
+			\set_exception_handler([$this, '__phpExceptionHandler']);
+			\register_shutdown_function([$this, '__loggerShutDown']);
+
+			if (\is_callable('pcntl_signal')) {
+				\pcntl_async_signals(true);
+				foreach (static::$SIGNALS as $SIGNAL) {
+					\defined($SIGNAL) && \pcntl_signal(\constant($SIGNAL), [$this, 'signalHandler']);
+				}
+			}
 		}
 	}
 
@@ -43,8 +87,7 @@ class Logger extends \SplFixedArray
 	public static function Guid() : string
 	{
 		static $sCache = null;
-		if (null === $sCache)
-		{
+		if (null === $sCache) {
 			$sCache = \substr(\MailSo\Base\Utils::Sha1Rand(), -8);
 		}
 
@@ -64,13 +107,17 @@ class Logger extends \SplFixedArray
 		return 0 < $this->count();
 	}
 
-	public function AddSecret(string $sWord) : void
+	public function AddSecret(
+		#[\SensitiveParameter]
+		string $sWord
+	) : void
 	{
-//		$this->bShowSecrets && $this->Write("AddSecret '{$sWord}'", \LOG_INFO, '', false);
+//		$this->bShowSecrets && $this->Write("AddSecret '{$sWord}'", \LOG_INFO);
 		$sWord = \trim($sWord);
 		if (\strlen($sWord)) {
 			$this->aSecretWords[] = $sWord;
 			$this->aSecretWords = \array_unique($this->aSecretWords);
+			\usort($this->aSecretWords, fn($a,$b) => \strlen($b) - \strlen($a));
 		}
 	}
 
@@ -152,13 +199,27 @@ class Logger extends \SplFixedArray
 	public function __loggerShutDown() : void
 	{
 		if ($this->bUsed) {
+			$error = \error_get_last();
+			$error && $this->Write('Last error: '.\json_encode($error));
 			$this->Write('Memory peak usage: '.\MailSo\Base\Utils::FormatFileSize(\memory_get_peak_usage(true), 2));
 			$this->Write('Time delta: '.(\microtime(true) - $_SERVER['REQUEST_TIME_FLOAT']));
 		}
 	}
 
-	public function Write(string $sDesc, int $iType = \LOG_INFO,
-		string $sName = '', bool $bSearchSecretWords = true, bool $bDiplayCrLf = false) : bool
+	public function signalHandler($signo, /*?array*/$siginfo = null)
+	{
+		if (\SIGTERM == $signo) {
+			exit;
+		}
+		foreach (static::$SIGNALS as $SIGNAL) {
+			if (\defined($SIGNAL) && \constant($SIGNAL) == $signo) {
+				$this->Write("Caught {$SIGNAL} ".($siginfo ? \json_encode($siginfo) : ''), \LOG_CRIT, 'PHP');
+				break;
+			}
+		}
+	}
+
+	public function Write(string $sDesc, int $iType = \LOG_INFO, string $sName = '', bool $bDiplayCrLf = false) : bool
 	{
 		if ($this->iLevel < $iType) {
 			return true;
@@ -166,8 +227,7 @@ class Logger extends \SplFixedArray
 
 		$this->bUsed = true;
 
-		if ($bSearchSecretWords && !$this->bShowSecrets && $this->aSecretWords)
-		{
+		if (!$this->bShowSecrets && $this->aSecretWords) {
 			$sDesc = \str_replace($this->aSecretWords, '*******', $sDesc);
 		}
 
@@ -189,13 +249,21 @@ class Logger extends \SplFixedArray
 		return $this->Write(\print_r($mValue, true), $iType, $sName);
 	}
 
+	private $aExceptions = [];
+
 	public function WriteException(\Throwable $oException, int $iType = \LOG_NOTICE, string $sName = '') : void
 	{
-		$this->Write((string) $oException, $iType, $sName);
+		if (!\in_array($oException, $this->aExceptions)) {
+			$this->Write((string) $oException, $iType, $sName);
+			$this->aExceptions[] = $oException;
+		}
 	}
 
 	public function WriteExceptionShort(\Throwable $oException, int $iType = \LOG_NOTICE, string $sName = '') : void
 	{
-		$this->Write($oException->getMessage(), $iType, $sName);
+		if (!\in_array($oException, $this->aExceptions)) {
+			$this->Write($oException->getMessage(), $iType, $sName);
+			$this->aExceptions[] = $oException;
+		}
 	}
 }
