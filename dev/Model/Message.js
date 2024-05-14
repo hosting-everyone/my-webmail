@@ -24,7 +24,6 @@ import { LanguageStore } from 'Stores/Language';
 
 import Remote from 'Remote/User/Fetch';
 
-import { MimeToMessage } from 'Mime/Utils';
 
 const
 	msgHtml = msg => cleanHtml(msg.html(), msg.attachments(), '#rl-msg-' + msg.hash),
@@ -426,34 +425,38 @@ export class MessageModel extends AbstractModel {
 	 * @param {boolean=} print = false
 	 */
 	popupMessage(print) {
-		const
-			timeStampInUTC = this.dateTimestamp() || 0,
-			ccLine = this.cc.toString(),
-			bccLine = this.bcc.toString(),
-			m = 0 < timeStampInUTC ? new Date(timeStampInUTC * 1000) : null,
-			win = open('', 'sm-msg-'+this.requestHash
-				,SettingsUserStore.messageNewWindow() ? 'innerWidth=' + elementById('V-MailMessageView').clientWidth : ''
-			),
-			sdoc = win.document,
-			subject = encodeHtml(this.subject()),
-			mode = this.isHtml() ? 'div' : 'pre',
-			to = `<div>${encodeHtml(i18n('GLOBAL/TO'))}: ${encodeHtml(this.to)}</div>`
-				+ (ccLine ? `<div>${encodeHtml(i18n('GLOBAL/CC'))}: ${encodeHtml(ccLine)}</div>` : '')
-				+ (bccLine ? `<div>${encodeHtml(i18n('GLOBAL/BCC'))}: ${encodeHtml(bccLine)}</div>` : ''),
-			style = getComputedStyle(doc.querySelector('.messageView')),
-			prop = property => style.getPropertyValue(property);
-		let attachments = '';
-		this.attachments.forEach(attachment => {
-			attachments += `<a href="${attachment.linkDownload()}">${attachment.fileName}</a>`;
-		});
-		sdoc.write(PreviewHTML
-			.replace('<title>', '<title>'+subject)
-			// eslint-disable-next-line max-len
-			.replace('<body>', `<body style="background-color:${prop('background-color')};color:${prop('color')}"><header><h1>${subject}</h1><time>${encodeHtml(m ? m.format('LLL',0,LanguageStore.hourCycle()) : '')}</time><div>${encodeHtml(this.from)}</div>${to}</header><${mode}>${this.bodyAsHTML()}</${mode}>`)
-			.replace('</body>', `<div id="attachments">${attachments}</div></body>`)
-		);
-		sdoc.close();
-		(true === print) && setTimeout(() => win.print(), 100);
+		if (print) {
+			const
+				timeStampInUTC = this.dateTimestamp() || 0,
+				ccLine = this.cc.toString(),
+				bccLine = this.bcc.toString(),
+				m = 0 < timeStampInUTC ? new Date(timeStampInUTC * 1000) : null,
+				win = open('', 'sm-msg-'+this.requestHash
+					,SettingsUserStore.messageNewWindow() ? 'innerWidth=' + elementById('V-MailMessageView').clientWidth : ''
+				),
+				sdoc = win.document,
+				subject = encodeHtml(this.subject()),
+				mode = this.isHtml() ? 'div' : 'pre',
+				to = `<div>${encodeHtml(i18n('GLOBAL/TO'))}: ${encodeHtml(this.to)}</div>`
+					+ (ccLine ? `<div>${encodeHtml(i18n('GLOBAL/CC'))}: ${encodeHtml(ccLine)}</div>` : '')
+					+ (bccLine ? `<div>${encodeHtml(i18n('GLOBAL/BCC'))}: ${encodeHtml(bccLine)}</div>` : ''),
+				style = getComputedStyle(doc.querySelector('.messageView')),
+				prop = property => style.getPropertyValue(property);
+			let attachments = '';
+			this.attachments.forEach(attachment => {
+				attachments += `<a href="${attachment.linkDownload()}">${attachment.fileName}</a>`;
+			});
+			sdoc.write(PreviewHTML
+				.replace('<title>', '<title>'+subject)
+				// eslint-disable-next-line max-len
+				.replace('<body>', `<body style="background-color:${prop('background-color')};color:${prop('color')}"><header><h1>${subject}</h1><time>${encodeHtml(m ? m.format('LLL',0,LanguageStore.hourCycle()) : '')}</time><div>${encodeHtml(this.from)}</div>${to}</header><${mode}>${this.bodyAsHTML()}</${mode}>`)
+				.replace('</body>', `<div id="attachments">${attachments}</div></body>`)
+			);
+			sdoc.close();
+			(true === print) && setTimeout(() => win.print(), 100);
+		} else {
+			showScreenPopup(MessagePopupView, [this]);
+		}
 	}
 
 	printMessage() {
