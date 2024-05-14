@@ -11,6 +11,8 @@
 
 namespace MailSo\Mime;
 
+use MailSo\Base\Utils;
+
 /**
  * @category MailSo
  * @package Mime
@@ -18,53 +20,39 @@ namespace MailSo\Mime;
 class Email implements \JsonSerializable
 {
 	/**
-	 * @var string
+	 * display-name https://datatracker.ietf.org/doc/html/rfc2822#section-3.4
 	 */
-	private $sDisplayName;
+	private string $sDisplayName;
 
 	/**
-	 * @var string
+	 * addr-spec https://datatracker.ietf.org/doc/html/rfc2822#section-3.4.1
 	 */
-	private $sEmail;
+	private string $sEmail;
+
+	private string $sDkimStatus = Enumerations\DkimStatus::NONE;
 
 	/**
-	 * @var string
-	 */
-	private $sDkimStatus;
-
-	/**
-	 * @var string
-	 */
-	private $sDkimValue;
-
-	/**
-	 * @throws \MailSo\Base\Exceptions\InvalidArgumentException
+	 * @throws \ValueError
 	 */
 	function __construct(string $sEmail, string $sDisplayName = '')
 	{
-		if (!\strlen(\trim($sEmail)))
-		{
-			throw new \MailSo\Base\Exceptions\InvalidArgumentException;
+		if (!\strlen(\trim($sEmail)) && !\strlen(\trim($sDisplayName))) {
+			throw new \ValueError;
 		}
 
-		$this->sEmail = \MailSo\Base\Utils::IdnToAscii(
-			\MailSo\Base\Utils::Trim($sEmail), true);
+		$this->sEmail = \SnappyMail\IDN::emailToAscii(Utils::Trim($sEmail));
 
-		$this->sDisplayName = \MailSo\Base\Utils::Trim($sDisplayName);
-
-		$this->sDkimStatus = Enumerations\DkimStatus::NONE;
-		$this->sDkimValue = '';
+		$this->sDisplayName = Utils::Trim($sDisplayName);
 	}
 
 	/**
-	 * @throws \MailSo\Base\Exceptions\InvalidArgumentException
+	 * @throws \ValueError
 	 */
 	public static function Parse(string $sEmailAddress) : self
 	{
-		$sEmailAddress = \MailSo\Base\Utils::Trim($sEmailAddress);
-		if (!\strlen(\trim($sEmailAddress)))
-		{
-			throw new \MailSo\Base\Exceptions\InvalidArgumentException;
+		$sEmailAddress = Utils::Trim(Utils::DecodeHeaderValue($sEmailAddress));
+		if (!\strlen(\trim($sEmailAddress))) {
+			throw new \ValueError;
 		}
 
 		$sName = '';
@@ -76,37 +64,28 @@ class Email implements \JsonSerializable
 		$bInComment = false;
 
 		$iStartIndex = 0;
-		$iEndIndex = 0;
 		$iCurrentIndex = 0;
 
-		while ($iCurrentIndex < \strlen($sEmailAddress))
-		{
+		while ($iCurrentIndex < \strlen($sEmailAddress)) {
 			switch ($sEmailAddress[$iCurrentIndex])
 			{
 //				case '\'':
 				case '"':
 //					$sQuoteChar = $sEmailAddress[$iCurrentIndex];
-					if ((!$bInName) && (!$bInAddress) && (!$bInComment))
-					{
+					if (!$bInName && !$bInAddress && !$bInComment) {
 						$bInName = true;
 						$iStartIndex = $iCurrentIndex;
-					}
-					else if ((!$bInAddress) && (!$bInComment))
-					{
-						$iEndIndex = $iCurrentIndex;
-						$sName = \substr($sEmailAddress, $iStartIndex + 1, $iEndIndex - $iStartIndex - 1);
-						$sEmailAddress = \substr_replace($sEmailAddress, '', $iStartIndex, $iEndIndex - $iStartIndex + 1);
-						$iEndIndex = 0;
+					} else if (!$bInAddress && !$bInComment) {
+						$sName = \substr($sEmailAddress, $iStartIndex + 1, $iCurrentIndex - $iStartIndex - 1);
+						$sEmailAddress = \substr_replace($sEmailAddress, '', $iStartIndex, $iCurrentIndex - $iStartIndex + 1);
 						$iCurrentIndex = 0;
 						$iStartIndex = 0;
 						$bInName = false;
 					}
 					break;
 				case '<':
-					if ((!$bInName) && (!$bInAddress) && (!$bInComment))
-					{
-						if ($iCurrentIndex > 0 && \strlen($sName) === 0)
-						{
+					if (!$bInName && !$bInAddress && !$bInComment) {
+						if ($iCurrentIndex > 0 && !\strlen($sName)) {
 							$sName = \substr($sEmailAddress, 0, $iCurrentIndex);
 						}
 
@@ -115,59 +94,47 @@ class Email implements \JsonSerializable
 					}
 					break;
 				case '>':
-					if ($bInAddress)
-					{
-						$iEndIndex = $iCurrentIndex;
-						$sEmail = \substr($sEmailAddress, $iStartIndex + 1, $iEndIndex - $iStartIndex - 1);
-						$sEmailAddress = \substr_replace($sEmailAddress, '', $iStartIndex, $iEndIndex - $iStartIndex + 1);
-						$iEndIndex = 0;
+					if ($bInAddress) {
+						$sEmail = \substr($sEmailAddress, $iStartIndex + 1, $iCurrentIndex - $iStartIndex - 1);
+						$sEmailAddress = \substr_replace($sEmailAddress, '', $iStartIndex, $iCurrentIndex - $iStartIndex + 1);
 						$iCurrentIndex = 0;
 						$iStartIndex = 0;
 						$bInAddress = false;
 					}
 					break;
 				case '(':
-					if ((!$bInName) && (!$bInAddress) && (!$bInComment))
-					{
+					if (!$bInName && !$bInAddress && !$bInComment) {
 						$bInComment = true;
 						$iStartIndex = $iCurrentIndex;
 					}
 					break;
 				case ')':
-					if ($bInComment)
-					{
-						$iEndIndex = $iCurrentIndex;
-						$sComment = \substr($sEmailAddress, $iStartIndex + 1, $iEndIndex - $iStartIndex - 1);
-						$sEmailAddress = \substr_replace($sEmailAddress, '', $iStartIndex, $iEndIndex - $iStartIndex + 1);
-						$iEndIndex = 0;
+					if ($bInComment) {
+						$sComment = \substr($sEmailAddress, $iStartIndex + 1, $iCurrentIndex - $iStartIndex - 1);
+						$sEmailAddress = \substr_replace($sEmailAddress, '', $iStartIndex, $iCurrentIndex - $iStartIndex + 1);
 						$iCurrentIndex = 0;
 						$iStartIndex = 0;
 						$bInComment = false;
 					}
 					break;
 				case '\\':
-					$iCurrentIndex++;
+					++$iCurrentIndex;
 					break;
 			}
 
-			$iCurrentIndex++;
+			++$iCurrentIndex;
 		}
 
-		if (\strlen($sEmail) === 0)
-		{
+		if (!\strlen($sEmail)) {
 			$aRegs = array('');
-			if (\preg_match('/[^@\s]+@\S+/i', $sEmailAddress, $aRegs) && isset($aRegs[0]))
-			{
+			if (\preg_match('/[^@\s]+@\S+/i', $sEmailAddress, $aRegs) && isset($aRegs[0])) {
 				$sEmail = $aRegs[0];
-			}
-			else
-			{
+			} else {
 				$sName = $sEmailAddress;
 			}
 		}
 
-		if ((\strlen($sEmail) > 0) && (\strlen($sName) == 0) && (\strlen($sComment) == 0))
-		{
+		if (\strlen($sEmail) && !\strlen($sName) && !\strlen($sComment)) {
 			$sName = \str_replace($sEmail, '', $sEmailAddress);
 		}
 
@@ -186,9 +153,9 @@ class Email implements \JsonSerializable
 		return new self($sEmail, $sName);
 	}
 
-	public function GetEmail(bool $bIdn = false) : string
+	public function GetEmail(bool $bUtf8 = false) : string
 	{
-		return $bIdn ? \MailSo\Base\Utils::IdnToUtf8($this->sEmail) : $this->sEmail;
+		return $bUtf8 ? \SnappyMail\IDN::emailToUtf8($this->sEmail) : $this->sEmail;
 	}
 
 	public function GetDisplayName() : string
@@ -196,72 +163,51 @@ class Email implements \JsonSerializable
 		return $this->sDisplayName;
 	}
 
-	public function GetDkimStatus() : string
+	public function getLocalPart() : string
 	{
-		return $this->sDkimStatus;
-	}
-
-	public function GetDkimValue() : string
-	{
-		return $this->sDkimValue;
-	}
-
-	public function GetAccountName() : string
-	{
-		return \MailSo\Base\Utils::GetAccountNameFromEmail($this->GetEmail(false));
+		return Utils::getEmailAddressLocalPart($this->sEmail);
 	}
 
 	public function GetDomain(bool $bIdn = false) : string
 	{
-		return \MailSo\Base\Utils::GetDomainFromEmail($this->GetEmail($bIdn));
+		return Utils::getEmailAddressDomain($this->GetEmail($bIdn));
 	}
 
-	public function SetDkimStatusAndValue(string $sDkimStatus, string $sDkimValue = '')
+	public function SetDkimStatus(string $sDkimStatus)
 	{
 		$this->sDkimStatus = Enumerations\DkimStatus::normalizeValue($sDkimStatus);
-		$this->sDkimValue = $sDkimValue;
 	}
 
-	public function ToArray(bool $bIdn = false, bool $bDkim = true) : array
-	{
-		return $bDkim ?
-			array($this->sDisplayName, $this->GetEmail($bIdn), $this->sDkimStatus, $this->sDkimValue) :
-			array($this->sDisplayName, $this->GetEmail($bIdn));
-	}
-
-	public function ToString(bool $bConvertSpecialsName = false, bool $bIdn = false) : string
+	public function ToString(bool $bConvertSpecialsName = false, bool $bUtf8 = false) : string
 	{
 		$sReturn = '';
-
-		$sDisplayName = \str_replace('"', '\"', $this->sDisplayName);
-		if ($bConvertSpecialsName)
-		{
-			$sDisplayName = 0 === \strlen($sDisplayName) ? '' : \MailSo\Base\Utils::EncodeUnencodedValue(
-				\MailSo\Base\Enumerations\Encoding::BASE64_SHORT,
-				$sDisplayName);
-		}
-
-		$sDisplayName = 0 === \strlen($sDisplayName) ? '' : '"'.$sDisplayName.'"';
-		if (\strlen($this->sEmail))
-		{
-			$sReturn = $this->GetEmail($bIdn);
-			if (\strlen($sDisplayName))
-			{
-				$sReturn = $sDisplayName.' <'.$sReturn.'>';
+		if (\strlen($this->sEmail)) {
+			$sReturn = $this->GetEmail($bUtf8);
+			$sDisplayName = $this->sDisplayName;
+			if (\strlen($sDisplayName)) {
+				$sDisplayName = \str_replace('"', '\"', $sDisplayName);
+				if ($bConvertSpecialsName) {
+					$sDisplayName = Utils::EncodeHeaderValue($sDisplayName);
+				}
+				$sReturn = '"'.$sDisplayName.'" <'.$sReturn.'>';
 			}
 		}
-
-		return \trim($sReturn);
+		return $sReturn;
 	}
 
+	public function __toString() : string
+	{
+		return $this->ToString();
+	}
+
+	#[\ReturnTypeWillChange]
 	public function jsonSerialize()
 	{
 		return array(
 			'@Object' => 'Object/Email',
-			'Name' => \MailSo\Base\Utils::Utf8Clear($this->GetDisplayName()),
-			'Email' => \MailSo\Base\Utils::Utf8Clear($this->GetEmail(true)),
-			'DkimStatus' => $this->GetDkimStatus(),
-			'DkimValue' => $this->GetDkimValue()
+			'name' => Utils::Utf8Clear($this->sDisplayName),
+			'email' => Utils::Utf8Clear($this->GetEmail(true)),
+			'dkimStatus' => $this->sDkimStatus
 		);
 	}
 }

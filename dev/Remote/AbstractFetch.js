@@ -1,4 +1,4 @@
-import { Notification } from 'Common/Enums';
+import { Notifications } from 'Common/Enums';
 import { isArray, pInt, pString } from 'Common/Utils';
 import { serverRequest } from 'Common/Links';
 import { runHook } from 'Common/Plugins';
@@ -6,21 +6,21 @@ import { getNotification } from 'Common/Translator';
 
 let iJsonErrorCount = 0;
 
-const getURL = (add = '') => serverRequest('Json') + add,
+const getURL = (add = '') => serverRequest('Json') + pString(add),
 
 checkResponseError = data => {
 	const err = data ? data.ErrorCode : null;
-	if (Notification.InvalidToken === err) {
-		alert(getNotification(err));
+	if (Notifications.InvalidToken === err) {
+		console.error(getNotification(err));
+//		alert(getNotification(err));
 		rl.logoutReload();
 	} else if ([
-			Notification.AuthError,
-			Notification.ConnectionError,
-			Notification.DomainNotAllowed,
-			Notification.AccountNotAllowed,
-			Notification.MailServerError,
-			Notification.UnknownNotification,
-			Notification.UnknownError
+			Notifications.AuthError,
+			Notifications.ConnectionError,
+			Notifications.DomainNotAllowed,
+			Notifications.AccountNotAllowed,
+			Notifications.MailServerError,
+			Notifications.UnknownError
 		].includes(err)
 	) {
 		if (7 < ++iJsonErrorCount) {
@@ -31,49 +31,52 @@ checkResponseError = data => {
 
 oRequests = {},
 
-abort = (sAction, bClearOnly) => {
-	if (oRequests[sAction]) {
-		if (!bClearOnly && oRequests[sAction].abort) {
-//			oRequests[sAction].__aborted = true;
-			oRequests[sAction].abort();
-		}
-
-		oRequests[sAction] = null;
-		delete oRequests[sAction];
+abort = (sAction, sReason, bClearOnly) => {
+	let controller = oRequests[sAction];
+	oRequests[sAction] = null;
+	if (controller) {
+		clearTimeout(controller.timeoutId);
+		bClearOnly || controller.abort(new DOMException(sAction, sReason || 'AbortError'));
 	}
 },
 
-fetchJSON = (action, sGetAdd, params, timeout, jsonCallback) => {
-	sGetAdd = pString(sGetAdd);
-	params = params || {};
-	if (params instanceof FormData) {
-		params.set('Action', action);
-	} else {
-		params.Action = action;
+fetchJSON = (action, sUrl, params, timeout, jsonCallback) => {
+	if (params) {
+		if (params instanceof FormData) {
+			params.set('Action', action);
+		} else {
+			params.Action = action;
+		}
 	}
-	let init = {};
-	if (window.AbortController) {
-		abort(action);
-		const controller = new AbortController();
-		timeout && setTimeout(() => controller.abort(), timeout);
-		oRequests[action] = controller;
-		init.signal = controller.signal;
-	}
-	return rl.fetchJSON(getURL(sGetAdd), init, sGetAdd ? null : params).then(jsonCallback);
+	// Don't abort, read https://github.com/the-djmaze/snappymail/issues/487
+//	abort(action, 0, 1);
+	const controller = new AbortController(),
+		signal = controller.signal;
+	oRequests[action] = controller;
+	// Currently there is no way to combine multiple signals, so AbortSignal.timeout() not possible
+	controller.timeoutId = timeout && setTimeout(() => abort(action, 'TimeoutError'), timeout);
+	return rl.fetchJSON(sUrl, {signal: signal}, params).then(data => {
+		abort(action, 0, 1);
+		return jsonCallback ? jsonCallback(data) : Promise.resolve(data);
+	}).catch(err => {
+		clearTimeout(controller.timeoutId);
+		err.aborted = signal.aborted;
+		return Promise.reject(err);
+	});
 };
 
 class FetchError extends Error
 {
 	constructor(code, message) {
 		super(message);
-		this.code = code || Notification.JsonFalse;
+		this.code = code || Notifications.JsonFalse;
 	}
 }
 
 export class AbstractFetchRemote
 {
-	abort(sAction, bClearOnly) {
-		abort(sAction, bClearOnly);
+	abort(sAction, sReason) {
+		abort(sAction, sReason);
 		return this;
 	}
 
@@ -82,36 +85,35 @@ export class AbstractFetchRemote
 	 * Can be used to stream lines of json encoded data, but does not work on all servers.
 	 * Apache needs 'flushpackets' like in <Proxy "fcgi://...." flushpackets=on></Proxy>
 	 */
-	streamPerLine(fCallback, sGetAdd) {
-		rl.fetch(getURL(sGetAdd))
+	streamPerLine(fCallback, sGetAdd, postData) {
+		rl.fetch(getURL(sGetAdd), {}, postData)
 		.then(response => response.body)
 		.then(body => {
-			// Firefox TextDecoderStream is not defined
-		//	const reader = body.pipeThrough(new TextDecoderStream()).getReader();
-			const reader = body.getReader(),
-				re = /\r\n|\n|\r/gm,
-				utf8decoder = new TextDecoder();
 			let buffer = '';
-			function processText({ done, value }) {
-				buffer += value ? utf8decoder.decode(value, {stream: true}) : '';
-				for (;;) {
-					let result = re.exec(buffer);
-					if (!result) {
-						if (done) {
-							break;
+			const
+				// Firefox TextDecoderStream is not defined
+//				reader = body.pipeThrough(new TextDecoderStream()).getReader();
+				reader = body.getReader(),
+				re = /\r\n|\n|\r/gm,
+				utf8decoder = new TextDecoder(),
+				processText = ({ done, value }) => {
+					buffer += value ? utf8decoder.decode(value, {stream: true}) : '';
+					for (;;) {
+						let result = re.exec(buffer);
+						if (!result) {
+							if (done) {
+								break;
+							}
+							reader.read().then(processText);
+							return;
 						}
-						reader.read().then(processText);
-						return;
+						fCallback(buffer.slice(0, result.index));
+						buffer = buffer.slice(result.index + 1);
+						re.lastIndex = 0;
 					}
-					fCallback(buffer.slice(0, result.index));
-					buffer = buffer.slice(result.index + 1);
-					re.lastIndex = 0;
-				}
-				if (buffer.length) {
 					// last line didn't end in a newline char
-					fCallback(buffer);
-				}
-			}
+					buffer.length && fCallback(buffer);
+				};
 			reader.read().then(processText);
 		})
 	}
@@ -122,37 +124,15 @@ export class AbstractFetchRemote
 	 * @param {Object=} oParameters
 	 * @param {?number=} iTimeout
 	 * @param {string=} sGetAdd = ''
-	 * @param {Array=} aAbortActions = []
 	 */
-	request(sAction, fCallback, params, iTimeout, sGetAdd, abortActions) {
+	request(sAction, fCallback, params, iTimeout, sGetAdd) {
 		params = params || {};
 
 		const start = Date.now();
 
-		if (sAction && abortActions) {
-			abortActions.forEach(actionToAbort => abort(actionToAbort));
-		}
-
-		runHook('json-default-request', [sAction, params, sGetAdd]);
-
-		fetchJSON(sAction, sGetAdd,
-			params,
-			undefined === iTimeout ? 30000 : pInt(iTimeout),
-			data => {
-				let cached = false;
-				if (data && data.Time) {
-					cached = pInt(data.Time) > Date.now() - start;
-				}
 
 				let iError = 0;
-				if (sAction && oRequests[sAction]) {
-					if (oRequests[sAction].__aborted) {
-						iError = 2;
-					}
-					abort(sAction, true);
-				}
-
-				if (!iError && data) {
+				if (data) {
 /*
 					if (sAction !== data.Action) {
 						console.log(sAction + ' !== ' + data.Action);
@@ -162,66 +142,67 @@ export class AbstractFetchRemote
 						iJsonErrorCount = 0;
 					} else {
 						checkResponseError(data);
-						iError = data.ErrorCode || Notification.UnknownError
+						iError = data.ErrorCode || Notifications.UnknownError
 					}
 				}
 
-				runHook('json-default-response', [
-					sAction,
-					iError,
-					data,
-					cached,
-					params
-				]);
+
 
 				fCallback && fCallback(
 					iError,
 					data,
-					cached,
-					sAction,
-					params
+					/**
+					 * Responses like "304 Not Modified" are returned as "200 OK"
+					 * This is an attempt to detect if the request comes from cache.
+					 * But when client has wrong date/time, it will fail.
+					 */
+					data?.epoch && data.epoch < Math.floor(start / 1000) - 60
 				);
 			}
 		)
 		.catch(err => {
-			console.error(err);
-			fCallback && fCallback(err.name == 'AbortError' ? 2 : 1);
+			console.error({fetchError:err});
+			fCallback && fCallback(
+				'TimeoutError' == err.name ? 3 : (err.name == 'AbortError' ? 2 : 1),
+				err
+			);
 		});
-	}
-
-	/**
-	 * @param {?Function} fCallback
-	 */
-	getPublicKey(fCallback) {
-		this.request('GetPublicKey', fCallback);
 	}
 
 	setTrigger(trigger, value) {
 		if (trigger) {
 			value = !!value;
 			(isArray(trigger) ? trigger : [trigger]).forEach(fTrigger => {
-				fTrigger && fTrigger(value);
+				fTrigger?.(value);
 			});
 		}
 	}
 
+	get(action, url) {
+		return fetchJSON(action, url);
+	}
+
 	post(action, fTrigger, params, timeOut) {
 		this.setTrigger(fTrigger, true);
-		return fetchJSON(action, '', params, pInt(timeOut, 30000),
-			data => {
-				abort(action, true);
+		return fetchJSON(action, getURL(), params || {}, pInt(timeOut, 30000),
+			async data => {
+				abort(action, 0, 1);
 
 				if (!data) {
-					return Promise.reject(new FetchError(Notification.JsonParse));
+					return Promise.reject(new FetchError(Notifications.JsonParse));
+				}
+
+				if (111 === data?.ErrorCode && rl.app.ask && await rl.app.ask.cryptkey()) {
+					return this.post(action, fTrigger, params, timeOut);
 				}
 /*
 				let isCached = false, type = '';
-				if (data && data.Time) {
-					isCached = pInt(data.Time) > microtime() - start;
+				if (data?.epoch) {
+					isCached = data.epoch > microtime() - start;
 				}
 				// backward capability
 				switch (true) {
-					case 'success' === textStatus && data && data.Result && action === data.Action:
+					case 'success' === textStatus && data?.Result && action === data.Action:
 						type = AbstractFetchRemote.SUCCESS;
 						break;
 					case 'abort' === textStatus && (!data || !data.__aborted__):

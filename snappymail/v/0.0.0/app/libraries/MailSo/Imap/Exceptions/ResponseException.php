@@ -16,11 +16,8 @@ namespace MailSo\Imap\Exceptions;
  * @package Imap
  * @subpackage Exceptions
  */
-class ResponseException extends \MailSo\Imap\Exceptions\Exception
+class ResponseException extends \MailSo\RuntimeException
 {
-	/**
-	 * @var array
-	 */
 	private $oResponses;
 
 	public function __construct(?\MailSo\Imap\ResponseCollection $oResponses = null, string $sMessage = '', int $iCode = 0, ?\Throwable $oPrevious = null)

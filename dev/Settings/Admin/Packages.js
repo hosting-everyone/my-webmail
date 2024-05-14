@@ -1,6 +1,6 @@
 import ko from 'ko';
 
-import { Notification } from 'Common/Enums';
+import { Notifications } from 'Common/Enums';
 import { getNotification } from 'Common/Translator';
 
 import { PackageAdminStore } from 'Stores/Admin/Package';
@@ -15,7 +15,7 @@ export class AdminSettingsPackages extends AbstractViewSettings {
 	constructor() {
 		super();
 
-		this.addSettings(['EnabledPlugins']);
+		this.addSettings(['pluginsEnable']);
 
 		addObservablesTo(this, {
 			packagesError: ''
@@ -24,9 +24,9 @@ export class AdminSettingsPackages extends AbstractViewSettings {
 		this.packages = PackageAdminStore;
 
 		addComputablesTo(this, {
-			packagesCurrent: () => PackageAdminStore().filter(item => item && item.installed && !item.canBeUpdated),
-			packagesUpdate: () => PackageAdminStore().filter(item => item && item.installed && item.canBeUpdated),
-			packagesAvailable: () => PackageAdminStore().filter(item => item && !item.installed),
+			packagesCurrent: () => PackageAdminStore().filter(item => item?.installed && !item.canBeUpdated),
+			packagesUpdate: () => PackageAdminStore().filter(item => item?.installed && item.canBeUpdated),
+			packagesAvailable: () => PackageAdminStore().filter(item => !item?.installed),
 
 			visibility: () => (PackageAdminStore.loading() ? 'visible' : 'hidden')
 		});
@@ -42,16 +42,16 @@ export class AdminSettingsPackages extends AbstractViewSettings {
 		oDom.addEventListener('click', event => {
 			// configurePlugin
 			let el = event.target.closestWithin('.package-configure', oDom),
-				data = el ? ko.dataFor(el) : 0;
+				data = el && ko.dataFor(el);
 			data && Remote.request('AdminPluginLoad',
 				(iError, data) => iError || showScreenPopup(PluginPopupView, [data.Result]),
 				{
-					Id: data.id
+					id: data.id
 				}
 			);
 			// disablePlugin
 			el = event.target.closestWithin('.package-active', oDom);
-			data = el ? ko.dataFor(el) : 0;
+			data = el && ko.dataFor(el);
 			data && this.disablePlugin(data);
 		});
 	}
@@ -59,7 +59,7 @@ export class AdminSettingsPackages extends AbstractViewSettings {
 	requestHelper(packageToRequest, install) {
 		return (iError, data) => {
 			PackageAdminStore.forEach(item => {
-				if (item && packageToRequest && item.loading && item.loading() && packageToRequest.file === item.file) {
+				if (packageToRequest && item?.loading?.() && packageToRequest.file === item.file) {
 					packageToRequest.loading(false);
 					item.loading(false);
 				}
@@ -67,7 +67,7 @@ export class AdminSettingsPackages extends AbstractViewSettings {
 
 			if (iError) {
 				this.packagesError(
-					getNotification(install ? Notification.CantInstallPackage : Notification.CantDeletePackage)
+					getNotification(install ? Notifications.CantInstallPackage : Notifications.CantDeletePackage)
 					+ (data.ErrorMessage ? ':\n' + data.ErrorMessage : '')
 				);
 			} else if (data.Result.Reload) {
@@ -84,7 +84,7 @@ export class AdminSettingsPackages extends AbstractViewSettings {
 			Remote.request('AdminPackageDelete',
 				this.requestHelper(packageToDelete, false),
 				{
-					Id: packageToDelete.id
+					id: packageToDelete.id
 				}
 			);
 		}
@@ -96,9 +96,9 @@ export class AdminSettingsPackages extends AbstractViewSettings {
 			Remote.request('AdminPackageInstall',
 				this.requestHelper(packageToInstall, true),
 				{
-					Id: packageToInstall.id,
-					Type: packageToInstall.type,
-					File: packageToInstall.file
+					id: packageToInstall.id,
+					type: packageToInstall.type,
+					file: packageToInstall.file
 				},
 				60000
 			);
@@ -109,19 +109,19 @@ export class AdminSettingsPackages extends AbstractViewSettings {
 		let disable = plugin.enabled();
 		plugin.enabled(!disable);
 		Remote.request('AdminPluginDisable',
-		(iError, data) => {
+			(iError, data) => {
 				if (iError) {
 					plugin.enabled(disable);
 					this.packagesError(
-						(Notification.UnsupportedPluginPackage === iError && data && data.ErrorMessage)
+						(Notifications.UnsupportedPluginPackage === iError && data?.ErrorMessage)
 						? data.ErrorMessage
 						: getNotification(iError)
 					);
 				}
 //				PackageAdminStore.fetch();
 			}, {
-				Id: plugin.id,
-				Disabled: disable ? 1 : 0
+				id: plugin.id,
+				disabled: disable ? 1 : 0
 			}
 		);
 	}

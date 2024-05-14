@@ -1,39 +1,99 @@
-import { MessageFlagsCache, addRequestedMessage } from 'Common/Cache';
-import { Notification } from 'Common/Enums';
+import { Notifications } from 'Common/Enums';
 import { MessageSetAction, ComposeType/*, FolderType*/ } from 'Common/EnumsUser';
-import { doc, createElement, elementById, dropdowns, dropdownVisibility } from 'Common/Globals';
+import { doc, createElement, elementById, dropdowns, dropdownVisibility, SettingsGet, leftPanelDisabled } from 'Common/Globals';
 import { plainToHtml } from 'Common/Html';
 import { getNotification } from 'Common/Translator';
-import { EmailModel } from 'Model/Email';
-import { MessageModel } from 'Model/Message';
+import { EmailCollectionModel } from 'Model/EmailCollection';
 import { MessageUserStore } from 'Stores/User/Message';
 import { MessagelistUserStore } from 'Stores/User/Messagelist';
 import { SettingsUserStore } from 'Stores/User/Settings';
 import * as Local from 'Storage/Client';
 import { ThemeStore } from 'Stores/Theme';
 import Remote from 'Remote/User/Fetch';
+import { attachmentDownload } from 'Common/Links';
+
+import { AccountModel } from 'Model/Account';
+import { IdentityModel } from 'Model/Identity';
+import { AccountUserStore } from 'Stores/User/Account';
+import { IdentityUserStore } from 'Stores/User/Identity';
+import { isArray } from 'Common/Utils';
 
 export const
+
+// 1 = move, 2 = copy
+moveAction = ko.observable(0),
 
 dropdownsDetectVisibility = (() =>
 	dropdownVisibility(!!dropdowns.find(item => item.classList.contains('show')))
 ).debounce(50),
+
+
+loadAccountsAndIdentities = () => {
+	AccountUserStore.loading(true);
+	IdentityUserStore.loading(true);
+
+	Remote.request('AccountsAndIdentities', (iError, oData) => {
+		AccountUserStore.loading(false);
+		IdentityUserStore.loading(false);
+
+		if (!iError) {
+			let items = oData.Result.Accounts;
+			AccountUserStore(isArray(items)
+				? items.map(oValue => new AccountModel(oValue.email, oValue.name))
+				: []
+			);
+			AccountUserStore.unshift(new AccountModel(SettingsGet('mainEmail'), '', false));
+
+			items = oData.Result.Identities;
+			IdentityUserStore(isArray(items)
+				? items.map(identityData => IdentityModel.reviveFromJson(identityData))
+				: []
+			);
+		}
+	});
+},
 
 /**
  * @param {string} link
  * @returns {boolean}
  */
 download = (link, name = "") => {
-	if (ThemeStore.isMobile()) {
-		open(link, '_self');
+	console.log('download: '+link);
+	// Firefox 98 issue https://github.com/the-djmaze/snappymail/issues/301
+	if (ThemeStore.isMobile() || /firefox/i.test(navigator.userAgent)) {
+		open(link, '_blank');
 		focus();
 	} else {
-		const oLink = createElement('a');
-		oLink.href = link;
-		oLink.target = '_blank';
-		oLink.download = name;
+		const oLink = createElement('a', {
+			href: link,
+			target: '_blank',
+			download: name
+		});
 		doc.body.appendChild(oLink).click();
 		oLink.remove();
+	}
+},
+
+downloadZip = (name, hashes, onError, fTrigger, folder) => {
+	if (hashes.length) {
+		let params = {
+			target: 'zip',
+			filename: name,
+			hashes: hashes
+		};
+		if (!onError) {
+			onError = () => alert('Download failed');
+		}
+		if (folder) {
+			params.folder = folder;
+//			params.uids = uids;
+		}
+		Remote.post('AttachmentsActions', fTrigger || null, params)
+		.then(result => {
+			let hash = result?.Result?.fileHash;
+			hash ? download(attachmentDownload(hash), hash+'.zip') : onError();
+		})
+		.catch(onError);
 	}
 },
 
@@ -45,27 +105,24 @@ computedPaginatorHelper = (koCurrentPage, koPageCount) => {
 		const currentPage = koCurrentPage(),
 			pageCount = koPageCount(),
 			result = [],
+			lang = doc.documentElement.lang,
 			fAdd = (index, push = true, customName = '') => {
-				const data = {
-					current: index === currentPage,
-					name: customName ? customName.toString() : index.toString(),
-					custom: !!customName,
-					title: customName ? index.toString() : '',
-					value: index.toString()
-				};
+				const name = index.toLocaleString(lang),
+					data = {
+						current: index === currentPage,
+						name: customName || name,
+						title: customName ? name : '',
+						value: index
+					};
 
-				if (push) {
-					result.push(data);
-				} else {
-					result.unshift(data);
-				}
+				push ? result.push(data) : result.unshift(data);
 			};
 
 		let prev = 0,
 			next = 0,
 			limit = 2;
 
-		if (1 < pageCount || (0 < pageCount && pageCount < currentPage)) {
+		if (1 < pageCount) {
 			if (pageCount < currentPage) {
 				fAdd(pageCount);
 				prev = pageCount;
@@ -128,33 +185,19 @@ computedPaginatorHelper = (koCurrentPage, koPageCount) => {
  * @returns {boolean}
  */
 mailToHelper = mailToUrl => {
-	if (mailToUrl && 'mailto:' === mailToUrl.slice(0, 7).toLowerCase()) {
+	if ('mailto:' === mailToUrl?.slice(0, 7).toLowerCase()) {
 		mailToUrl = mailToUrl.slice(7).split('?');
 
 		const
-			email = mailToUrl[0],
+			email = decodeURIComponent(mailToUrl[0]),
 			params = new URLSearchParams(mailToUrl[1]),
-			toEmailModel = value => null != value ? EmailModel.parseEmailLine(value) : null;
+			to = params.get('to'),
+			toEmailModel = value => EmailCollectionModel.fromString(value);
 
 		showMessageComposer([
 			ComposeType.Empty,
 			null,
-			params.get('to')
-				? Object.values(
-						toEmailModel(email + ',' + params.get('to')).reduce((result, value) => {
-							if (value) {
-								if (result[value.email]) {
-									if (!result[value.email].name) {
-										result[value.email] = value;
-									}
-								} else {
-									result[value.email] = value;
-								}
-							}
-							return result;
-						}, {})
-					)
-				: EmailModel.parseEmailLine(email),
+			toEmailModel(to ? email + ',' + to : email),
 			toEmailModel(params.get('cc')),
 			toEmailModel(params.get('bcc')),
 			params.get('subject'),
@@ -172,39 +215,27 @@ showMessageComposer = (params = []) =>
 	rl.app.showMessageComposer(params);
 },
 
-initFullscreen = (el, fn) =>
-{
-	let event = 'fullscreenchange';
-	if (!el.requestFullscreen && el.webkitRequestFullscreen) {
-		el.requestFullscreen = el.webkitRequestFullscreen;
-		event = 'webkit'+event;
-	}
-	if (el.requestFullscreen) {
-		el.addEventListener(event, fn);
-		return el;
-	}
-},
-
-setLayoutResizer = (source, target, sClientSideKeyName, mode) =>
+setLayoutResizer = (source, sClientSideKeyName, mode) =>
 {
 	if (source.layoutResizer && source.layoutResizer.mode != mode) {
-		target.removeAttribute('style');
 		source.removeAttribute('style');
 	}
+	source.observer?.disconnect();
 //	source.classList.toggle('resizable', mode);
 	if (mode) {
-		const length = Local.get(sClientSideKeyName+mode);
+		const length = Local.get(sClientSideKeyName + mode) || SettingsGet('Resizer' + sClientSideKeyName + mode);
+		if (length) {
+			source.style[mode.toLowerCase()] = length + 'px';
+		}
 		if (!source.layoutResizer) {
 			const resizer = createElement('div', {'class':'resizer'}),
+				save = (data => Remote.saveSettings(0, data)).debounce(500),
 				size = {},
 				store = () => {
-					if ('Width' == resizer.mode) {
-						target.style.left = source.offsetWidth + 'px';
-						Local.set(resizer.key+resizer.mode, source.offsetWidth);
-					} else {
-						target.style.top = (4 + source.offsetTop + source.offsetHeight) + 'px';
-						Local.set(resizer.key+resizer.mode, source.offsetHeight);
-					}
+					const value = ('Width' == resizer.mode) ? source.offsetWidth : source.offsetHeight,
+						prop = resizer.key + resizer.mode;
+					(value == Local.get(prop)) || Local.set(prop, value);
+					(value == SettingsGet('Resizer' + prop)) || save({['Resizer' + prop]: value});
 				},
 				cssint = s => {
 					let value = getComputedStyle(source, null)[s].replace('px', '');
@@ -244,130 +275,90 @@ setLayoutResizer = (source, target, sClientSideKeyName, mode) =>
 		}
 		source.layoutResizer.mode = mode;
 		source.layoutResizer.key = sClientSideKeyName;
-		source.observer && source.observer.observe(source, { box: 'border-box' });
-		if (length) {
-			source.style[mode] = length + 'px';
-		}
-	} else {
-		source.observer && source.observer.disconnect();
+		source.observer?.observe(source, { box: 'border-box' });
 	}
 },
 
-populateMessageBody = (oMessage, preload) => {
+viewMessage = (oMessage, popup) => {
+	if (popup) {
+		oMessage.popupMessage();
+	} else {
+		MessageUserStore.error('');
+		let id = 'rl-msg-' + oMessage.hash,
+			body = oMessage.body || elementById(id);
+		if (!body) {
+			body = createElement('div',{
+				id:id,
+				hidden:'',
+				class:'b-text-part'
+					+ (oMessage.pgpSigned() ? ' openpgp-signed' : '')
+					+ (oMessage.pgpEncrypted() ? ' openpgp-encrypted' : '')
+					+ (oMessage.smimeSigned() ? ' smime-signed' : '')
+					+ (oMessage.smimeEncrypted() ? ' smime-encrypted' : '')
+			});
+			MessageUserStore.purgeCache();
+		}
+
+		body.message = oMessage;
+		oMessage.body = body;
+
+		if (!SettingsUserStore.viewHTML() || !oMessage.viewHtml()) {
+			oMessage.viewPlain();
+		}
+
+		MessageUserStore.bodiesDom().append(body);
+
+		MessageUserStore.loading(false);
+		oMessage.body.hidden = false;
+
+		if (oMessage.isUnseen() && SettingsUserStore.messageReadAuto()) {
+			MessageUserStore.MessageSeenTimer = setTimeout(
+				() => MessagelistUserStore.setAction(oMessage.folder, MessageSetAction.SetSeen, [oMessage]),
+				SettingsUserStore.messageReadDelay() * 1000 // seconds
+			);
+		}
+	}
+},
+
+populateMessageBody = (oMessage, popup) => {
 	if (oMessage) {
-		preload || MessageUserStore.hideMessageBodies();
-		preload || MessageUserStore.loading(true);
-		Remote.message((iError, oData/*, bCached*/) => {
-			if (iError) {
-				if (Notification.RequestAborted !== iError && !preload) {
-					MessageUserStore.message(null);
-					MessageUserStore.error(getNotification(iError));
-				}
-			} else {
-				oMessage = preload ? oMessage : null;
-				let
-					isNew = false,
-					json = oData && oData.Result,
-					message = oMessage || MessageUserStore.message();
-
-				if (
-					json &&
-					MessageModel.validJson(json) &&
-					message &&
-					message.folder === json.Folder
-				) {
-					const threads = message.threads(),
-						messagesDom = MessageUserStore.bodiesDom();
-					if (!oMessage && message.uid != json.Uid && threads.includes(json.Uid)) {
-						message = MessageModel.reviveFromJson(json);
-						if (message) {
-							message.threads(threads);
-							MessageFlagsCache.initMessage(message);
-
-							// Set clone
-							MessageUserStore.message(MessageModel.fromMessageListItem(message));
-							message = MessageUserStore.message();
-
-							isNew = true;
-						}
+		popup || MessageUserStore.message(oMessage);
+		if (oMessage.body) {
+			viewMessage(oMessage, popup);
+		} else {
+			popup || MessageUserStore.loading(true);
+			Remote.message((iError, oData/*, bCached*/) => {
+				if (iError) {
+					if (Notifications.RequestAborted !== iError && !popup) {
+						MessageUserStore.message(null);
+						MessageUserStore.error(getNotification(iError));
 					}
-
-					if (message && message.uid == json.Uid) {
-						oMessage || MessageUserStore.error('');
+				} else {
+					let json = oData?.Result;
+					if (json
+						&& ((
+								oMessage.hash && oMessage.hash === json.hash
+							) || (
+								!oMessage.hash
+								&& oMessage.folder === json.folder
+								&& oMessage.uid == json.uid)
+						)
+						&& oMessage.revivePropertiesFromJson(json)
+					) {
 /*
 						if (bCached) {
-							delete json.Flags;
+							delete json.flags;
 						}
+						oMessage.body.remove();
 */
-						isNew || message.revivePropertiesFromJson(json);
-						addRequestedMessage(message.folder, message.uid);
-						if (messagesDom) {
-							let id = 'rl-msg-' + message.hash.replace(/[^a-zA-Z0-9]/g, ''),
-								body = elementById(id);
-							if (body) {
-								message.body = body;
-								message.isHtml(body.classList.contains('html'));
-								message.hasImages(body.rlHasImages);
-							} else {
-								body = Element.fromHTML('<div id="' + id + '" hidden="" class="b-text-part '
-									+ (message.pgpSigned() ? ' openpgp-signed' : '')
-									+ (message.pgpEncrypted() ? ' openpgp-encrypted' : '')
-									+ '">'
-									+ '</div>');
-								message.body = body;
-								if (!SettingsUserStore.viewHTML() || !message.viewHtml()) {
-									message.viewPlain();
-								}
-
-								MessageUserStore.purgeMessageBodyCache();
-							}
-
-							messagesDom.append(body);
-
-							if (!oMessage) {
-								MessageUserStore.activeDom(message.body);
-								MessageUserStore.hideMessageBodies();
-								message.body.hidden = false;
-							}
-							oMessage && message.viewPopupMessage();
-						}
-
-						MessageFlagsCache.initMessage(message);
-						if (message.isUnseen()) {
-							MessageUserStore.MessageSeenTimer = setTimeout(
-								() => MessagelistUserStore.setAction(message.folder, MessageSetAction.SetSeen, [message]),
-								SettingsUserStore.messageReadDelay() * 1000 // seconds
-							);
-						}
-
-						if (message && isNew) {
-							let selectedMessage = MessagelistUserStore.selectedMessage();
-							if (
-								selectedMessage &&
-								(message.folder !== selectedMessage.folder || message.uid != selectedMessage.uid)
-							) {
-								MessagelistUserStore.selectedMessage(null);
-								if (1 === MessagelistUserStore.length) {
-									MessagelistUserStore.focusedMessage(null);
-								}
-							} else if (!selectedMessage) {
-								selectedMessage = MessagelistUserStore.find(
-									subMessage =>
-										subMessage &&
-										subMessage.folder === message.folder &&
-										subMessage.uid == message.uid
-								);
-
-								if (selectedMessage) {
-									MessagelistUserStore.selectedMessage(selectedMessage);
-									MessagelistUserStore.focusedMessage(selectedMessage);
-								}
-							}
-						}
+						viewMessage(oMessage, popup);
 					}
 				}
-			}
-			preload || MessageUserStore.loading(false);
-		}, oMessage.folder, oMessage.uid);
+				popup || MessageUserStore.loading(false);
+			}, oMessage.folder, oMessage.uid);
+		}
 	}
 };
+
+leftPanelDisabled.subscribe(value => value && moveAction(0));
+moveAction.subscribe(value => value && leftPanelDisabled(false));

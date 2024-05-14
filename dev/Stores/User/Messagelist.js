@@ -1,19 +1,16 @@
-import { koComputable } from 'External/ko';
+import { koComputable, addObservablesTo, addComputablesTo } from 'External/ko';
 
-import { Notification } from 'Common/Enums';
+import { SMAudio } from 'Common/Audio';
+import { Notifications } from 'Common/Enums';
 import { MessageSetAction } from 'Common/EnumsUser';
-import { $htmlCL } from 'Common/Globals';
-import { arrayLength, pInt, pString } from 'Common/Utils';
-import { addObservablesTo, addComputablesTo } from 'External/ko';
+import { $htmlCL, fireEvent } from 'Common/Globals';
+import { arrayLength, pString } from 'Common/Utils';
+import { UNUSED_OPTION_VALUE } from 'Common/Consts';
 
 import {
 	getFolderInboxName,
-	addNewMessageCache,
-	setFolderUidNext,
 	getFolderFromCacheList,
-	setFolderHash,
-	MessageFlagsCache,
-	clearNewMessageCache
+	setFolderETag
 } from 'Common/Cache';
 
 import { mailBox } from 'Common/Links';
@@ -30,23 +27,33 @@ import { SettingsUserStore } from 'Stores/User/Settings';
 
 import Remote from 'Remote/User/Fetch';
 
+import { b64EncodeJSONSafe } from 'Common/Utils';
+import { SettingsGet } from 'Common/Globals';
+import { SUB_QUERY_PREFIX } from 'Common/Links';
+import { AppUserStore } from 'Stores/User/App';
+
+import { baseCollator } from 'Common/Translator';
+
 const
 	isChecked = item => item.checked(),
 	replaceHash = hash => {
 		rl.route.off();
 		hasher.replaceHash(hash);
 		rl.route.on();
-	}
+	},
+	disableAutoSelect = ko.observable(false).extend({ falseTimeout: 500 });
 
 export const MessagelistUserStore = ko.observableArray().extend({ debounce: 0 });
 
 addObservablesTo(MessagelistUserStore, {
 	count: 0,
 	listSearch: '',
+	listLimited: 0,
 	threadUid: 0,
 	page: 1,
 	pageBeforeThread: 1,
 	error: '',
+//	folder: '',
 
 	endHash: '',
 	endThreadUid: 0,
@@ -59,8 +66,6 @@ addObservablesTo(MessagelistUserStore, {
 	focusedMessage: null
 });
 
-MessagelistUserStore.disableAutoSelect = ko.observable(false).extend({ falseTimeout: 500 });
-
 // Computed Observables
 
 addComputablesTo(MessagelistUserStore, {
@@ -69,6 +74,25 @@ addComputablesTo(MessagelistUserStore, {
 		$htmlCL.toggle('list-loading', value);
 		return value;
 	},
+
+	isArchiveFolder: () => FolderUserStore.archiveFolder() === MessagelistUserStore().folder,
+
+	isDraftFolder: () => FolderUserStore.draftsFolder() === MessagelistUserStore().folder,
+
+	isSentFolder: () => FolderUserStore.sentFolder() === MessagelistUserStore().folder,
+
+	isSpamFolder: () => FolderUserStore.spamFolder() === MessagelistUserStore().folder,
+
+	isTrashFolder: () => FolderUserStore.trashFolder() === MessagelistUserStore().folder,
+
+	archiveAllowed: () => ![UNUSED_OPTION_VALUE, MessagelistUserStore().folder].includes(FolderUserStore.archiveFolder())
+		&& !MessagelistUserStore.isDraftFolder(),
+
+	canMarkAsSpam: () => !(UNUSED_OPTION_VALUE === FolderUserStore.spamFolder()
+//		| MessagelistUserStore.isArchiveFolder()
+		| MessagelistUserStore.isSentFolder()
+		| MessagelistUserStore.isDraftFolder()
+		| MessagelistUserStore.isSpamFolder()),
 
 	pageCount: () => Math.max(1, Math.ceil(MessagelistUserStore.count() / SettingsUserStore.messagesPerPage())),
 
@@ -84,16 +108,17 @@ addComputablesTo(MessagelistUserStore, {
 		const
 			selectedMessage = MessagelistUserStore.selectedMessage(),
 			focusedMessage = MessagelistUserStore.focusedMessage(),
-			checked = MessagelistUserStore.filter(item => isChecked(item) || item === selectedMessage);
-		return checked.length ? checked : (focusedMessage ? [focusedMessage] : []);
+			checked = MessagelistUserStore.filter(item => isChecked(item));
+		return checked.length ? checked : (selectedMessage || focusedMessage ? [selectedMessage || focusedMessage] : []);
 	},
 
 	listCheckedOrSelectedUidsWithSubMails: () => {
-		let result = [];
+		let result = new Set;
 		MessagelistUserStore.listCheckedOrSelected().forEach(message => {
-			result.push(message.uid);
+			result.add(message.uid);
+			result.folder = message.folder;
 			if (1 < message.threadsLen()) {
-				result = result.concat(message.threads()).unique();
+				message.threads().forEach(result.add, result);
 			}
 		});
 		return result;
@@ -101,59 +126,66 @@ addComputablesTo(MessagelistUserStore, {
 });
 
 MessagelistUserStore.listChecked = koComputable(
-	() => MessagelistUserStore.filter(isChecked)).extend({ rateLimit: 0 }
-);
+	() => MessagelistUserStore.filter(isChecked)
+).extend({ rateLimit: 0 });
 
-MessagelistUserStore.hasCheckedMessages = koComputable(
+// Also used by Selector
+MessagelistUserStore.hasChecked = koComputable(
+	// Issue: not all are observed?
 	() => !!MessagelistUserStore.find(isChecked)
 ).extend({ rateLimit: 0 });
 
 MessagelistUserStore.hasCheckedOrSelected = koComputable(() =>
-		!!(MessagelistUserStore.selectedMessage()
-		|| MessagelistUserStore.focusedMessage()
-		|| MessagelistUserStore.find(item => item.checked()))
-	).extend({ rateLimit: 50 });
+	!!MessagelistUserStore.selectedMessage()
+	| !!MessagelistUserStore.focusedMessage()
+	// Issue: not all are observed?
+	| !!MessagelistUserStore.find(isChecked)
+).extend({ rateLimit: 50 });
 
-MessagelistUserStore.initUidNextAndNewMessages = (folder, uidNext, newMessages) => {
-	if (getFolderInboxName() === folder && uidNext) {
-		if (arrayLength(newMessages)) {
-			newMessages.forEach(item => addNewMessageCache(folder, item.Uid));
+MessagelistUserStore.notifyNewMessages = (folder, newMessages) => {
+	if (getFolderInboxName() === folder && arrayLength(newMessages)) {
 
-			NotificationUserStore.playSoundNotification();
+		SMAudio.playNotification();
 
-			const len = newMessages.length;
-			if (3 < len) {
-				NotificationUserStore.displayDesktopNotification(
-					AccountUserStore.email(),
-					i18n('MESSAGE_LIST/NEW_MESSAGE_NOTIFICATION', {
-						COUNT: len
-					}),
-					{ Url: mailBox(newMessages[0].Folder) }
+		const len = newMessages.length;
+		if (3 < len) {
+			NotificationUserStore.display(
+				AccountUserStore.email(),
+				i18n('MESSAGE_LIST/NEW_MESSAGE_NOTIFICATION', {
+					COUNT: len
+				}),
+				{ Url: mailBox(newMessages[0].folder) }
+			);
+		} else {
+			newMessages.forEach(item => {
+				NotificationUserStore.display(
+					EmailCollectionModel.reviveFromJson(item.from).toString(),
+					item.subject,
+					{ folder: item.folder, uid: item.uid }
 				);
-			} else {
-				newMessages.forEach(item => {
-					NotificationUserStore.displayDesktopNotification(
-						EmailCollectionModel.reviveFromJson(item.From).toString(),
-						item.Subject,
-						{ Folder: item.Folder, Uid: item.Uid }
-					);
-				});
-			}
+			});
 		}
-
-		setFolderUidNext(folder, uidNext);
 	}
 }
 
+MessagelistUserStore.canSelect = () =>
+	!disableAutoSelect()
+	&& SettingsUserStore.usePreviewPane();
+//	&& !SettingsUserStore.showNextMessage();
+
+let prevFolderName;
+
 /**
  * @param {boolean=} bDropPagePosition = false
- * @param {boolean=} bDropCurrenFolderCache = false
+ * @param {boolean=} bDropCurrentFolderCache = false
  */
-MessagelistUserStore.reload = (bDropPagePosition = false, bDropCurrenFolderCache = false) => {
-	let iOffset = (MessagelistUserStore.page() - 1) * SettingsUserStore.messagesPerPage();
+MessagelistUserStore.reload = (bDropPagePosition = false, bDropCurrentFolderCache = false) => {
+	let iOffset = (MessagelistUserStore.page() - 1) * SettingsUserStore.messagesPerPage(),
+		folderName = FolderUserStore.currentFolderFullName();
+//		folderName = FolderUserStore.currentFolder() ? self.currentFolder().fullName : '');
 
-	if (bDropCurrenFolderCache) {
-		setFolderHash(FolderUserStore.currentFolderFullName(), '');
+	if (bDropCurrentFolderCache) {
+		setFolderETag(folderName, '');
 	}
 
 	if (bDropPagePosition) {
@@ -171,86 +203,132 @@ MessagelistUserStore.reload = (bDropPagePosition = false, bDropCurrenFolderCache
 		);
 	}
 
+	if (prevFolderName != folderName) {
+		prevFolderName = folderName;
+		MessagelistUserStore([]);
+	}
+
 	MessagelistUserStore.loading(true);
-	MessagelistUserStore.error('');
-	Remote.messageList(
-		(iError, oData, bCached) => {
+
+	let sGetAdd = '',
+//		folder = getFolderFromCacheList(folderName.fullName),
+		folder = getFolderFromCacheList(folderName),
+		folderETag = folder?.etag || '',
+		params = {
+			folder: folderName,
+			offset: iOffset,
+			limit: SettingsUserStore.messagesPerPage(),
+			uidNext: folder?.uidNext || 0, // Used to check for new messages
+			sort: FolderUserStore.sortMode(),
+			search: MessagelistUserStore.listSearch()
+		},
+		fCallback = (iError, oData, bCached) => {
+			let error = '';
 			if (iError) {
-				if (Notification.RequestAborted !== iError) {
-					MessagelistUserStore([]);
-					MessagelistUserStore.error(getNotification(iError));
+				if ('reload' != oData?.name) {
+					error = getNotification(iError);
+					MessagelistUserStore.loading(false);
+//					if (Notifications.RequestAborted !== iError) {
+//						MessagelistUserStore([]);
+//					}
+//					if (oData.message) { error = oData.message + error; }
 				}
 			} else {
 				const collection = MessageCollectionModel.reviveFromJson(oData.Result, bCached);
 				if (collection) {
-					let unreadCountChange = false;
-
 					const
-						folder = getFolderFromCacheList(collection.Folder);
-
+						folderInfo = collection.folder,
+						folder = getFolderFromCacheList(folderInfo.name);
+					collection.folder = folderInfo.name;
 					if (folder && !bCached) {
+//						folder.revivePropertiesFromJson(result);
 						folder.expires = Date.now();
+						folder.uidNext = folderInfo.uidNext;
+						folder.etag = folderInfo.etag;
 
-						setFolderHash(collection.Folder, collection.FolderHash);
-
-						if (null != collection.MessageCount) {
-							folder.messageCountAll(collection.MessageCount);
+						if (null != folderInfo.totalEmails) {
+							folder.totalEmails(folderInfo.totalEmails);
 						}
 
-						if (null != collection.MessageUnseenCount) {
-							if (pInt(folder.messageCountUnread()) !== pInt(collection.MessageUnseenCount)) {
-								unreadCountChange = true;
-								MessageFlagsCache.clearFolder(folder.fullName);
+						if (null != folderInfo.unreadEmails) {
+							folder.unreadEmails(folderInfo.unreadEmails);
+						}
+
+						let flags = folderInfo.permanentFlags || [];
+						if (flags.includes('\\*')) {
+							/** Add Thunderbird labels */
+							let i = 6;
+							while (--i) {
+								flags.includes('$label'+i) || flags.push('$label'+i);
 							}
-
-							folder.messageCountUnread(collection.MessageUnseenCount);
+							/** TODO: add others by default? */
 						}
+						folder.permanentFlags(flags.sort(baseCollator().compare));
 
-						MessagelistUserStore.initUidNextAndNewMessages(folder.fullName, collection.UidNext, collection.NewMessages);
+						MessagelistUserStore.notifyNewMessages(folder.fullName, collection.newMessages);
 					}
 
-					MessagelistUserStore.count(collection.MessageResultCount);
-					MessagelistUserStore.listSearch(pString(collection.Search));
-					MessagelistUserStore.page(Math.ceil(collection.Offset / SettingsUserStore.messagesPerPage() + 1));
-					MessagelistUserStore.threadUid(collection.ThreadUid);
+					MessagelistUserStore.count(collection.totalEmails);
+					MessagelistUserStore.listSearch(pString(collection.search));
+					MessagelistUserStore.listLimited(!!collection.limited);
+					MessagelistUserStore.page(Math.ceil(collection.offset / SettingsUserStore.messagesPerPage() + 1));
+					MessagelistUserStore.threadUid(collection.threadUid);
 
 					MessagelistUserStore.endHash(
-						collection.Folder +
-						'|' + collection.Search +
+						folderInfo.name +
+						'|' + collection.search +
 						'|' + MessagelistUserStore.threadUid() +
 						'|' + MessagelistUserStore.page()
 					);
-					MessagelistUserStore.endThreadUid(collection.ThreadUid);
+					MessagelistUserStore.endThreadUid(collection.threadUid);
 					const message = MessageUserStore.message();
-					if (message && collection.Folder !== message.folder) {
+					if (message && folderInfo.name !== message.folder) {
 						MessageUserStore.message(null);
 					}
 
-					MessagelistUserStore.disableAutoSelect(true);
+					disableAutoSelect(true);
+
+					if (collection.threadUid) {
+						let refs = {};
+						collection.forEach(msg => {
+							msg.level = 0;
+							if (msg.inReplyTo && refs[msg.inReplyTo]) {
+								msg.level = 1 + refs[msg.inReplyTo].level;
+							}
+							refs[msg.messageId] = msg;
+						});
+					}
 
 					MessagelistUserStore(collection);
 					MessagelistUserStore.isIncomplete(false);
-
-					clearNewMessageCache();
-
-					if (folder && (bCached || unreadCountChange || SettingsUserStore.useThreads())) {
-						rl.app.folderInformation(folder.fullName, collection);
-					}
 				} else {
 					MessagelistUserStore.count(0);
 					MessagelistUserStore([]);
-					MessagelistUserStore.error(getNotification(Notification.CantGetMessageList));
+					error = getNotification(Notifications.CantGetMessageList);
 				}
+				MessagelistUserStore.loading(false);
 			}
-			MessagelistUserStore.loading(false);
-		},
-		{
-			Folder: FolderUserStore.currentFolderFullName(),
-			Offset: iOffset,
-			Limit: SettingsUserStore.messagesPerPage(),
-			Search: MessagelistUserStore.listSearch(),
-			ThreadUid: MessagelistUserStore.threadUid()
-		}
+			MessagelistUserStore.error(error);
+		};
+
+	if (AppUserStore.threadsAllowed() && SettingsUserStore.useThreads()) {
+		params.useThreads = 1;
+		params.threadAlgorithm = SettingsUserStore.threadAlgorithm();
+		params.threadUid = MessagelistUserStore.threadUid();
+	} else {
+		params.threadUid = 0;
+	}
+	if (folderETag) {
+		params.hash = folderETag + '-' + SettingsGet('accountHash');
+		sGetAdd = 'MessageList/' + SUB_QUERY_PREFIX + '/' + b64EncodeJSONSafe(params);
+		params = {};
+	}
+
+	Remote.abort('MessageList', 'reload').request('MessageList',
+		fCallback,
+		params,
+		60000, // 60 seconds before aborting
+		sGetAdd
 	);
 };
 
@@ -262,174 +340,215 @@ MessagelistUserStore.reload = (bDropPagePosition = false, bDropCurrenFolderCache
 MessagelistUserStore.setAction = (sFolderFullName, iSetAction, messages) => {
 	messages = messages || MessagelistUserStore.listChecked();
 
-	let folder = null,
-		alreadyUnread = 0,
-		rootUids = messages.map(oMessage => oMessage && oMessage.uid ? oMessage.uid : null)
-			.validUnique(),
-		length = rootUids.length;
+	let folder,
+		rootUids = [],
+		length;
+
+	if (iSetAction == MessageSetAction.SetSeen) {
+		messages.forEach(oMessage => {
+			if (oMessage.isUnseen() && rootUids.push(oMessage.uid)) {
+				oMessage.flags.push('\\seen');
+				if (oMessage.threads().length > 0 && oMessage.threadUnseen().includes(oMessage.uid)) {
+					oMessage.threadUnseen.remove(oMessage.uid);
+				}
+			}
+		});
+	} else if (iSetAction == MessageSetAction.UnsetSeen) {
+		messages.forEach(oMessage => {
+			if (!oMessage.isUnseen() && rootUids.push(oMessage.uid)) {
+				oMessage.flags.remove('\\seen');
+				if (oMessage.threads().length > 0 && !oMessage.threadUnseen().includes(oMessage.uid)) {
+					oMessage.threadUnseen.push(oMessage.uid);
+				}
+			}
+		});
+	} else if (iSetAction == MessageSetAction.SetFlag) {
+		messages.forEach(oMessage =>
+			!oMessage.isFlagged() && rootUids.push(oMessage.uid) && oMessage.flags.push('\\flagged')
+		);
+	} else if (iSetAction == MessageSetAction.UnsetFlag) {
+		messages.forEach(oMessage =>
+			oMessage.isFlagged() && rootUids.push(oMessage.uid) && oMessage.flags.remove('\\flagged')
+		);
+	}
+	rootUids = rootUids.validUnique();
+	length = rootUids.length;
 
 	if (sFolderFullName && length) {
 		switch (iSetAction) {
 			case MessageSetAction.SetSeen:
-				length = 0;
+				length = -length;
 				// fallthrough is intentionally
 			case MessageSetAction.UnsetSeen:
-				rootUids.forEach(sSubUid =>
-					alreadyUnread += MessageFlagsCache.storeBySetAction(sFolderFullName, sSubUid, iSetAction)
-				);
-
 				folder = getFolderFromCacheList(sFolderFullName);
 				if (folder) {
-					folder.messageCountUnread(folder.messageCountUnread() - alreadyUnread + length);
+					folder.unreadEmails(Math.max(0, folder.unreadEmails() + length));
 				}
-
 				Remote.request('MessageSetSeen', null, {
-					Folder: sFolderFullName,
-					Uids: rootUids.join(','),
-					SetAction: iSetAction == MessageSetAction.SetSeen ? 1 : 0
+					folder: sFolderFullName,
+					uids: rootUids.join(','),
+					setAction: iSetAction == MessageSetAction.SetSeen ? 1 : 0
 				});
 				break;
 
 			case MessageSetAction.SetFlag:
 			case MessageSetAction.UnsetFlag:
-				rootUids.forEach(sSubUid =>
-					MessageFlagsCache.storeBySetAction(sFolderFullName, sSubUid, iSetAction)
-				);
 				Remote.request('MessageSetFlagged', null, {
-					Folder: sFolderFullName,
-					Uids: rootUids.join(','),
-					SetAction: iSetAction == MessageSetAction.SetFlag ? 1 : 0
+					folder: sFolderFullName,
+					uids: rootUids.join(','),
+					setAction: iSetAction == MessageSetAction.SetFlag ? 1 : 0
 				});
 				break;
 			// no default
 		}
-
-		MessagelistUserStore.reloadFlagsAndCachedMessage();
 	}
 };
 
 /**
  * @param {string} fromFolderFullName
- * @param {Array} uidForRemove
+ * @param {Set} oUids
  * @param {string=} toFolderFullName = ''
  * @param {boolean=} copy = false
  */
-MessagelistUserStore.removeMessagesFromList = (
-	fromFolderFullName, uidForRemove, toFolderFullName = '', copy = false
+MessagelistUserStore.moveMessages = (
+	fromFolderFullName, oUids, toFolderFullName = '', copy = false
 ) => {
-	uidForRemove = uidForRemove.map(mValue => pInt(mValue));
+	const fromFolder = getFolderFromCacheList(fromFolderFullName);
+
+	if (!fromFolder || !oUids?.size) return;
 
 	let unseenCount = 0,
-		messageList = MessagelistUserStore,
+		setPage = 0,
 		currentMessage = MessageUserStore.message();
 
-	const trashFolder = FolderUserStore.trashFolder(),
+	const toFolder = toFolderFullName ? getFolderFromCacheList(toFolderFullName) : null,
+		trashFolder = FolderUserStore.trashFolder(),
 		spamFolder = FolderUserStore.spamFolder(),
-		fromFolder = getFolderFromCacheList(fromFolderFullName),
-		toFolder = toFolderFullName ? getFolderFromCacheList(toFolderFullName) : null,
+		page = MessagelistUserStore.page(),
 		messages =
 			FolderUserStore.currentFolderFullName() === fromFolderFullName
-				? messageList.filter(item => item && uidForRemove.includes(pInt(item.uid)))
-				: [];
+				? MessagelistUserStore.filter(item => item && oUids.has(item.uid))
+				: [],
+		moveOrDeleteResponseHelper = (iError, oData) => {
+			if (iError) {
+				setFolderETag(FolderUserStore.currentFolderFullName(), '');
+				alert(getNotification(iError));
+			} else if (FolderUserStore.currentFolder()) {
+				if (2 === arrayLength(oData.Result)) {
+					setFolderETag(oData.Result[0], oData.Result[1]);
+				} else {
+					setFolderETag(FolderUserStore.currentFolderFullName(), '');
+				}
 
-	messages.forEach(item => {
-		if (item && item.isUnseen()) {
-			++unseenCount;
-		}
-	});
+				MessagelistUserStore.count(MessagelistUserStore.count() - oUids.size);
+				if (page > MessagelistUserStore.pageCount()) {
+					setPage = MessagelistUserStore.pageCount();
+				}
+				if (MessagelistUserStore.threadUid()
+				 && MessagelistUserStore.length
+				 && MessagelistUserStore.find(item => item?.deleted() && item.uid == MessagelistUserStore.threadUid())
+				) {
+					const message = MessagelistUserStore.find(item => item && !item.deleted());
+					if (!message) {
+						if (1 < page) {
+							setPage = page - 1;
+						} else {
+							MessagelistUserStore.threadUid(0);
+							setPage = MessagelistUserStore.pageBeforeThread();
+						}
+					} else if (MessagelistUserStore.threadUid() != message.uid) {
+						MessagelistUserStore.threadUid(message.uid);
+						setPage = page;
+					}
+				}
+				if (setPage) {
+					MessagelistUserStore.page(setPage);
+					replaceHash(
+						mailBox(
+							FolderUserStore.currentFolderFullNameHash(),
+							setPage,
+							MessagelistUserStore.listSearch(),
+							MessagelistUserStore.threadUid()
+						)
+					);
+				}
 
-	if (fromFolder && !copy) {
-		fromFolder.messageCountAll(
-			0 <= fromFolder.messageCountAll() - uidForRemove.length ? fromFolder.messageCountAll() - uidForRemove.length : 0
-		);
+				MessagelistUserStore.reload(!MessagelistUserStore.count());
+			}
+		};
 
-		if (0 < unseenCount) {
-			fromFolder.messageCountUnread(
-				0 <= fromFolder.messageCountUnread() - unseenCount ? fromFolder.messageCountUnread() - unseenCount : 0
-			);
-		}
+	messages.forEach(item => item?.isUnseen() && ++unseenCount);
+
+	if (!copy) {
+		fromFolder.etag = '';
+		fromFolder.totalEmails(Math.max(0, fromFolder.totalEmails() - oUids.size));
+		fromFolder.unreadEmails(Math.max(0, fromFolder.unreadEmails() - unseenCount));
 	}
 
 	if (toFolder) {
-		if (trashFolder === toFolder.fullName || spamFolder === toFolder.fullName) {
-			unseenCount = 0;
+		toFolder.etag = '';
+		toFolder.totalEmails(toFolder.totalEmails() + oUids.size);
+		if (trashFolder !== toFolder.fullName && spamFolder !== toFolder.fullName) {
+			toFolder.unreadEmails(toFolder.unreadEmails() + unseenCount);
 		}
-
-		toFolder.messageCountAll(toFolder.messageCountAll() + uidForRemove.length);
-		if (0 < unseenCount) {
-			toFolder.messageCountUnread(toFolder.messageCountUnread() + unseenCount);
-		}
-
 		toFolder.actionBlink(true);
 	}
 
 	if (messages.length) {
+		disableAutoSelect(true);
 		if (copy) {
 			messages.forEach(item => item.checked(false));
 		} else {
 			MessagelistUserStore.isIncomplete(true);
+
+			// Select next email https://github.com/the-djmaze/snappymail/issues/968
+			if (currentMessage && 1 == messages.length && SettingsUserStore.showNextMessage()) {
+				let next = MessagelistUserStore.indexOf(currentMessage) + 1;
+				if (0 < next && (next = MessagelistUserStore()[next])) {
+					currentMessage = null;
+					fireEvent('mailbox.message.show', {
+						folder: next.folder,
+						uid: next.uid
+					});
+				}
+			}
 
 			messages.forEach(item => {
 				if (currentMessage && currentMessage.hash === item.hash) {
 					currentMessage = null;
 					MessageUserStore.message(null);
 				}
-
 				item.deleted(true);
+				MessagelistUserStore.remove(item);
 			});
-
-			setTimeout(() => messages.forEach(item => messageList.remove(item)), 350);
 		}
-	}
-
-	if (fromFolderFullName) {
-		setFolderHash(fromFolderFullName, '');
 	}
 
 	if (toFolderFullName) {
-		setFolderHash(toFolderFullName, '');
-	}
-
-	if (MessagelistUserStore.threadUid()) {
-		if (
-			messageList.length &&
-			!!messageList.find(item => !!(item && item.deleted() && item.uid == MessagelistUserStore.threadUid()))
-		) {
-			const message = messageList.find(item => item && !item.deleted());
-			let setHash;
-			if (!message) {
-				if (1 < MessagelistUserStore.page()) {
-					MessagelistUserStore.page(MessagelistUserStore.page() - 1);
-					setHash = 1;
-				} else {
-					MessagelistUserStore.threadUid(0);
-					replaceHash(
-						mailBox(
-							FolderUserStore.currentFolderFullNameHash(),
-							MessagelistUserStore.pageBeforeThread(),
-							MessagelistUserStore.listSearch()
-						)
-					);
-				}
-			} else if (MessagelistUserStore.threadUid() != message.uid) {
-				MessagelistUserStore.threadUid(message.uid);
-				setHash = 1;
-			}
-			if (setHash) {
-				replaceHash(
-					mailBox(
-						FolderUserStore.currentFolderFullNameHash(),
-						MessagelistUserStore.page(),
-						MessagelistUserStore.listSearch(),
-						MessagelistUserStore.threadUid()
-					)
-				);
+		if (toFolder && fromFolderFullName != toFolderFullName) {
+			const params =  {
+				fromFolder: fromFolderFullName,
+				toFolder: toFolderFullName,
+				uids: [...oUids].join(',')
+			};
+			if (copy) {
+				Remote.request('MessageCopy', null, params);
+			} else {
+				const
+					isSpam = spamFolder === toFolderFullName,
+					isHam = !isSpam && spamFolder === fromFolderFullName && getFolderInboxName() === toFolderFullName;
+				params.markAsRead = (isSpam || FolderUserStore.trashFolder() === toFolderFullName) ? 1 : 0;
+				params.learning = isSpam ? 'SPAM' : isHam ? 'HAM' : '';
+				Remote.abort('MessageList', 'reload').request('MessageMove', moveOrDeleteResponseHelper, params);
 			}
 		}
+	} else {
+		Remote.abort('MessageList', 'reload').request('MessageDelete',
+			moveOrDeleteResponseHelper,
+			{
+				folder: fromFolderFullName,
+				uids: [...oUids].join(',')
+			}
+		);
 	}
-},
-
-MessagelistUserStore.reloadFlagsAndCachedMessage = () => {
-	MessagelistUserStore.forEach(message => MessageFlagsCache.initMessage(message));
-	MessageFlagsCache.initMessage(MessageUserStore.message());
 };

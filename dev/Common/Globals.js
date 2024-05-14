@@ -11,18 +11,18 @@ export const
 
 	elementById = id => doc.getElementById(id),
 
-	exitFullscreen = () => getFullscreenElement() && (doc.exitFullscreen || doc.webkitExitFullscreen).call(doc),
-	getFullscreenElement = () => doc.fullscreenElement || doc.webkitFullscreenElement,
+	appEl = elementById('rl-app'),
 
 	Settings = rl.settings,
 	SettingsGet = Settings.get,
-	SettingsCapa = Settings.capa,
+	SettingsAdmin = name => (SettingsGet('Admin') || {})[name],
+	SettingsCapa = name => name && !!(SettingsGet('Capa') || {})[name],
 
 	dropdowns = [],
 	dropdownVisibility = ko.observable(false).extend({ rateLimit: 0 }),
 
-	moveAction = ko.observable(false),
 	leftPanelDisabled = ko.observable(false),
+	toggleLeftPanel = () => leftPanelDisabled(!leftPanelDisabled()),
 
 	createElement = (name, attr) => {
 		let el = doc.createElement(name);
@@ -30,9 +30,16 @@ export const
 		return el;
 	},
 
-	fireEvent = (name, detail) => dispatchEvent(new CustomEvent(name, {detail:detail})),
+	fireEvent = (name, detail, cancelable) => dispatchEvent(
+		new CustomEvent(name, {detail:detail, cancelable: !!cancelable})
+	),
 
-	formFieldFocused = () => doc.activeElement && doc.activeElement.matches('input,textarea'),
+	stopEvent = event => {
+		event.preventDefault();
+		event.stopPropagation();
+	},
+
+	formFieldFocused = () => doc.activeElement?.matches('input,textarea'),
 
 	addShortcut = (...args) => shortcuts.add(...args),
 
@@ -69,10 +76,4 @@ dropdownVisibility.subscribe(value => {
 	}
 });
 
-leftPanelDisabled.toggle = () => leftPanelDisabled(!leftPanelDisabled());
-leftPanelDisabled.subscribe(value => {
-	value && moveAction() && moveAction(false);
-	$htmlCL.toggle('rl-left-panel-disabled', value);
-});
-
-moveAction.subscribe(value => value && leftPanelDisabled() && leftPanelDisabled(false));
+leftPanelDisabled.subscribe(value => $htmlCL.toggle('rl-left-panel-disabled', value));

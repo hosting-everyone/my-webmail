@@ -13,10 +13,12 @@
 namespace MailSo\Imap\Commands;
 
 use MailSo\Imap\Folder;
+use MailSo\Imap\FolderCollection;
 use MailSo\Imap\FolderInformation;
 use MailSo\Imap\SequenceSet;
 use MailSo\Imap\Enumerations\FolderStatus;
-use MailSo\Imap\Enumerations\FolderResponseStatus;
+use MailSo\Imap\Enumerations\MessageFlag;
+use MailSo\Imap\Enumerations\StoreAction;
 
 /**
  * @category MailSo
@@ -25,118 +27,166 @@ use MailSo\Imap\Enumerations\FolderResponseStatus;
 trait Folders
 {
 	/**
-	 * @throws \MailSo\Base\Exceptions\InvalidArgumentException
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \InvalidArgumentException
 	 */
-	public function FolderCreate(string $sFolderName) : self
+	public function FolderClear(string $sFolderFullName) : void
+	{
+		if (0 < $this->FolderSelect($sFolderFullName)->MESSAGES) {
+			$this->MessageStoreFlag(new SequenceSet('1:*', false),
+				array(MessageFlag::DELETED),
+				StoreAction::ADD_FLAGS_SILENT
+			);
+			$this->FolderExpunge();
+		}
+	}
+
+	/**
+	 * @throws \InvalidArgumentException
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
+	 */
+	public function FolderCreate(string $sFolderName, bool $bSubscribe = false) : void
 	{
 		$this->SendRequestGetResponse('CREATE', array(
 			$this->EscapeFolderName($sFolderName)
 //			, ['(USE (\Drafts \Sent))'] RFC 6154
 		));
-		return $this;
+		$bSubscribe && $this->FolderSubscribe($sFolderName);
 	}
 
 	/**
-	 * @throws \MailSo\Base\Exceptions\InvalidArgumentException
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \ValueError
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function FolderDelete(string $sFolderName) : self
+	public function FolderDelete(string $sFolderName) : void
 	{
+		if (!$sFolderName || 'INBOX' === $sFolderName) {
+			throw new \ValueError;
+		}
+
+		$oInfo = $this->hasCapability('IMAP4rev2')
+			? $this->FolderExamine($sFolderName)
+			: $this->FolderStatus($sFolderName);
+		if ($oInfo->MESSAGES) {
+			throw new \MailSo\Mail\Exceptions\NonEmptyFolder;
+		}
+
+		$this->FolderUnsubscribe($sFolderName);
+		$this->FolderUnselect();
+
 		// Uncomment will work issue #124 ?
 //		$this->selectOrExamineFolder($sFolderName, true);
-		$this->SendRequestGetResponse('DELETE',
-			array($this->EscapeFolderName($sFolderName)));
+		$this->SendRequestGetResponse('DELETE', [$this->EscapeFolderName($sFolderName)]);
 //		$this->FolderCheck();
-//		$this->FolderUnselect();
 
-		// Will this workaround solve Dovecot issue #124 ?
+		// Will this workaround solve Dovecot issue?
+		// https://github.com/the-djmaze/snappymail/issues/124
 		try {
 			$this->FolderRename($sFolderName, "{$sFolderName}-dummy");
 			$this->FolderRename("{$sFolderName}-dummy", $sFolderName);
-		} catch (\Throwable $e) {
+		} catch (\Throwable $oException) {
+			$this->writeLogException($oException, \LOG_WARNING, false);
 		}
-
-		return $this;
 	}
 
 	/**
-	 * @throws \MailSo\Base\Exceptions\InvalidArgumentException
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \InvalidArgumentException
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function FolderSubscribe(string $sFolderName) : self
+	public function FolderSubscribe(string $sFolderName) : void
 	{
-		$this->SendRequestGetResponse('SUBSCRIBE',
-			array($this->EscapeFolderName($sFolderName)));
-		return $this;
+		$this->SendRequestGetResponse('SUBSCRIBE', [$this->EscapeFolderName($sFolderName)]);
 	}
 
 	/**
-	 * @throws \MailSo\Base\Exceptions\InvalidArgumentException
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \InvalidArgumentException
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function FolderUnsubscribe(string $sFolderName) : self
+	public function FolderUnsubscribe(string $sFolderName) : void
 	{
-		$this->SendRequestGetResponse('UNSUBSCRIBE',
-			array($this->EscapeFolderName($sFolderName)));
-		return $this;
+		$this->SendRequestGetResponse('UNSUBSCRIBE', [$this->EscapeFolderName($sFolderName)]);
 	}
 
 	/**
-	 * @throws \MailSo\Base\Exceptions\InvalidArgumentException
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \InvalidArgumentException
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function FolderRename(string $sOldFolderName, string $sNewFolderName) : self
+	public function FolderRename(string $sOldFolderName, string $sNewFolderName) : void
 	{
-		$this->SendRequestGetResponse('RENAME', array(
+		$this->SendRequestGetResponse('RENAME', [
 			$this->EscapeFolderName($sOldFolderName),
-			$this->EscapeFolderName($sNewFolderName)));
-		return $this;
+			$this->EscapeFolderName($sNewFolderName)
+		]);
 	}
 
-	/**
-	 * @throws \MailSo\Base\Exceptions\InvalidArgumentException
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
-	 */
-	public function FolderStatus(string $sFolderName) : FolderInformation
+	private function FolderStatusItems() : array
 	{
 		$aStatusItems = array(
-			FolderResponseStatus::MESSAGES,
-			FolderResponseStatus::UNSEEN,
-			FolderResponseStatus::UIDNEXT
+			FolderStatus::MESSAGES,
+			FolderStatus::UNSEEN,
+			FolderStatus::UIDNEXT,
+			FolderStatus::UIDVALIDITY
 		);
-		if ($this->IsSupported('CONDSTORE')) {
-			$aStatusItems[] = FolderResponseStatus::HIGHESTMODSEQ;
+		// RFC 4551 or RFC 5162
+		if ($this->hasCapability('CONDSTORE') || $this->hasCapability('QRESYNC')) {
+			$aStatusItems[] = FolderStatus::HIGHESTMODSEQ;
 		}
-		if ($this->IsSupported('APPENDLIMIT')) {
-			$aStatusItems[] = FolderResponseStatus::APPENDLIMIT;
+		// RFC 7889
+		if ($this->hasCapability('APPENDLIMIT')) {
+			$aStatusItems[] = FolderStatus::APPENDLIMIT;
 		}
-		if ($this->IsSupported('OBJECTID')) {
-			$aStatusItems[] = FolderResponseStatus::MAILBOXID;
+		// RFC 8438
+		if ($this->hasCapability('STATUS=SIZE')) {
+			$aStatusItems[] = FolderStatus::SIZE;
 		}
+		// RFC 8474
+		if ($this->hasCapability('OBJECTID')) {
+			$aStatusItems[] = FolderStatus::MAILBOXID;
+/*
+		} else if ($this->hasCapability('X-DOVECOT')) {
+			$aStatusItems[] = 'X-GUID';
+*/
+		}
+		return $aStatusItems;
+	}
 
+	/**
+	 * @throws \InvalidArgumentException
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
+	 *
+	 * https://datatracker.ietf.org/doc/html/rfc9051#section-6.3.11
+	 */
+	public function FolderStatus(string $sFolderName, bool $bSelect = false) : FolderInformation
+	{
 		$oFolderInfo = $this->oCurrentFolderInfo;
 		$bReselect = false;
 		$bWritable = false;
-		if ($oFolderInfo && $sFolderName === $oFolderInfo->FolderName) {
+		if ($oFolderInfo && $sFolderName === $oFolderInfo->FullName) {
+			if ($oFolderInfo->hasStatus) {
+				return $oFolderInfo;
+			}
+
 			/**
 			 * There's a long standing IMAP CLIENTBUG where STATUS command is executed
 			 * after SELECT/EXAMINE on same folder (it should not).
 			 * So we must unselect the folder to be able to get the APPENDLIMIT and UNSEEN.
 			 */
 /*
-			if ($this->IsSupported('ESEARCH')) {
-				$aResult = $oFolderInfo->getStatusItems();
-				// SELECT or EXAMINE command then UNSEEN is the message sequence number of the first unseen message
-				$aResult['UNSEEN'] = $this->MessageSimpleESearch('UNSEEN', ['COUNT'])['COUNT'];
-				return $aResult;
+			if ($this->hasCapability('ESEARCH') && !isset($oFolderInfo->UNSEEN)) {
+				$oFolderInfo->UNSEEN = $this->MessageESearch('UNSEEN', ['COUNT'])['COUNT'];
 			}
+			return $oFolderInfo;
 */
 			$bWritable = $oFolderInfo->IsWritable;
 			$bReselect = true;
@@ -144,34 +194,55 @@ trait Folders
 		}
 
 		$oInfo = new FolderInformation($sFolderName, false);
-		$this->SendRequest('STATUS', array($this->EscapeFolderName($sFolderName), $aStatusItems));
+		$this->SendRequest('STATUS', array($this->EscapeFolderName($sFolderName), $this->FolderStatusItems()));
 		foreach ($this->yieldUntaggedResponses() as $oResponse) {
 			$oInfo->setStatusFromResponse($oResponse);
 		}
 
-		if ($bReselect) {
-			$this->selectOrExamineFolder($sFolderName, $bWritable, false);
+		if ($bReselect || $bSelect) {
+			// Don't use FolderExamine, else PERMANENTFLAGS is empty in Dovecot
+			$oFolderInfo = $this->selectOrExamineFolder($sFolderName, $bSelect || $bWritable, false);
+			$oFolderInfo->MESSAGES = \max(0, $oFolderInfo->MESSAGES, $oInfo->MESSAGES);
+			// SELECT or EXAMINE command then UNSEEN is the message sequence number of the first unseen message.
+			// And deprecated in IMAP4rev2, so we set it to the amount of unseen messages
+			$oFolderInfo->UNSEEN = \max(0, $oInfo->UNSEEN);
+			$oFolderInfo->UIDNEXT = \max(0, $oFolderInfo->UIDNEXT, $oInfo->UIDNEXT);
+			$oFolderInfo->UIDVALIDITY = \max(0, $oFolderInfo->UIDVALIDITY, $oInfo->UIDVALIDITY);
+			$oFolderInfo->HIGHESTMODSEQ = \max(0, $oInfo->HIGHESTMODSEQ);
+			$oFolderInfo->APPENDLIMIT = \max(0, $oFolderInfo->APPENDLIMIT, $oInfo->APPENDLIMIT);
+			$oFolderInfo->MAILBOXID = $oFolderInfo->MAILBOXID ?: $oInfo->MAILBOXID;
+//			$oFolderInfo->SIZE = \max($oFolderInfo->SIZE, $oInfo->SIZE);
+//			$oFolderInfo->RECENT = \max(0, $oFolderInfo->RECENT, $oInfo->RECENT);
+			$oFolderInfo->hasStatus = $oInfo->hasStatus;
+			$oInfo = $oFolderInfo;
 		}
 
+		$oInfo->generateETag($this);
 		return $oInfo;
 	}
 
+	public function FolderStatusAndSelect(string $sFolderName) : FolderInformation
+	{
+		return $this->FolderStatus($sFolderName, true);
+	}
+
 	/**
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function FolderCheck() : self
+	public function FolderCheck() : void
 	{
 		if ($this->IsSelected()) {
 			$this->SendRequestGetResponse('CHECK');
 		}
-		return $this;
 	}
 
 	/**
 	 * This also expunge the mailbox
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
 	 */
 	public function FolderClose() : int
 	{
@@ -185,43 +256,41 @@ trait Folders
 	}
 
 	/**
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function FolderUnselect() : self
+	public function FolderUnselect() : void
 	{
 		if ($this->IsSelected()) {
-			if ($this->IsSupported('UNSELECT')) {
+			if ($this->hasCapability('UNSELECT')) {
 				$this->SendRequestGetResponse('UNSELECT');
-				$this->oCurrentFolderInfo = null;
 			} else {
 				try {
 					$this->SendRequestGetResponse('SELECT', ['""']);
 					// * OK [CLOSED] Previous mailbox closed.
 					// 3 NO [CANNOT] Invalid mailbox name: Name is empty
-				} catch (\MailSo\Imap\Exceptions\NegativeResponseException $e) {
-					if ('NO' === $e->GetResponseStatus()) {
-						$this->oCurrentFolderInfo = null;
-					}
+				} catch (\MailSo\Imap\Exceptions\NegativeResponseException $oException) {
 				}
 			}
 		}
-		return $this;
+		$this->oCurrentFolderInfo = null;
 	}
 
 	/**
 	 * The EXPUNGE command permanently removes all messages that have the
 	 * \Deleted flag set from the currently selected mailbox.
 	 *
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
 	 */
 	public function FolderExpunge(SequenceSet $oUidRange = null) : void
 	{
 		$sCmd = 'EXPUNGE';
 		$aArguments = array();
 
-		if ($oUidRange && \count($oUidRange) && $oUidRange->UID && $this->IsSupported('UIDPLUS')) {
+		if ($oUidRange && \count($oUidRange) && $oUidRange->UID && $this->hasCapability('UIDPLUS')) {
 			$sCmd = 'UID '.$sCmd;
 			$aArguments = array((string) $oUidRange);
 		}
@@ -234,8 +303,9 @@ trait Folders
 	}
 
 	/**
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
 	 */
 	public function FolderHierarchyDelimiter(string $sFolderName = '') : ?string
 	{
@@ -244,13 +314,14 @@ trait Folders
 	}
 
 	/**
-	 * @throws \MailSo\Base\Exceptions\InvalidArgumentException
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \InvalidArgumentException
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function FolderSelect(string $sFolderName, bool $bReSelectSameFolders = false) : FolderInformation
+	public function FolderSelect(string $sFolderName, bool $bForceReselect = false) : FolderInformation
 	{
-		return $this->selectOrExamineFolder($sFolderName, true, $bReSelectSameFolders);
+		return $this->selectOrExamineFolder($sFolderName, true, $bForceReselect);
 	}
 
 	/**
@@ -259,40 +330,44 @@ trait Folders
 	 * No changes to the permanent state of the mailbox, including per-user state,
 	 * are permitted; in particular, EXAMINE MUST NOT cause messages to lose the \Recent flag.
 	 *
-	 * @throws \MailSo\Base\Exceptions\InvalidArgumentException
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \InvalidArgumentException
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function FolderExamine(string $sFolderName, bool $bReSelectSameFolders = false) : FolderInformation
+	public function FolderExamine(string $sFolderName, bool $bForceReselect = false) : FolderInformation
 	{
-		return $this->selectOrExamineFolder($sFolderName, $this->__FORCE_SELECT_ON_EXAMINE__, $bReSelectSameFolders);
+		return $this->selectOrExamineFolder($sFolderName, $this->Settings->force_select, $bForceReselect);
 	}
 
 	/**
-	 * @throws \MailSo\Base\Exceptions\InvalidArgumentException
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \InvalidArgumentException
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
+	 *
+	 * REQUIRED IMAP4rev2 untagged responses:  FLAGS, EXISTS, LIST
+	 * REQUIRED IMAP4rev2 OK untagged responses:  PERMANENTFLAGS, UIDNEXT, UIDVALIDITY
 	 */
-	protected function selectOrExamineFolder(string $sFolderName, bool $bIsWritable, bool $bReSelectSameFolders) : FolderInformation
+	protected function selectOrExamineFolder(string $sFolderName, bool $bIsWritable, bool $bForceReselect) : FolderInformation
 	{
-		if (!$bReSelectSameFolders
+		if (!$bForceReselect
 		  && $this->oCurrentFolderInfo
-		  && $sFolderName === $this->oCurrentFolderInfo->FolderName
-		  && $bIsWritable === $this->oCurrentFolderInfo->IsWritable
+		  && $sFolderName === $this->oCurrentFolderInfo->FullName
+		  && ($bIsWritable === $this->oCurrentFolderInfo->IsWritable || $this->oCurrentFolderInfo->IsWritable)
 		) {
 			return $this->oCurrentFolderInfo;
 		}
 
-		if (!\strlen(\trim($sFolderName)))
-		{
-			throw new \MailSo\Base\Exceptions\InvalidArgumentException;
+		if (!\strlen(\trim($sFolderName))) {
+			throw new \ValueError;
 		}
 
 		$aSelectParams = array();
 
 /*
 		// RFC 5162
-		if ($this->IsSupported('QRESYNC')) {
+		if ($this->hasCapability('QRESYNC')) {
 			$this->Enable(['QRESYNC', 'CONDSTORE']);
 			- the last known UIDVALIDITY,
 			- the last known modification sequence,
@@ -303,7 +378,7 @@ trait Folders
 		}
 
 		// RFC 4551
-		if ($this->IsSupported('CONDSTORE')) {
+		if ($this->hasCapability('CONDSTORE')) {
 			$aSelectParams[] = 'CONDSTORE';
 		}
 
@@ -333,12 +408,12 @@ trait Folders
 					$key = $oResponse->OptionalResponse[0];
 					if (\count($oResponse->OptionalResponse) > 1) {
 						if ('PERMANENTFLAGS' === $key && \is_array($oResponse->OptionalResponse[1])) {
-							$oResult->PermanentFlags = $oResponse->OptionalResponse[1];
+							$oResult->PermanentFlags = \array_map('\\MailSo\\Base\\Utils::Utf7ModifiedToUtf8', $oResponse->OptionalResponse[1]);
 						}
 					} else if ('READ-ONLY' === $key) {
-//						$oResult->IsWritable = false;
+						$oResult->IsWritable = false;
 					} else if ('READ-WRITE' === $key) {
-//						$oResult->IsWritable = true;
+						$oResult->IsWritable = true;
 					} else if ('NOMODSEQ' === $key) {
 						// https://datatracker.ietf.org/doc/html/rfc4551#section-3.1.2
 					}
@@ -348,31 +423,38 @@ trait Folders
 				else if (\count($oResponse->ResponseList) > 2
 				 && 'FLAGS' === $oResponse->ResponseList[1]
 				 && \is_array($oResponse->ResponseList[2])) {
-					$oResult->Flags = $oResponse->ResponseList[2];
+					// These could be not permanent, so we don't use them
+//					$oResult->Flags = \array_map('\\MailSo\\Base\\Utils::Utf7ModifiedToUtf8', $oResponse->ResponseList[2]);
 				}
 			}
 		}
 
+		// SELECT or EXAMINE command then UNSEEN is the message sequence number of the first unseen message.
+		// IMAP4rev2 deprecated
+		$oResult->UNSEEN = null;
+/*
+		if ($this->hasCapability('ESEARCH')) {
+			$oResult->UNSEEN = $this->MessageESearch('UNSEEN', ['COUNT'])['COUNT'];
+		}
+*/
 		$this->oCurrentFolderInfo = $oResult;
 
 		return $oResult;
 	}
 
 	/**
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function FolderList(string $sParentFolderName, string $sListPattern, bool $bIsSubscribeList = false, bool $bUseListStatus = false) : array
+	public function FolderList(string $sParentFolderName, string $sListPattern, bool $bIsSubscribeList = false, bool $bUseListStatus = false) : FolderCollection
 	{
 		$sCmd = 'LIST';
 
 		$aParameters = array();
 		$aReturnParams = array();
 
-		if ($bIsSubscribeList) {
-			// IMAP4rev2 deprecated
-			$sCmd = 'LSUB';
-		} else if ($this->IsSupported('LIST-EXTENDED')) {
+		if ($this->hasCapability('LIST-EXTENDED')) {
 			// RFC 5258
 			$aReturnParams[] = 'SUBSCRIBED';
 //			$aReturnParams[] = 'CHILDREN';
@@ -382,9 +464,12 @@ trait Folders
 //				$aParameters[0] = '()';
 			}
 			// RFC 6154
-			if ($this->IsSupported('SPECIAL-USE')) {
+			if ($this->hasCapability('SPECIAL-USE')) {
 				$aReturnParams[] = 'SPECIAL-USE';
 			}
+		} else if ($bIsSubscribeList) {
+			// IMAP4rev2 deprecated
+			$sCmd = 'LSUB';
 		}
 
 		$aParameters[] = $this->EscapeFolderName($sParentFolderName);
@@ -392,28 +477,9 @@ trait Folders
 //		$aParameters[] = $this->EscapeString(\strlen(\trim($sListPattern)) ? $sListPattern : '*');
 
 		// RFC 5819
-		if ($bUseListStatus && !$bIsSubscribeList && $this->IsSupported('LIST-STATUS'))
-		{
-			$aL = array(
-				FolderStatus::MESSAGES,
-				FolderStatus::UNSEEN,
-				FolderStatus::UIDNEXT
-			);
-			// RFC 4551
-			if ($this->IsSupported('CONDSTORE')) {
-				$aL[] = FolderStatus::HIGHESTMODSEQ;
-			}
-			// RFC 7889
-			if ($this->IsSupported('APPENDLIMIT')) {
-				$aL[] = FolderStatus::APPENDLIMIT;
-			}
-			// RFC 8474
-			if ($this->IsSupported('OBJECTID')) {
-				$aTypes[] = FolderStatus::MAILBOXID;
-			}
-
+		if ($bUseListStatus && !$bIsSubscribeList && $this->hasCapability('LIST-STATUS')) {
 			$aReturnParams[] = 'STATUS';
-			$aReturnParams[] = $aL;
+			$aReturnParams[] = $this->FolderStatusItems();
 		}
 /*
 		// RFC 5738
@@ -426,113 +492,124 @@ trait Folders
 			$aParameters[] = $aReturnParams;
 		}
 
+/*
 		$bPassthru = false;
-		$aReturn = array();
+		if ($bPassthru) {
+			$this->SendRequest($sCmd, $aParameters);
+			$this->streamResponse();
+			return [];
+		}
+*/
 
 		// RFC 5464
-		$bMetadata = !$bIsSubscribeList && $this->IsSupported('METADATA');
-		$aMetadata = null;
-		if ($bMetadata) {
-			// Dovecot supports fetching all METADATA at once
-			$aMetadata = $this->getAllMetadata();
-		}
+		$bMetadata = !$bIsSubscribeList && $this->hasCapability('METADATA');
+		// Dovecot supports fetching all METADATA at once
+		$aMetadata = $bMetadata ? $this->getAllMetadata() : null;
 
 		$this->SendRequest($sCmd, $aParameters);
-		if ($bPassthru) {
-			$this->streamResponse();
-		} else {
-			$sDelimiter = '';
-			$bInbox = false;
-			foreach ($this->yieldUntaggedResponses() as $oResponse) {
-				if ('STATUS' === $oResponse->StatusOrIndex && isset($oResponse->ResponseList[2])) {
-					$sFullName = $this->toUTF8($oResponse->ResponseList[2]);
-					if (!isset($aReturn[$sFullName])) {
-						$aReturn[$sFullName] = new Folder($sFullName);
-					}
-					$aReturn[$sFullName]->setStatusFromResponse($oResponse);
+		$aFolders = array();
+		$oFolderCollection = new FolderCollection;
+		$sDelimiter = '';
+		$bInbox = false;
+		foreach ($this->yieldUntaggedResponses() as $oResponse) {
+			if ('STATUS' === $oResponse->StatusOrIndex && isset($oResponse->ResponseList[2])) {
+				$sFullName = $this->toUTF8($oResponse->ResponseList[2]);
+				if (!isset($oFolderCollection[$sFullName])) {
+					$oFolderCollection[$sFullName] = new Folder($sFullName);
 				}
-				else if ($sCmd === $oResponse->StatusOrIndex && 5 === \count($oResponse->ResponseList)) {
-					try
-					{
-						$sFullName = $this->toUTF8($oResponse->ResponseList[4]);
-
-						/**
-						 * $oResponse->ResponseList[0] = *
-						 * $oResponse->ResponseList[1] = LIST (all) | LSUB (subscribed)
-						 * $oResponse->ResponseList[2] = Flags
-						 * $oResponse->ResponseList[3] = Delimiter
-						 * $oResponse->ResponseList[4] = FullName
-						 */
-						if (!isset($aReturn[$sFullName])) {
-							$oFolder = new Folder($sFullName,
-								$oResponse->ResponseList[3], $oResponse->ResponseList[2]);
-							$aReturn[$sFullName] = $oFolder;
-						} else {
-							$oFolder = $aReturn[$sFullName];
-							$oFolder->setDelimiter($oResponse->ResponseList[3]);
-							$oFolder->setFlags($oResponse->ResponseList[2]);
-						}
-
-						if ($oFolder->IsInbox()) {
-							$bInbox = true;
-						}
-
-						if (!$sDelimiter) {
-							$sDelimiter = $oFolder->Delimiter();
-						}
-
-						if (isset($aMetadata[$oResponse->ResponseList[4]])) {
-							$oFolder->SetAllMetadata($aMetadata[$oResponse->ResponseList[4]]);
-						}
-
-						$aReturn[$sFullName] = $oFolder;
-					}
-					catch (\MailSo\Base\Exceptions\InvalidArgumentException $oException)
-					{
-						$this->writeLogException($oException, \MailSo\Log\Enumerations\Type::WARNING, false);
-					}
-					catch (\Throwable $oException)
-					{
-						$this->writeLogException($oException, \MailSo\Log\Enumerations\Type::WARNING, false);
-					}
-				}
+				$oFolderCollection[$sFullName]->setStatusFromResponse($oResponse);
+				$oFolderCollection[$sFullName]->generateETag($this);
 			}
+			else if ($sCmd === $oResponse->StatusOrIndex && 5 <= \count($oResponse->ResponseList)) {
+				try
+				{
+					$sFullName = $this->toUTF8($oResponse->ResponseList[4]);
 
-			if (!$bInbox && !$sParentFolderName && !isset($aReturn['INBOX'])) {
-				$aReturn['INBOX'] = new Folder('INBOX', $sDelimiter);
+					/**
+					 * $oResponse->ResponseList[0] = *
+					 * $oResponse->ResponseList[1] = LIST (all) | LSUB (subscribed)
+					 * $oResponse->ResponseList[2] = Attribute flags
+					 * $oResponse->ResponseList[3] = Delimiter
+					 * $oResponse->ResponseList[4] = FullName
+					 */
+					if (isset($oFolderCollection[$sFullName])) {
+						$oFolder = $oFolderCollection[$sFullName];
+						$oFolder->setDelimiter($oResponse->ResponseList[3]);
+						$oFolder->setAttributes($oResponse->ResponseList[2]);
+					} else {
+						$oFolder = new Folder($sFullName, $oResponse->ResponseList[3], $oResponse->ResponseList[2]);
+						$oFolderCollection[$sFullName] = $oFolder;
+					}
+
+					$bInbox = $bInbox || $oFolder->IsInbox();
+
+					if (!$sDelimiter) {
+						$sDelimiter = $oFolder->Delimiter();
+					}
+
+					if (isset($aMetadata[$oResponse->ResponseList[4]])) {
+						$oFolder->SetAllMetadata($aMetadata[$oResponse->ResponseList[4]]);
+					}
+				}
+				catch (\Throwable $oException)
+				{
+					$this->writeLogException($oException, \LOG_WARNING, false);
+				}
 			}
 		}
 
+//		$iOptimizationLimit = $this->Settings->folder_list_limit;
+//		$oFolderCollection->Optimized = 10 < $iOptimizationLimit && $oFolderCollection->count() > $iOptimizationLimit;
+
 		// RFC 5464
-		if ($bMetadata && !$aMetadata) {
-			foreach ($aReturn as $oFolder) {
-				try {
+		if ($bMetadata && !$aMetadata /*&& 50 < $oFolderCollection->count()*/) {
+			foreach ($oFolderCollection as $oFolder) {
+//				if (2 > \substr_count($oFolder->FullName, $oFolder->Delimiter()))
+				if ($oFolder->Selectable()) try {
 					$oFolder->SetAllMetadata(
-						$this->getMetadata($oFolder->FullName(), ['/shared', '/private'], ['DEPTH'=>'infinity'])
+						$this->getMetadata($oFolder->FullName, ['/shared', '/private'], ['DEPTH'=>'infinity'])
 					);
-				} catch (\Throwable $e) {
+				} catch (\Throwable $oException) {
 					// Ignore error
 				}
 			}
 		}
+/*
+		// RFC 4314
+		if ($this->hasCapability('ACL')) {
+			foreach ($oFolderCollection as $oFolder) {
+				if ($oFolder->Selectable()) try {
+					$oFolder->myRights = $this->FolderMyRights($oFolder->FullName);
+				} catch (\Throwable $oException) {
+					// BAD Error in IMAP command MYRIGHTS: ACLs disabled
+					break;
+				}
+			}
+		}
+*/
+		if (!$bInbox && !$sParentFolderName && !isset($oFolderCollection['INBOX'])) {
+			$oFolderCollection['INBOX'] = new Folder('INBOX', $sDelimiter);
+		}
 
-		return $aReturn;
+		return $oFolderCollection;
 	}
 
 	/**
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function FolderSubscribeList(string $sParentFolderName, string $sListPattern) : array
+	public function FolderSubscribeList(string $sParentFolderName, string $sListPattern) : FolderCollection
 	{
 		return $this->FolderList($sParentFolderName, $sListPattern, true);
 	}
 
 	/**
-	 * @throws \MailSo\Net\Exceptions\Exception
-	 * @throws \MailSo\Imap\Exceptions\Exception
+	 * @throws \MailSo\RuntimeException
+	 * @throws \MailSo\Net\Exceptions\*
+	 * @throws \MailSo\Imap\Exceptions\*
 	 */
-	public function FolderStatusList(string $sParentFolderName, string $sListPattern) : array
+	public function FolderStatusList(string $sParentFolderName, string $sListPattern) : FolderCollection
 	{
 		return $this->FolderList($sParentFolderName, $sListPattern, false, true);
 	}

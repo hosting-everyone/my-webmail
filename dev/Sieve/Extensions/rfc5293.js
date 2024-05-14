@@ -3,14 +3,14 @@
  */
 
 import {
-	GrammarCommand,
+	ActionCommand,
 	GrammarNumber,
 	GrammarQuotedString,
 	GrammarString,
 	GrammarStringList
 } from 'Sieve/Grammar';
 
-export class AddHeaderCommand extends GrammarCommand
+export class AddHeaderCommand extends ActionCommand
 {
 	constructor()
 	{
@@ -38,7 +38,7 @@ export class AddHeaderCommand extends GrammarCommand
 	}
 }
 
-export class DeleteHeaderCommand extends GrammarCommand
+export class DeleteHeaderCommand extends ActionCommand
 {
 	constructor()
 	{
@@ -69,13 +69,13 @@ export class DeleteHeaderCommand extends GrammarCommand
 		args.forEach((arg, i) => {
 			if (':last' === arg) {
 				this.last = true;
-			} else if (':index' === args[i-1]) {
+			} else if (i && ':index' === args[i-1]) {
 				this.index.value = arg.value;
 				args[i] = null;
 			}
 		});
 
-		if (args[l-1] instanceof GrammarString) {
+		if (l && args[l-1] instanceof GrammarString) {
 			this.field_name = args[l-1];
 			this.value_patterns = args[l];
 		} else {

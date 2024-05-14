@@ -2,12 +2,12 @@
 
 namespace Sabre\VObject\Splitter;
 
-use
-    Sabre\VObject,
-    Sabre\VObject\Component\VCalendar;
+use Sabre\VObject;
+use Sabre\VObject\Component;
+use Sabre\VObject\Component\VCalendar;
 
 /**
- * Splitter
+ * Splitter.
  *
  * This class is responsible for splitting up iCalendar objects.
  *
@@ -15,59 +15,57 @@ use
  * calendar-objects inside. Objects with identical UID's will be combined into
  * a single object.
  *
- * @copyright Copyright (C) 2007-2013 fruux GmbH (https://fruux.com/).
- * @author Dominik Tobschall
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
+ * @author Dominik Tobschall (http://tobschall.de/)
  * @author Armin Hackmann
- * @license http://code.google.com/p/sabredav/wiki/License Modified BSD License
+ * @license http://sabre.io/license/ Modified BSD License
  */
-class ICalendar implements SplitterInterface {
-
+class ICalendar implements SplitterInterface
+{
     /**
-     * Timezones
-     *
-     * @var array
+     * Timezones.
      */
-    protected $vtimezones = array();
+    protected array $vtimezones = [];
 
     /**
-     * iCalendar objects
-     *
-     * @var array
+     * iCalendar objects.
      */
-    protected $objects = array();
+    protected array $objects = [];
 
     /**
-     * Constructor
+     * Constructor.
      *
-     * The splitter should receive an readable file stream as it's input.
+     * The splitter should receive a readable file stream as its input.
      *
      * @param resource $input
-     * @param int $options Parser options, see the OPTIONS constants.
+     * @param int      $options parser options, see the OPTIONS constants
+     *
+     * @throws VObject\ParseException
      */
-    public function __construct($input, $options = 0) {
-
+    public function __construct($input, int $options = 0)
+    {
         $data = VObject\Reader::read($input, $options);
-        $vtimezones = array();
-        $components = array();
 
-        foreach($data->children() as $component) {
-            if (!$component instanceof VObject\Component) {
+        if (!$data instanceof VObject\Component\VCalendar) {
+            throw new VObject\ParseException('Supplied input could not be parsed as VCALENDAR.');
+        }
+
+        foreach ($data->children() as $component) {
+            if (!$component instanceof Component) {
                 continue;
             }
 
             // Get all timezones
-            if ($component->name === 'VTIMEZONE') {
-                $this->vtimezones[(string)$component->TZID] = $component;
+            if ('VTIMEZONE' === $component->name) {
+                $this->vtimezones[(string) $component->TZID] = $component;
                 continue;
             }
 
             // Get component UID for recurring Events search
-            if($component->UID) {
-                $uid = (string)$component->UID;
-            } else {
-                // Generating a random UID
-                $uid = sha1(microtime()) . '-vobjectimport';
+            if (!$component->UID) {
+                $component->UID = sha1(microtime()).'-vobjectimport';
             }
+            $uid = (string) $component->UID;
 
             // Take care of recurring events
             if (!array_key_exists($uid, $this->objects)) {
@@ -76,7 +74,6 @@ class ICalendar implements SplitterInterface {
 
             $this->objects[$uid]->add(clone $component);
         }
-
     }
 
     /**
@@ -84,16 +81,13 @@ class ICalendar implements SplitterInterface {
      * hit the end of the stream.
      *
      * When the end is reached, null will be returned.
-     *
-     * @return Sabre\VObject\Component|null
      */
-    public function getNext() {
-
-        if($object=array_shift($this->objects)) {
-
+    public function getNext(): ?Component
+    {
+        if ($object = array_shift($this->objects)) {
             // create our baseobject
             $object->version = '2.0';
-            $object->prodid = '-//Sabre//Sabre VObject ' . VObject\Version::VERSION . '//EN';
+            $object->prodid = '-//Sabre//Sabre VObject '.VObject\Version::VERSION.'//EN';
             $object->calscale = 'GREGORIAN';
 
             // add vtimezone information to obj (if we have it)
@@ -102,13 +96,8 @@ class ICalendar implements SplitterInterface {
             }
 
             return $object;
-
         } else {
-
             return null;
-
         }
-
-   }
-
+    }
 }

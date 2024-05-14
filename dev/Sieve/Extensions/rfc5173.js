@@ -5,10 +5,10 @@
 import {
 	GrammarString,
 	GrammarStringList,
-	GrammarTest
+	TestCommand
 } from 'Sieve/Grammar';
 
-export class BodyTest extends GrammarTest
+export class BodyTest extends TestCommand
 {
 	constructor()
 	{
@@ -25,7 +25,7 @@ export class BodyTest extends GrammarTest
 			+ (this.comparator ? ' :comparator ' + this.comparator : '')
 			+ ' ' + this.match_type
 			+ ' ' + this.body_transform
-			+ ' ' + this.key_list.toString();
+			+ ' ' + this.key_list;
 	}
 
 	pushArguments(args)
@@ -34,7 +34,7 @@ export class BodyTest extends GrammarTest
 			if (':raw' === arg || ':text' === arg) {
 				this.body_transform = arg;
 			} else if (arg instanceof GrammarStringList || arg instanceof GrammarString) {
-				if (':content' === args[i-1]) {
+				if (i && ':content' === args[i-1]) {
 					this.body_transform = ':content ' + arg;
 				} else {
 					this[args[i+1] ? 'content_list' : 'key_list'] = arg;

@@ -1,4 +1,4 @@
-(function () {
+(() => {
 
 // Makes a binding like with or if
 function makeWithIfBinding(bindingKey, isWith, isNot) {
@@ -7,8 +7,7 @@ function makeWithIfBinding(bindingKey, isWith, isNot) {
             var savedNodes, contextOptions = {}, needAsyncContext;
 
             if (isWith) {
-                var as = allBindings.get('as');
-                contextOptions = { 'as': as, 'exportDependencies': true };
+                contextOptions = { 'exportDependencies': true };
             }
 
             needAsyncContext = allBindings['has'](ko.bindingEvent.descendantsComplete);
@@ -26,13 +25,12 @@ function makeWithIfBinding(bindingKey, isWith, isNot) {
                 if (shouldDisplay) {
                     contextOptions['dataDependency'] = ko.dependencyDetection.computed();
 
-                    if (isWith) {
-                        childContext = bindingContext['createChildContext'](typeof value == "function" ? value : valueAccessor, contextOptions);
-                    } else if (ko.dependencyDetection.getDependenciesCount()) {
-                        childContext = bindingContext['extend'](null, contextOptions);
-                    } else {
-                        childContext = bindingContext;
-                    }
+                    childContext = isWith
+                        ? bindingContext['createChildContext'](typeof value == "function" ? value : valueAccessor, contextOptions)
+                        : (ko.dependencyDetection.getDependenciesCount()
+                            ? bindingContext['extend'](null, contextOptions)
+                            : bindingContext
+                        );
                 }
 
                 // Save a copy of the inner nodes on the initial update, but only if we have dependencies.
@@ -41,9 +39,7 @@ function makeWithIfBinding(bindingKey, isWith, isNot) {
                 }
 
                 if (shouldDisplay) {
-                    if (!isInitial) {
-                        ko.virtualElements.setDomNodeChildren(element, ko.utils.cloneNodes(savedNodes));
-                    }
+                    isInitial || ko.virtualElements.setDomNodeChildren(element, ko.utils.cloneNodes(savedNodes));
 
                     ko.applyBindingsToDescendants(childContext, element);
                 } else {
@@ -57,7 +53,6 @@ function makeWithIfBinding(bindingKey, isWith, isNot) {
             return { 'controlsDescendantBindings': true };
         }
     };
-    ko.expressionRewriting.bindingRewriteValidators[bindingKey] = false; // Can't rewrite control flow bindings
     ko.virtualElements.allowedBindings[bindingKey] = true;
 }
 

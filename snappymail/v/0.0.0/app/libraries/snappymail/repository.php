@@ -7,11 +7,11 @@ abstract class Repository
 	// snappyMailRepo
 	const BASE_URL = 'https://snappymail.eu/repository/v2/';
 
-	private static function get(string $path, string $proxy, string $proxy_auth) : string
+	private static function get(string $path) : string
 	{
 		$oHTTP = HTTP\Request::factory(/*'socket' or 'curl'*/);
-		$oHTTP->proxy = $proxy;
-		$oHTTP->proxy_auth = $proxy_auth;
+		$oHTTP->proxy = \RainLoop\Api::Config()->Get('labs', 'curl_proxy', '');
+		$oHTTP->proxy_auth = \RainLoop\Api::Config()->Get('labs', 'curl_proxy_auth', '');
 		$oHTTP->max_response_kb = 0;
 		$oHTTP->timeout = 15; // timeout in seconds.
 		$oResponse = $oHTTP->doRequest('GET', static::BASE_URL . $path);
@@ -26,16 +26,17 @@ abstract class Repository
 
 //	$aRep = \json_decode($sRep);
 
-	private static function download(string $path, string $proxy, string $proxy_auth) : string
+	private static function download(string $path) : string
 	{
 		$sTmp = APP_PRIVATE_DATA . \md5(\microtime(true).$path) . \preg_replace('/^.*?(\\.[a-z\\.]+)$/Di', '$1', $path);
 		$pDest = \fopen($sTmp, 'w+b');
 		if (!$pDest) {
 			throw new \Exception('Cannot create temp file: '.$sTmp);
 		}
+
 		$oHTTP = HTTP\Request::factory(/*'socket' or 'curl'*/);
-		$oHTTP->proxy = $proxy;
-		$oHTTP->proxy_auth = $proxy_auth;
+		$oHTTP->proxy = \RainLoop\Api::Config()->Get('labs', 'curl_proxy', '');
+		$oHTTP->proxy_auth = \RainLoop\Api::Config()->Get('labs', 'curl_proxy_auth', '');
 		$oHTTP->max_response_kb = 0;
 		$oHTTP->timeout = 15; // timeout in seconds.
 		$oHTTP->streamBodyTo($pDest);
@@ -66,43 +67,27 @@ abstract class Repository
 		$bReal = false;
 		$aRep = null;
 
-		$sRep = '';
 		$sRepoFile = 'packages.json';
-		$iRepTime = 0;
 
 		$oCache = \RainLoop\Api::Actions()->Cacher();
 
-		$sCacheKey = \RainLoop\KeyPathHelper::RepositoryCacheFile(static::BASE_URL, $sRepoFile);
+		$sCacheKey = '/RepositoryCache/Repo/' . static::BASE_URL . '/File/' . $sRepoFile;
 		$sRep = $oCache->Get($sCacheKey);
-		if ('' !== $sRep)
-		{
-			$iRepTime = $oCache->GetTimer($sCacheKey);
-		}
+		$iRepTime = $sRep ? $oCache->GetTimer($sCacheKey) : 0;
 
-		if ('' === $sRep || 0 === $iRepTime || \time() - 3600 > $iRepTime)
-		{
-			$sRep = static::get($sRepoFile,
-				\RainLoop\Api::Config()->Get('labs', 'curl_proxy', ''),
-				\RainLoop\Api::Config()->Get('labs', 'curl_proxy_auth', '')
-			);
-			if ($sRep)
-			{
+		if (!$sRep || !$iRepTime || \time() - 3600 > $iRepTime) {
+			$sRep = static::get($sRepoFile);
+			if ($sRep) {
 				$aRep = \json_decode($sRep);
 				$bReal = \is_array($aRep) && \count($aRep);
-
-				if ($bReal)
-				{
+				if ($bReal) {
 					$oCache->Set($sCacheKey, $sRep);
 					$oCache->SetTimer($sCacheKey);
 				}
-			}
-			else
-			{
+			} else {
 				throw new \Exception('Cannot read remote repository file: '.$sRepoFile);
 			}
-		}
-		else if ('' !== $sRep)
-		{
+		} else if ($sRep) {
 			$aRep = \json_decode($sRep, false, 10);
 			$bReal = \is_array($aRep) && \count($aRep);
 		}
@@ -114,53 +99,110 @@ abstract class Repository
 	{
 		$aResult = array();
 		try {
-			$notDev = '0.0.0' !== APP_VERSION;
 			foreach (static::getRepositoryDataByUrl($bReal) as $oItem) {
-				if ($oItem && isset($oItem->type, $oItem->id, $oItem->name,
-					$oItem->version, $oItem->release, $oItem->file, $oItem->description))
-				{
-					if ((!empty($oItem->required) && $notDev && \version_compare(APP_VERSION, $oItem->required, '<'))
-					 || (!empty($oItem->deprecated) && $notDev && \version_compare(APP_VERSION, $oItem->deprecated, '>='))
-					 || (isset($aResult[$oItem->id]) && \version_compare($aResult[$oItem->id]['version'], $oItem->version, '>'))
-					) {
-						continue;
-					}
-
-					if ('plugin' === $oItem->type) {
-						$aResult[$oItem->id] = array(
-							'type' => $oItem->type,
-							'id' => $oItem->id,
-							'name' => $oItem->name,
-							'installed' => '',
-							'enabled' => true,
-							'version' => $oItem->version,
-							'file' => $oItem->file,
-							'release' => $oItem->release,
-							'desc' => $oItem->description,
-							'canBeDeleted' => false,
-							'canBeUpdated' => true
-						);
-					}
+				if ($oItem
+				 && isset($oItem->type, $oItem->id, $oItem->name, $oItem->version, $oItem->release, $oItem->file, $oItem->description)
+				 && 'plugin' === $oItem->type
+				 // is this entry newer then an already defined one
+				 && (empty($aResult[$oItem->id]) || \version_compare($aResult[$oItem->id]['version'], $oItem->version, '<'))
+				 // does this entry require same or older app version
+				 && (SNAPPYMAIL_DEV || empty($oItem->required) || \version_compare(APP_VERSION, $oItem->required, '>='))
+				 // is this entry not deprecated for current app version?
+				 && (SNAPPYMAIL_DEV || empty($oItem->deprecated) || \version_compare(APP_VERSION, $oItem->deprecated, '<'))
+				) {
+					$aResult[$oItem->id] = array(
+						'type' => $oItem->type,
+						'id' => $oItem->id,
+						'name' => $oItem->name,
+						'installed' => '',
+						'enabled' => true,
+						'version' => $oItem->version,
+						'file' => $oItem->file,
+						'release' => $oItem->release,
+						'desc' => $oItem->description,
+						'canBeDeleted' => false,
+						'canBeUpdated' => true
+					);
 				}
 			}
 		} catch (\Throwable $e) {
-			$sError = "{$e->getCode()} {$e->getMessage()}";
-			\RainLoop\Api::Logger()->Write($sError, \MailSo\Log\Enumerations\Type::ERROR, 'INSTALLER');
+			\SnappyMail\Log::error('INSTALLER', "{$e->getCode()} {$e->getMessage()}");
 		}
 		return $aResult;
 	}
 
-	public static function getPackagesList() : array
+	/**
+	 * return object
+			$info->version
+			$info->file
+			$info->warnings
+	 */
+	public static function getLatestCoreInfo()
 	{
 		\RainLoop\Api::Actions()->IsAdminLoggined();
+		$sRep = static::get('core.json');
+		return $sRep ? \json_decode($sRep, false, 3, JSON_THROW_ON_ERROR) : null;
+	}
+
+	public static function downloadCore() : ?string
+	{
+		$info = static::getLatestCoreInfo();
+		return ($info && \version_compare(APP_VERSION, $info->version, '<'))
+			? static::download($info->file) // '../latest.tar.gz'
+			: null;
+	}
+
+	public static function canUpdateCore() : bool
+	{
+		return \version_compare(APP_VERSION, '2.0', '>')
+			&& \is_writable(\dirname(APP_VERSION_ROOT_PATH))
+			&& \is_writable(APP_INDEX_ROOT_PATH . 'index.php')
+			&& \RainLoop\Api::Config()->Get('admin_panel', 'allow_update', false);
+	}
+
+	public static function getEnabledPackagesNames() : array
+	{
+		return \array_map('trim',
+			\explode(',', \strtolower(\RainLoop\Api::Config()->Get('plugins', 'enabled_list', '')))
+		);
+	}
+
+	public static function enablePackage(string $sName, bool $bEnable = true) : bool
+	{
+		if (!\strlen($sName)) {
+			return false;
+		}
+
+		$oConfig = \RainLoop\Api::Config();
+
+		$aEnabledPlugins = static::getEnabledPackagesNames();
+
+		$aNewEnabledPlugins = array();
+		if ($bEnable) {
+			$aNewEnabledPlugins = $aEnabledPlugins;
+			$aNewEnabledPlugins[] = $sName;
+		} else {
+			foreach ($aEnabledPlugins as $sPlugin) {
+				if ($sName !== $sPlugin && \strlen($sPlugin)) {
+					$aNewEnabledPlugins[] = $sPlugin;
+				}
+			}
+		}
+
+		$oConfig->Set('plugins', 'enabled_list', \trim(\implode(',', \array_unique($aNewEnabledPlugins)), ' ,'));
+
+		return $oConfig->Save();
+	}
+
+	public static function getPackagesList() : array
+	{
+		empty($_ENV['SNAPPYMAIL_INCLUDE_AS_API']) && \RainLoop\Api::Actions()->IsAdminLoggined();
 
 		$bReal = false;
 		$sError = '';
 		$aList = static::getRepositoryData($bReal, $sError);
 
-		$aEnabledPlugins = \array_map('trim',
-			\explode(',', \strtolower(\RainLoop\Api::Config()->Get('plugins', 'enabled_list', '')))
-		);
+		$aEnabledPlugins = static::getEnabledPackagesNames();
 
 		$aInstalled = \RainLoop\Api::Actions()->Plugins()->InstalledPlugins();
 		foreach ($aInstalled as $aItem) {
@@ -174,13 +216,13 @@ abstract class Repository
 					\array_push($aList, array(
 						'type' => 'plugin',
 						'id' => $aItem[0],
-						'name' => $aItem[0],
+						'name' => $aItem[2],
 						'installed' => $aItem[1],
 						'enabled' => \in_array(\strtolower($aItem[0]), $aEnabledPlugins),
 						'version' => '',
 						'file' => '',
 						'release' => '',
-						'desc' => '',
+						'desc' => $aItem[3],
 						'canBeDeleted' => true,
 						'canBeUpdated' => false
 					));
@@ -200,6 +242,7 @@ abstract class Repository
 	public static function deletePackage(string $sId) : bool
 	{
 		\RainLoop\Api::Actions()->IsAdminLoggined();
+		static::enablePackage($sId, false);
 		return static::deletePackageDir($sId);
 	}
 
@@ -210,11 +253,11 @@ abstract class Repository
 			&& (!\is_file("{$sPath}.phar") || \unlink("{$sPath}.phar"));
 	}
 
-	public static function installPackage(string $sType, string $sId, string $sFile) : bool
+	public static function installPackage(string $sType, string $sId, string $sFile = '') : bool
 	{
-		\RainLoop\Api::Actions()->IsAdminLoggined();
+		empty($_ENV['SNAPPYMAIL_INCLUDE_AS_API']) && \RainLoop\Api::Actions()->IsAdminLoggined();
 
-		\RainLoop\Api::Logger()->Write('Start package install: '.$sFile.' ('.$sType.')', \MailSo\Log\Enumerations\Type::INFO, 'INSTALLER');
+		\SnappyMail\Log::info('INSTALLER', 'Start package install: '.$sId.' ('.$sType.')');
 
 		$sRealFile = '';
 
@@ -228,32 +271,33 @@ abstract class Repository
 				if ($sError) {
 					throw new \Exception($sError);
 				}
-				if (isset($aList[$sId]) && $sFile === $aList[$sId]['file']) {
-					$sRealFile = $sFile;
-					$sTmp = static::download($sFile,
-						\RainLoop\Api::Config()->Get('labs', 'curl_proxy', ''),
-						\RainLoop\Api::Config()->Get('labs', 'curl_proxy_auth', '')
-					);
+				if (isset($aList[$sId]) && (!$sFile || $sFile === $aList[$sId]['file'])) {
+					$sRealFile = $aList[$sId]['file'];
+					$sTmp = static::download($aList[$sId]['file']);
 				}
 			}
 
 			if ($sTmp) {
-				$oArchive = new \PharData($sTmp, 0, $sRealFile);
-				if (static::deletePackageDir($sId)) {
-					if ('.phar' === \substr($sRealFile, -5)) {
-						$bResult = \copy($sTmp, APP_PLUGINS_PATH . \basename($sRealFile));
-					} else {
-						$bResult = $oArchive->extractTo(\rtrim(APP_PLUGINS_PATH, '\\/'));
-					}
-					if (!$bResult) {
-						throw new \Exception('Cannot extract package files: '.$oArchive->getStatusString());
-					}
-				} else {
+				if (!static::deletePackageDir($sId)) {
 					throw new \Exception('Cannot remove previous plugin folder: '.$sId);
+				}
+				if ('.phar' === \substr($sRealFile, -5)) {
+					$bResult = \copy($sTmp, APP_PLUGINS_PATH . \basename($sRealFile));
+				} else {
+					if (\class_exists('PharData')) {
+						$oArchive = new \PharData($sTmp, 0, $sRealFile);
+					} else {
+//						throw new \Exception('PHP Phar is disabled, you must enable it');
+						$oArchive = new \SnappyMail\TAR($sTmp);
+					}
+					$bResult = $oArchive->extractTo(\rtrim(APP_PLUGINS_PATH, '\\/'));
+				}
+				if (!$bResult) {
+					throw new \Exception('Cannot extract package files');
 				}
 			}
 		} catch (\Throwable $e) {
-			\RainLoop\Api::Logger()->Write("Install package {$sRealFile} failed: {$e->getMessage()}", \MailSo\Log\Enumerations\Type::ERROR, 'INSTALLER');
+			\SnappyMail\Log::error('INSTALLER', "Install package {$sRealFile} failed: {$e->getMessage()}");
 			throw $e;
 		} finally {
 			$sTmp && \unlink($sTmp);

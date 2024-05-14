@@ -28,6 +28,8 @@ abstract class FolderStatus
 	const HIGHESTMODSEQ = 'HIGHESTMODSEQ';
 	// RFC 7889
 	const APPENDLIMIT = 'APPENDLIMIT';
+	// RFC 8438
+	const SIZE = 'SIZE';
 	// RFC 8474
 	const MAILBOXID = 'MAILBOXID';
 }

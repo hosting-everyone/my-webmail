@@ -8,15 +8,13 @@ class koSubscription
         this._isDisposed = false;
         this._node = null;
         this._domNodeDisposalCallback = null;
-        ko.exportProperty(this, 'dispose', this.dispose);
     }
 
-    dispose() {
+    'dispose'() {
         var self = this;
         if (!self._isDisposed) {
-            if (self._domNodeDisposalCallback) {
-                ko.utils.domNodeDisposal.removeDisposeCallback(self._node, self._domNodeDisposalCallback);
-            }
+            self._domNodeDisposalCallback
+            && ko.utils.domNodeDisposal.removeDisposeCallback(self._node, self._domNodeDisposalCallback);
             self._isDisposed = true;
             self._disposeCallback();
 
@@ -27,25 +25,29 @@ class koSubscription
     disposeWhenNodeIsRemoved(node) {
         // MutationObserver ?
         this._node = node;
-        ko.utils.domNodeDisposal.addDisposeCallback(node, this._domNodeDisposalCallback = this.dispose.bind(this));
+        ko.utils.domNodeDisposal['addDisposeCallback'](node, this._domNodeDisposalCallback = this['dispose'].bind(this));
     }
 }
 
 ko.subscribable = function () {
     Object.setPrototypeOf(this, ko_subscribable_fn);
-    ko_subscribable_fn.init(this);
+    ko_subscribable_fn['init'](this);
 }
 
 var defaultEvent = "change";
 
+//const IS_SUBSCRIBABLE = Symbol('IS_SUBSCRIBABLE');
+
 var ko_subscribable_fn = {
-    init: instance => {
+//    [IS_SUBSCRIBABLE]: 1,
+
+    'init': instance => {
         instance._subscriptions = new Map();
         instance._subscriptions.set("change", new Set);
         instance._versionNumber = 1;
     },
 
-    subscribe: function (callback, callbackTarget, event) {
+    'subscribe'(callback, callbackTarget, event) {
         var self = this;
 
         event = event || defaultEvent;
@@ -53,21 +55,18 @@ var ko_subscribable_fn = {
 
         var subscription = new koSubscription(self, boundCallback, () => {
             self._subscriptions.get(event).delete(subscription);
-            if (self.afterSubscriptionRemove)
-                self.afterSubscriptionRemove(event);
+            self.afterSubscriptionRemove?.(event);
         });
 
-        if (self.beforeSubscriptionAdd)
-            self.beforeSubscriptionAdd(event);
+        self.beforeSubscriptionAdd?.(event);
 
-        if (!self._subscriptions.has(event))
-            self._subscriptions.set(event, new Set);
+        self._subscriptions.has(event) || self._subscriptions.set(event, new Set);
         self._subscriptions.get(event).add(subscription);
 
         return subscription;
     },
 
-    notifySubscribers: function (valueToNotify, event) {
+    notifySubscribers(valueToNotify, event) {
         event = event || defaultEvent;
         if (event === defaultEvent) {
             this.updateVersion();
@@ -87,19 +86,19 @@ var ko_subscribable_fn = {
         }
     },
 
-    getVersion: function () {
+    getVersion() {
         return this._versionNumber;
     },
 
-    hasChanged: function (versionToCheck) {
+    hasChanged(versionToCheck) {
         return this.getVersion() !== versionToCheck;
     },
 
-    updateVersion: function () {
+    updateVersion() {
         ++this._versionNumber;
     },
 
-    limit: function(limitFunction) {
+    limit(limitFunction) {
         var self = this, selfIsObservable = ko.isObservable(self),
             ignoreBeforeChange, notifyNextChange, previousValue, pendingValue, didUpdate,
             beforeChange = 'beforeChange';
@@ -107,13 +106,13 @@ var ko_subscribable_fn = {
         if (!self._origNotifySubscribers) {
             self._origNotifySubscribers = self.notifySubscribers;
             // Moved out of "limit" to avoid the extra closure
-            self.notifySubscribers = function(value, event) {
+            self.notifySubscribers = (value, event) => {
                 if (!event || event === defaultEvent) {
-                    this._limitChange(value);
-                } else if (event === 'beforeChange') {
-                    this._limitBeforeChange(value);
+                    self._limitChange(value);
+                } else if (event === beforeChange) {
+                    self._limitBeforeChange(value);
                 } else {
-                    this._origNotifySubscribers(value, event);
+                    self._origNotifySubscribers(value, event);
                 }
             }
         }
@@ -160,21 +159,21 @@ var ko_subscribable_fn = {
         };
     },
 
-    hasSubscriptionsForEvent: function(event) {
+    hasSubscriptionsForEvent(event) {
         return (this._subscriptions.get(event) || []).size;
     },
 
-    isDifferent: function(oldValue, newValue) {
+    isDifferent(oldValue, newValue) {
         return !this.equalityComparer || !this.equalityComparer(oldValue, newValue);
     },
 
     toString: () => '[object Object]',
 
-    extend: function(requestedExtenders) {
+    'extend'(requestedExtenders) {
         var target = this;
         if (requestedExtenders) {
             ko.utils.objectForEach(requestedExtenders, (key, value) => {
-                var extenderHandler = ko.extenders[key];
+                var extenderHandler = ko['extenders'][key];
                 if (typeof extenderHandler == 'function') {
                     target = extenderHandler(target, value) || target;
                 }
@@ -184,17 +183,11 @@ var ko_subscribable_fn = {
     }
 };
 
-ko.exportProperty(ko_subscribable_fn, 'init', ko_subscribable_fn.init);
-ko.exportProperty(ko_subscribable_fn, 'subscribe', ko_subscribable_fn.subscribe);
-ko.exportProperty(ko_subscribable_fn, 'extend', ko_subscribable_fn.extend);
-
 // For browsers that support proto assignment, we overwrite the prototype of each
 // observable instance. Since observables are functions, we need Function.prototype
 // to still be in the prototype chain.
-Object.setPrototypeOf(ko_subscribable_fn, Function.prototype);
+ko.subscribable['fn'] = Object.setPrototypeOf(ko_subscribable_fn, Function.prototype);
 
-ko.subscribable['fn'] = ko_subscribable_fn;
-
-
+//ko.isSubscribable = obj => !!(obj && obj[IS_SUBSCRIBABLE]);
 ko.isSubscribable = instance =>
-    instance != null && typeof instance.subscribe == "function" && typeof instance.notifySubscribers == "function";
+    typeof instance?.['subscribe'] == "function" && typeof instance.notifySubscribers == "function";

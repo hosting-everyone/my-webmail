@@ -19,11 +19,90 @@ use MailSo\Imap\Responses\ACL as ACLResponse;
  */
 trait ACL
 {
+	private $ACLDisabled = false;
+
+	/**
+	 * https://datatracker.ietf.org/doc/html/rfc4314#section-4
+	 */
+	public function ACLAllow(string $sFolderName, string $command) : bool
+	{
+		if ($this->ACLDisabled || !$this->hasCapability('ACL')) {
+			return false;
+		}
+
+		// The "RIGHTS=" capability MUST NOT include any of the rights defined in RFC 2086:
+		// "l", "r", "s", "w", "i", "p", "a", "c", "d", and the digits ("0" .. "9")
+		// So it is: RIGHTS=texk
+//		$mainRights = \str_split($this->CapabilityValue('RIGHTS') ?: '');
+
+		if ('MYRIGHTS' === $command) {
+			// at least one of the "l", "r", "i", "k", "x", "a" rights is required
+			return true;
+		}
+
+		if (\in_array($command, ['GETACL','SETACL','LISTRIGHTS','DELETEACL'])) {
+			return true;
+		}
+
+		$rights = $this->FolderMyRights($sFolderName);
+		if ($rights) {
+			switch ($command)
+			{
+			case 'LIST':
+			case 'LSUB':
+				return $rights->hasRight('LOOKUP');
+			case 'CREATE':
+				return true; // $parent->$rights->hasRight('k');
+			case 'DELETE':
+				return $rights->hasRight('x');
+			case 'RENAME':
+				return $rights->hasRight('k') && $rights->hasRight('x');
+			case 'SELECT':
+			case 'EXAMINE':
+			case 'STATUS':
+				return $rights->hasRight('r');
+			case 'APPEND':
+			case 'COPY':
+				return $rights->hasRight('i');
+			case 'EXPUNGE':
+				return $rights->hasRight('e');
+/*
+			case 'SUBSCRIBE':
+				return $rights->hasRight('l') || true;
+			case 'UNSUBSCRIBE':
+				return true;
+			case 'CLOSE':
+				return $rights->hasRight('e') || true;
+			case 'FETCH':
+				return $rights->hasRight('s') || true;
+			case 'STORE':
+				return $rights->hasRight('s') || $rights->hasRight('w') || $rights->hasRight('t');
+*/
+			case 'GETACL':
+			case 'SETACL':
+			case 'LISTRIGHTS':
+			case 'DELETEACL':
+				return $rights->hasRight('a');
+			}
+		}
+		return true;
+	}
+
+	private function FolderACLRequest(string $sFolderName, string $sCommand, array $aParams) : \MailSo\Imap\ResponseCollection
+	{
+		if ($this->ACLAllow($sFolderName, $sCommand)) try {
+			return $this->SendRequestGetResponse($sCommand, $aParams);
+		} catch (\Throwable $oException) {
+			// Error in IMAP command $sCommand: ACLs disabled
+			$this->ACLDisabled = true;
+			throw $oException;
+		}
+	}
+
 	public function FolderSetACL(string $sFolderName, string $sIdentifier, string $sAccessRights) : void
 	{
-//		if ($this->IsSupported('ACL')) {
-		$this->SendRequestGetResponse('SETACL', array(
-			$this->EscapeString($sFolderName),
+		$this->FolderACLRequest($sFolderName, 'SETACL', array(
+			$this->EscapeFolderName($sFolderName),
 			$this->EscapeString($sIdentifier),
 			$this->EscapeString($sAccessRights)
 		));
@@ -31,26 +110,31 @@ trait ACL
 
 	public function FolderDeleteACL(string $sFolderName, string $sIdentifier) : void
 	{
-//		if ($this->IsSupported('ACL')) {
-		$this->SendRequestGetResponse('DELETEACL', array(
-			$this->EscapeString($sFolderName),
+		$this->FolderACLRequest($sFolderName, 'DELETEACL', array(
+			$this->EscapeFolderName($sFolderName),
 			$this->EscapeString($sIdentifier)
 		));
 	}
 
 	public function FolderGetACL(string $sFolderName) : array
 	{
-//		if ($this->IsSupported('ACL')) {
-		$oResponses = $this->SendRequestGetResponse('GETACL', array($this->EscapeString($sFolderName)));
 		$aResult = array();
+		$oResponses = $this->FolderACLRequest($sFolderName, 'GETACL', array($this->EscapeFolderName($sFolderName)));
 		foreach ($oResponses as $oResponse) {
-			if (MailSo\Imap\Enumerations\ResponseType::UNTAGGED === $oResponse->ResponseType
+			// * ACL INBOX.shared demo@snappymail.eu akxeilprwtscd foobar@snappymail.eu akxeilprwtscd demo2@snappymail.eu lrwstipekxacd
+			if (\MailSo\Imap\Enumerations\ResponseType::UNTAGGED === $oResponse->ResponseType
 				&& isset($oResponse->ResponseList[4])
 				&& 'ACL' === $oResponse->ResponseList[1]
 				&& $sFolderName === $oResponse->ResponseList[2]
 			)
 			{
-				$aResult[$oResponse->ResponseList[3]] = static::aclRightsToClass(\array_slice($oResponse->ResponseList, 4));
+				$c = \count($oResponse->ResponseList);
+				for ($i = 3; $i < $c; $i += 2) {
+					$aResult[] = new ACLResponse(
+						$oResponse->ResponseList[$i],
+						$oResponse->ResponseList[$i+1]
+					);
+				}
 			}
 		}
 		return $aResult;
@@ -58,20 +142,22 @@ trait ACL
 
 	public function FolderListRights(string $sFolderName, string $sIdentifier) : ?ACLResponse
 	{
-//		if ($this->IsSupported('ACL')) {
-		$oResponses = $this->SendRequestGetResponse('LISTRIGHTS', array(
-			$this->EscapeString($sFolderName),
+		$oResponses = $this->FolderACLRequest($sFolderName, 'LISTRIGHTS', array(
+			$this->EscapeFolderName($sFolderName),
 			$this->EscapeString($sIdentifier)
 		));
 		foreach ($oResponses as $oResponse) {
-			if (MailSo\Imap\Enumerations\ResponseType::UNTAGGED === $oResponse->ResponseType
+			if (\MailSo\Imap\Enumerations\ResponseType::UNTAGGED === $oResponse->ResponseType
 				&& isset($oResponse->ResponseList[4])
 				&& 'LISTRIGHTS' === $oResponse->ResponseList[1]
 				&& $sFolderName === $oResponse->ResponseList[2]
 				&& $sIdentifier === $oResponse->ResponseList[3]
 			)
 			{
-				return static::aclRightsToClass(\array_slice($oResponse->ResponseList, 4));
+				foreach (\array_slice($oResponse->ResponseList, 4) as $rule) {
+					$result = \array_merge($result, \str_split($rule));
+				}
+				return new ACLResponse($sIdentifier, \implode('', \array_unique($result)));
 			}
 		}
 		return null;
@@ -79,28 +165,17 @@ trait ACL
 
 	public function FolderMyRights(string $sFolderName) : ?ACLResponse
 	{
-//		if ($this->IsSupported('ACL')) {
-		$oResponses = $this->SendRequestGetResponse('MYRIGHTS', array($this->EscapeString($sFolderName)));
+		$oResponses = $this->FolderACLRequest($sFolderName, 'MYRIGHTS', array($this->EscapeFolderName($sFolderName)));
 		foreach ($oResponses as $oResponse) {
-			if (MailSo\Imap\Enumerations\ResponseType::UNTAGGED === $oResponse->ResponseType
+			if (\MailSo\Imap\Enumerations\ResponseType::UNTAGGED === $oResponse->ResponseType
 				&& isset($oResponse->ResponseList[3])
 				&& 'MYRIGHTS' === $oResponse->ResponseList[1]
 				&& $sFolderName === $oResponse->ResponseList[2]
 			)
 			{
-				return static::aclRightsToClass(\array_slice($oResponse->ResponseList, 3));
+				return new ACLResponse('', $oResponse->ResponseList[3]);
 			}
 		}
 		return null;
 	}
-
-	private static function aclRightsToClass(array $rules) : ACLResponse
-	{
-		$result = array();
-		foreach ($rules as $rule) {
-			$result = \array_merge($result, \str_split($rule));
-		}
-		return new ACLResponse(\array_unique($result));
-	}
-
 }

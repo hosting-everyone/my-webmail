@@ -1,13 +1,11 @@
-import { koComputable } from 'External/ko';
+import { koComputable, addObservablesTo } from 'External/ko';
 
-import { Notification } from 'Common/Enums';
-import { UNUSED_OPTION_VALUE } from 'Common/Consts';
+import { Notifications } from 'Common/Enums';
 import { defaultOptionsAfterRender } from 'Common/Utils';
 import { folderListOptionsBuilder, sortFolders } from 'Common/Folders';
-import { getNotification } from 'Common/Translator';
+import { getNotification/*, baseCollator*/ } from 'Common/Translator';
 
 import { FolderUserStore } from 'Stores/User/Folder';
-import { SettingsUserStore } from 'Stores/User/Settings';
 
 import Remote from 'Remote/User/Fetch';
 
@@ -20,41 +18,35 @@ export class FolderCreatePopupView extends AbstractViewPopup {
 	constructor() {
 		super('FolderCreate');
 
-		this.addObservables({
-			folderName: '',
-			folderSubscribe: SettingsUserStore.hideUnsubscribed(),
-
-			selectedParentValue: UNUSED_OPTION_VALUE
+		addObservablesTo(this, {
+			name: '',
+			subscribe: true,
+			parentFolder: ''
 		});
 
 		this.parentFolderSelectList = koComputable(() =>
 			folderListOptionsBuilder(
 				[],
 				[['', '']],
-				oItem =>
-					oItem ? (oItem.isSystemFolder() ? oItem.name() + ' ' + oItem.manageFolderSystemName() : oItem.name()) : '',
-				FolderUserStore.namespace
-					? item => FolderUserStore.namespace !== item.fullName.slice(0, FolderUserStore.namespace.length)
-					: null,
-				true
+				oItem => oItem ? oItem.detailedName() : '',
+				item => !item.subFolders.allow
+					|| (FolderUserStore.namespace && !item.fullName.startsWith(FolderUserStore.namespace))
 			)
 		);
 
 		this.defaultOptionsAfterRender = defaultOptionsAfterRender;
 	}
 
-	submitForm() {
-		if (/^[^\\/]+$/g.test(this.folderName())) {
-			let parentFolderName = this.selectedParentValue();
+	submitForm(form) {
+		if (form.reportValidity()) {
+			const data = new FormData(form);
+
+			let parentFolderName = this.parentFolder();
 			if (!parentFolderName && 1 < FolderUserStore.namespace.length) {
-				parentFolderName = FolderUserStore.namespace.slice(0, FolderUserStore.namespace.length - 1);
+				data.set('parent', FolderUserStore.namespace.slice(0, FolderUserStore.namespace.length - 1));
 			}
 
-			Remote.abort('Folders').post('FolderCreate', FolderUserStore.foldersCreating, {
-					Folder: this.folderName(),
-					Parent: parentFolderName,
-					Subscribe: this.folderSubscribe() ? 1 : 0
-				})
+			Remote.abort('Folders').post('FolderCreate', FolderUserStore.foldersCreating, data)
 				.then(
 					data => {
 						const folder = getFolderFromCacheList(parentFolderName),
@@ -64,13 +56,13 @@ export class FolderCreatePopupView extends AbstractViewPopup {
 						folders.push(subFolder);
 						sortFolders(folders);
 /*
-						var collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
+						var collator = baseCollator(true);
 						console.log((folder ? folder.subFolders : FolderUserStore.folderList).sort(collator.compare));
 */
 					},
 					error => {
-						FolderUserStore.folderListError(
-							getNotification(error.code, '', Notification.CantCreateFolder)
+						FolderUserStore.error(
+							getNotification(error.code, '', Notifications.CantCreateFolder)
 							+ '.\n' + error.message);
 					}
 				);
@@ -80,7 +72,8 @@ export class FolderCreatePopupView extends AbstractViewPopup {
 	}
 
 	onShow() {
-		this.folderName('');
-		this.selectedParentValue('');
+		this.name('');
+		this.subscribe(true);
+		this.parentFolder('');
 	}
 }

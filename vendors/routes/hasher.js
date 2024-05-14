@@ -14,12 +14,12 @@
     const
     _hashValRegexp = /#(.*)$/,
     _hashRegexp = /^[#/]+/,
-    _hashTrim = /^\/|\$/g,
-    _trimHash = hash => hash ? hash.replace(_hashTrim, '') : '',
+    _hashTrim = /^\/+/g,
+    _trimHash = hash => hash?.replace(_hashTrim, '') || '',
     _getWindowHash = () => {
         //parsed full URL instead of getting window.location.hash because Firefox decode hash value (and all the other browsers don't)
         var result = _hashValRegexp.exec( location.href );
-        return (result && result[1]) ? decodeURIComponent(result[1]) : '';
+        return result?.[1] ? decodeURIComponent(result[1]) : '';
     },
     _registerChange = newHash => {
         if (_hash !== newHash) {

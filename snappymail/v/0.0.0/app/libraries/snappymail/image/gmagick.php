@@ -14,6 +14,11 @@ class GMagick extends \Gmagick implements \SnappyMail\Image
 		$this->clear();
 	}
 
+	public function valid() : bool
+	{
+		return 0 < $this->getImageWidth();
+	}
+
 	public static function createFromString(string &$data)
 	{
 		$gmagick = new static();
@@ -25,6 +30,20 @@ class GMagick extends \Gmagick implements \SnappyMail\Image
 		} else {
 			$gmagick->orientation = Exif::getImageOrientation($data);
 		}
+		return $gmagick;
+	}
+
+	public static function createFromStream($fp)
+	{
+		if (!\method_exists('Gmagick', 'getImageOrientation')) {
+			$data = \stream_get_contents($fp);
+			return static::createFromString($data);
+		}
+		$gmagick = new static();
+		if (!$gmagick->readimagefile($fp)) {
+			throw new \InvalidArgumentException('Failed to load image');
+		}
+		$gmagick->orientation = $gmagick->getImageOrientation();
 		return $gmagick;
 	}
 

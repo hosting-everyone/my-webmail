@@ -1,6 +1,5 @@
 <?php
 
-use MailSo\Log\Enumerations\Type;
 use MailSo\Log\Logger;
 use RainLoop\Model\Account;
 use RainLoop\Model\Identity;
@@ -40,7 +39,7 @@ class LdapIdentities implements IIdentities
 		// Check if LDAP is available
 		if (!extension_loaded('ldap') || !function_exists('ldap_connect')) {
 			$this->ldapAvailable = false;
-			$logger->Write("The LDAP extension is not available!", Type::WARNING, self::LOG_KEY);
+			$logger->Write("The LDAP extension is not available!", \LOG_WARNING, self::LOG_KEY);
 			return;
 		}
 
@@ -70,17 +69,18 @@ class LdapIdentities implements IIdentities
 				$this->config->user_base,
 				$this->config->user_objectclass,
 				$this->config->user_field_name,
-				$this->config->user_field_mail
+				$this->config->user_field_mail,
+				$this->config->mail_prefix
 			);
 		} catch (LdapException $e) {
 			return []; // exceptions are only thrown from the handleerror function that does logging already
 		}
 
 		if (count($userResults) < 1) {
-			$this->logger->Write("Could not find user $username", Type::NOTICE, self::LOG_KEY);
+			$this->logger->Write("Could not find user $username", \LOG_NOTICE, self::LOG_KEY);
 			return [];
 		} else if (count($userResults) > 1) {
-			$this->logger->Write("Found multiple matches for user $username", Type::WARNING, self::LOG_KEY);
+			$this->logger->Write("Found multiple matches for user $username", \LOG_WARNING, self::LOG_KEY);
 		}
 
 		$userResult = $userResults[0];
@@ -105,7 +105,8 @@ class LdapIdentities implements IIdentities
 				$this->config->group_base,
 				$this->config->group_objectclass,
 				$this->config->group_field_name,
-				$this->config->group_field_mail
+				$this->config->group_field_mail,
+				$this->config->mail_prefix
 			);
 		} catch (LdapException $e) {
 			return []; // exceptions are only thrown from the handleerror function that does logging already
@@ -130,11 +131,11 @@ class LdapIdentities implements IIdentities
 
 	/**
 	 * @inheritDoc
-	 * @throws \RainLoop\Exceptions\Exception
+	 * @throws \RainLoop\Exceptions\ClientException
 	 */
 	public function SetIdentities(Account $account, array $identities): void
 	{
-		throw new \RainLoop\Exceptions\Exception("Ldap identities provider does not support storage");
+		throw new \RainLoop\Exceptions\ClientException("Ldap identities provider does not support storage");
 	}
 
 	/**
@@ -179,6 +180,15 @@ class LdapIdentities implements IIdentities
 			return false;
 		}
 
+		// Activate StartTLS
+		if ($this->config->starttls) {
+			$starttlsResult = ldap_start_tls($ldap);
+			if (!$starttlsResult) {
+				$this->ldapAvailable = false;
+				return false;
+			}
+		}
+		
 		$this->ldap = $ldap;
 		$this->ldapConnected = true;
 		return true;
@@ -219,7 +229,7 @@ class LdapIdentities implements IIdentities
 		$errorMsg = @ldap_error($this->ldap);
 
 		$message = empty($op) ? "LDAP Error: {$errorMsg} ({$errorNo})" : "LDAP Error during {$op}: {$errorMsg} ({$errorNo})";
-		$this->logger->Write($message, Type::ERROR, self::LOG_KEY);
+		$this->logger->Write($message, \LOG_ERR, self::LOG_KEY);
 		throw new LdapException($message, $errorNo);
 	}
 
@@ -233,7 +243,7 @@ class LdapIdentities implements IIdentities
 	 * @return LdapResult[]
 	 * @throws LdapException
 	 */
-	private function FindLdapResults(string $searchField, string $searchValue, string $searchBase, string $objectClass, string $nameField, string $mailField): array
+	private function FindLdapResults(string $searchField, string $searchValue, string $searchBase, string $objectClass, string $nameField, string $mailField, string $mailPrefix): array
 	{
 		$this->EnsureBound();
 
@@ -253,6 +263,8 @@ class LdapIdentities implements IIdentities
 			return [];
 		}
 
+		$entries = $this->CleanupMailAddresses($entries, $mailField, $mailPrefix);
+
 		$results = [];
 		for ($i = 0; $i < $entries["count"]; $i++) {
 			$entry = $entries[$i];
@@ -268,6 +280,49 @@ class LdapIdentities implements IIdentities
 		return $results;
 	}
 
+	// Function CleanupMailAddresses(): If a prefix is given this function removes addresses without / with the wrong prefix and then the prefix itself from all remaining values.
+	// This is usefull for example for importing Active Directory LDAP entry "proxyAddresses" which can hold different address types with prefixes like "X400:", "smtp:" "sip:" and others.
+
+	/**
+	@param array $entries
+	@param string $mailField
+	@paraam string $mailPrefix
+	@return array
+	*/
+	private function CleanupMailAddresses(array $entries, string $mailField, string $mailPrefix)
+	{
+		if (!empty($mailPrefix)) {
+			for ($i = 0; $i < $entries["count"]; $i++) {
+				// Remove addresses without the given prefix
+				$entries[$i]["$mailField"] = array_filter($entries[$i]["$mailField"],
+												function($prefixMail)
+												{
+													// $mailPrefix can't be used here, because it's nailed to the CleanupMailAddresses function and can't be passed to the array_filter function afaik.
+													// Ideas to avoid this are welcome.
+													if (stripos($prefixMail, $this->config->mail_prefix) === 0) {
+														return TRUE;
+													}
+													return FALSE;
+												}
+											);
+				// Set "count" to new value
+				$newcount = count($entries[$i]["$mailField"]);
+				if (array_key_exists("count", $entries[$i]["$mailField"])) {
+					$newcount = $newcount - 1;
+				}
+				$entries[$i]["$mailField"]["count"] = $newcount;
+
+				// Remove the prefix
+				for ($j = 0; $j < $entries[$i]["$mailField"]["count"]; $j++) {
+					$mailPrefixLen = mb_strlen($mailPrefix);
+					$entries[$i]["$mailField"][$j] = substr($entries[$i]["$mailField"][$j], $mailPrefixLen);
+				}
+			}
+		}
+
+		return $entries;
+	}
+
 	/**
 	 * @param array $entry
 	 * @param string $attribute
@@ -279,14 +334,14 @@ class LdapIdentities implements IIdentities
 	{
 		if (!isset($entry[$attribute])) {
 			if ($required)
-				$this->logger->Write("Attribute $attribute not found on object {$entry['dn']} while required", Type::NOTICE, self::LOG_KEY);
+				$this->logger->Write("Attribute $attribute not found on object {$entry['dn']} while required", \LOG_NOTICE, self::LOG_KEY);
 
 			return $single ? "" : [];
 		}
 
 		if ($single) {
 			if ($entry[$attribute]["count"] > 1)
-				$this->logger->Write("Attribute $attribute is multivalues while only a single value is expected", Type::NOTICE, self::LOG_KEY);
+				$this->logger->Write("Attribute $attribute is multivalues while only a single value is expected", \LOG_NOTICE, self::LOG_KEY);
 
 			return $entry[$attribute][0];
 		}

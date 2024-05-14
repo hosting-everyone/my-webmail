@@ -10,15 +10,11 @@
 	z-index: 5;
 }
 
-@glass-color: #fff;
-@glass-error-color: #f76260;
-@glass-m-color: rgba(255, 255, 255, .8);
-
 .LoginView {
 
 	.descWrapper {
 		color: var(--loading-color, #000);
-		font-size: 30px;
+		font-size: 214%;
 		margin-bottom: 10px;
 		text-align: center;
 		text-shadow: var(--loading-text-shadow);
@@ -29,18 +25,18 @@
 		border: var(--login-border, 1px solid rgba(255, 255, 255, .2));
 		border-radius: var(--login-border-radius, 7px);
 		box-shadow: var(--login-box-shadow);
-		color: var(--login-color, @glass-m-color);
+		color: var(--login-color, rgba(255, 255, 255, .8));
 		margin: 0;
 		padding: 40px 40px 20px 40px;
 		position: relative;
 
 		* {
-			color: var(--login-color, @glass-m-color);
+			color: var(--login-color, rgba(255, 255, 255, .8));
 		}
 
 		.controls.error * {
-			color: @glass-error-color;
-			border-color: @glass-error-color;
+			color: #f76260;
+			border-color: #f76260;
 		}
 
 		&.submitting > * {
@@ -72,62 +68,47 @@
 	}
 
 	input {
-		font-size: 18px;
+		font-size: 128%;
 		height: 40px;
 		padding-right: 30px;
 
 		&:placeholder {
-			color: @glass-color;
+			color: #fff;
 		}
 
 		&:focus, &:hover {
-			border-color: @glass-color;
+			border-color: #fff;
 		}
 	}
 
 	input, .btn {
-		background: none !important;
-		border: 1px solid @glass-m-color;
-		color: @glass-color;
+		background: none;
+		border: 1px solid rgba(255, 255, 255, .8);
 	}
 
 	.fontastic + input {
-		padding-left: 30px;
+		padding: 0 30px;
 	}
 
 	.controls > .fontastic:first-child {
 		position: absolute;
-		font-size: 17px;
+		font-size: 121%;
 		line-height: 38px;
 		left: 6px;
-	}
-
-	input + button {
-		border: none;
-		background: none;
-		cursor: pointer;
-		display: inline-block;
-		font-size: 17px;
-		line-height: 38px;
-		margin: 0;
-		padding: 0;
-		position: absolute;
-		right: 6px;
-		top: 0;
 	}
 
 	.btn {
 
 		text-transform: uppercase;
-		font-size: 13px;
+		font-size: 90%;
 
 		&:hover, &:active {
-			border-color: @glass-color;
+			border-color: #fff;
 		}
 	}
 
 	.buttonLogin {
-		margin: 0;
+		width: 100%;
 	}
 
 	.alert {
@@ -138,6 +119,11 @@
 		display: block;
 		opacity: 1;
 		transition: opacity 0.5s linear;
+
+		p {
+			font-family: var(--fontMono);
+			font-size: 90%;
+		}
 	}
 	.alert[hidden] {
 		opacity: 0;
@@ -145,8 +131,7 @@
 
 	.language-buttons {
 		flex-grow: 1;
-		margin-top: 5px;
-		text-align: right;
+		text-align: var(--right, right);
 	}
 
 	.language-button {

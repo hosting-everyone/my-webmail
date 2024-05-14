@@ -1,4 +1,4 @@
-/* RainLoop Webmail (c) RainLoop Team | Licensed under AGPL 3 */
+/* RainLoop Webmail (c) RainLoop Team | Licensed under MIT */
 const gulp = require('gulp');
 const del = require('del');
 const fs = require('fs');
@@ -14,4 +14,4 @@ exports.copy = (sFile, sNewFile, done) => {
 
 exports.getHead = () => config.head.agpl;
 
-exports.cleanStatic = () => del(config.paths.static);
+exports.cleanStatic = () => del(config.paths.staticJS) && del(config.paths.staticCSS);

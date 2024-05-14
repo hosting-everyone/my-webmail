@@ -6,31 +6,27 @@
 		 * @param {*} aItems
 		 * @param {Function} fFileCallback
 		 * @param {number=} iLimit = 20
-		 * @param {Function=} fLimitCallback
 		 */
-		getDataFromFiles = (aItems, fFileCallback, iLimit, fLimitCallback) =>
+		getDataFromFiles = (aItems, fFileCallback, iLimit) =>
 		{
-			if (aItems && aItems.length)
+			if (aItems?.length)
 			{
 				let
 					oFile,
-					iInputLimit = iLimit,
-					bUseLimit = 0 < iLimit,
-					bCallLimit = !fLimitCallback
+					iCount = 0,
+					bCallLimit = false
 				;
 
 				[...aItems].forEach(oItem => {
-					if (oItem)
-					{
-						if (!bUseLimit || 0 <= --iLimit)
-						{
+					if (oItem) {
+						if (iLimit && iLimit < ++iCount) {
+							if (!bCallLimit) {
+								bCallLimit = true;
+//								fLimitCallback(iLimit);
+							}
+						} else {
 							oFile = getDataFromFile(oItem);
 							oFile && fFileCallback(oFile);
-						}
-						else if (bUseLimit && !bCallLimit)
-						{
-							bCallLimit = true;
-							fLimitCallback(iInputLimit);
 						}
 					}
 				});
@@ -46,42 +42,22 @@
 		 */
 		getDataFromFile = oFile =>
 		{
-			let
-				iSize = oFile.size || 0,
-				sType = oFile.type || ''
-			;
-
-			return (sType && iSize)
-			? {
-				FileName: (oFile.name || '').replace(/^.*\/([^/]*)$/, '$1'),
-				Size: iSize,
-				Type: sType,
-				Folder: '',
-				File : oFile
-			}
-			: null; // Folder
+			return oFile.size
+				? {
+					fileName: (oFile.name || '').replace(/^.*\/([^/]*)$/, '$1'),
+					size: oFile.size,
+					file: oFile
+				}
+				: null; // Folder
 		},
 
-		eventContainsFiles = oEvent =>
-		{
-			try {
-				return oEvent.dataTransfer.types.includes('Files');
-			} catch (e) {
-				return false;
-			}
-		};
+		eventContainsFiles = oEvent => oEvent.dataTransfer.types.includes('Files');
 
 	class Queue extends Array
 	{
-		constructor(limit) {
-			super();
-			this.limit = parseInt(limit || 0, 10);
-		}
 		push(fn, ...args) {
-			if (this.limit > this.length) {
-				super.push([fn, args]);
-				this.call();
-			}
+			super.push([fn, args]);
+			this.call();
 		}
 		call() {
 			if (!this.running) {
@@ -122,8 +98,7 @@
 				onDragEnter: null,
 				onDragLeave: null,
 				onBodyDragEnter: null,
-				onBodyDragLeave: null,
-				onLimitReached: null
+				onBodyDragLeave: null
 			};
 
 			self.oXhrs = {};
@@ -131,11 +106,13 @@
 			self.options = Object.assign({
 					action: '',
 					name: 'uploader',
-					hidden: {},
-					limit: 0
+					limit: 0,
+//					clickElement:
+//					dragAndDropElement:
 				}, options || {});
-			self.oQueue = new Queue(1 == options.limit ? 1 : 2);
+			self.oQueue = new Queue();
 
+			// clickElement
 			if (el) {
 				el.style.position = 'relative';
 				el.style.overflow = 'hidden';
@@ -147,111 +124,58 @@
 			}
 
 			el = options.dragAndDropElement;
-			if (el)
-			{
-				let oBigDropZone = options.dragAndDropBodyElement || doc;
-
-				if (!options.disableDocumentDropPrevent)
-				{
-					doc.addEventListener('dragover', oEvent => {
-						if (eventContainsFiles(oEvent))
-						{
-							try
-							{
+			if (el) {
+				addEventListeners(doc, {
+					dragover: oEvent => {
+						if (eventContainsFiles(oEvent)) {
+							timerStop();
+							if (el.contains(oEvent.target)) {
+								oEvent.dataTransfer.dropEffect = 'copy';
+								oEvent.stopPropagation();
+							} else {
 								oEvent.dataTransfer.dropEffect = 'none';
-								oEvent.preventDefault();
 							}
-							catch (oExc) {
-								console.error(oExc);
-							}
+							oEvent.preventDefault();
 						}
-					});
-				}
-
-				if (oBigDropZone)
-				{
-					addEventListeners(oBigDropZone, {
-						dragover: () => timerStop(),
-						dragenter: oEvent => {
-							if (eventContainsFiles(oEvent))
-							{
-								timerStop();
-								oEvent.preventDefault();
-
-								self.runEvent('onBodyDragEnter', oEvent);
-							}
-						},
-						dragleave: oEvent =>
-							oEvent.dataTransfer && timerStart(() => self.runEvent('onBodyDragLeave', oEvent)),
-						drop: oEvent => {
-							if (oEvent.dataTransfer) {
-								let bFiles = eventContainsFiles(oEvent);
-								bFiles && oEvent.preventDefault();
-
-								self.runEvent('onBodyDragLeave', oEvent);
-
-								return !bFiles;
-							}
-
-							return false;
-						}
-					});
-				}
-
-				addEventListeners(el, {
+					},
 					dragenter: oEvent => {
 						if (eventContainsFiles(oEvent)) {
 							timerStop();
-
 							oEvent.preventDefault();
-							self.runEvent('onDragEnter', el, oEvent);
-						}
-					},
-					dragover: oEvent => {
-						if (eventContainsFiles(oEvent)) {
-							try
-							{
-								let sEffect = oEvent.dataTransfer.effectAllowed;
-
+							self.runEvent('onBodyDragEnter', oEvent);
+							if (el.contains(oEvent.target)) {
 								timerStop();
-
-								oEvent.dataTransfer.dropEffect = (sEffect === 'move' || sEffect === 'linkMove') ? 'move' : 'copy';
-
-								oEvent.stopPropagation();
-								oEvent.preventDefault();
-							}
-							catch (oExc) {
-								console.error(oExc);
+								self.runEvent('onDragEnter', el, oEvent);
 							}
 						}
 					},
 					dragleave: oEvent => {
-						if (oEvent.dataTransfer) {
+						if (eventContainsFiles(oEvent)) {
 							let oRelatedTarget = doc.elementFromPoint(oEvent.clientX, oEvent.clientY);
 							if (!oRelatedTarget || !el.contains(oRelatedTarget)) {
-								timerStop();
 								self.runEvent('onDragLeave', el, oEvent);
 							}
+							timerStart(() => self.runEvent('onBodyDragLeave', oEvent))
 						}
 					},
 					drop: oEvent => {
 						if (eventContainsFiles(oEvent)) {
+							timerStop();
 							oEvent.preventDefault();
-
-							getDataFromFiles(
-								oEvent.files || oEvent.dataTransfer.files,
-								oFile => {
-									if (oFile) {
-										self.addNewFile(oFile);
-										timerStop();
-									}
-								},
-								self.options.limit,
-								self.getEvent('onLimitReached')
-							);
+							if (el.contains(oEvent.target)) {
+								getDataFromFiles(
+									oEvent.files || oEvent.dataTransfer.files,
+									oFile => {
+										if (oFile) {
+											self.addFile(oFile);
+										}
+									},
+									self.options.limit
+								);
+							}
 						}
-
 						self.runEvent('onDragLeave', oEvent);
+						self.runEvent('onBodyDragLeave', oEvent);
 					}
 				});
 			}
@@ -272,7 +196,7 @@
 		 */
 		runEvent(sName, ...aArgs)
 		{
-			this.oEvents[sName] && this.oEvents[sName].apply(null, aArgs);
+			this.oEvents[sName]?.apply(null, aArgs);
 		}
 
 		/**
@@ -286,18 +210,10 @@
 		/**
 		 * @param {Object} oFileInfo
 		 */
-		addNewFile(oFileInfo)
+		addFile(oFileInfo)
 		{
-			this.addFile('jua-uid-' + Jua.randomId(16) + '-' + (Date.now().toString()), oFileInfo);
-		}
-
-		/**
-		 * @param {string} sUid
-		 * @param {Object} oFileInfo
-		 */
-		addFile(sUid, oFileInfo)
-		{
-			const fOnSelect = this.getEvent('onSelect');
+			const sUid = 'jua-uid-' + Jua.randomId(16) + '-' + (Date.now().toString()),
+				fOnSelect = this.getEvent('onSelect');
 			if (oFileInfo && (!fOnSelect || (false !== fOnSelect(sUid, oFileInfo))))
 			{
 				this.oUids[sUid] = true;
@@ -315,7 +231,7 @@
 		 */
 		uploadTask(sUid, oFileInfo)
 		{
-			if (false === this.oUids[sUid] || !oFileInfo || !oFileInfo['File'])
+			if (false === this.oUids[sUid] || !oFileInfo || !oFileInfo.file)
 			{
 				return false;
 			}
@@ -327,7 +243,6 @@
 					oXhr = new XMLHttpRequest(),
 					oFormData = new FormData(),
 					sAction = this.options.action,
-					aHidden = this.options.hidden,
 					fStartFunction = this.getEvent('onStart'),
 					fProgressFunction = this.getEvent('onProgress')
 				;
@@ -368,10 +283,7 @@
 
 				fStartFunction && fStartFunction(sUid);
 
-				oFormData.append(this.options.name, oFileInfo['File']);
-				Object.entries(aHidden).forEach(([key, value]) =>
-					oFormData.append(key, (typeof value === "function" ? value(oFileInfo) : value).toString())
-				);
+				oFormData.append(this.options.name, oFileInfo.file);
 
 				oXhr.send(oFormData);
 
@@ -398,31 +310,26 @@
 				oInput.type = 'file';
 				oInput.tabIndex = -1;
 				oInput.style.display = 'none';
-				oInput.multiple = 1 < limit;
+				oInput.multiple = 1 != limit;
 
 				oClickElement.addEventListener('click', onClick);
 
 				oInput.addEventListener('input', () => {
 					const fFileCallback = oFile => {
-						self.addNewFile(oFile);
+						self.addFile(oFile);
 						setTimeout(() => {
 							oInput.remove();
 							oClickElement.removeEventListener('click', onClick);
 							self.generateNewInput(oClickElement);
 						}, 10);
 					};
-					if (oInput.files && oInput.files.length) {
-						getDataFromFiles(oInput.files, fFileCallback,
-							limit,
-							self.getEvent('onLimitReached')
-						);
+					if (oInput.files?.length) {
+						getDataFromFiles(oInput.files, fFileCallback, limit);
 					} else {
 						fFileCallback({
-							FileName: oInput.value.split(/\\\//).pop(),
-							Size: null,
-							Type: null,
-							Folder: '',
-							File : null
+							fileName: oInput.value.split(/\\\//).pop(),
+							size: null,
+							file : null
 						});
 					}
 				});

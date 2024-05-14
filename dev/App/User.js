@@ -1,11 +1,11 @@
 import 'External/User/ko';
 
-import { isArray, pString } from 'Common/Utils';
-import { mailToHelper, setLayoutResizer, dropdownsDetectVisibility } from 'Common/UtilsUser';
+import { SMAudio } from 'Common/Audio';
+import { pInt } from 'Common/Utils';
+import { mailToHelper, setLayoutResizer, dropdownsDetectVisibility, loadAccountsAndIdentities } from 'Common/UtilsUser';
 
 import {
 	FolderType,
-	SetSystemFoldersNotification,
 	ClientSideKeyNameFolderListSize
 } from 'Common/EnumsUser';
 
@@ -23,9 +23,6 @@ import {
 import { UNUSED_OPTION_VALUE } from 'Common/Consts';
 
 import {
-	MessageFlagsCache,
-	setFolderHash,
-	getFolderHash,
 	getFolderInboxName,
 	getFolderFromCacheList
 } from 'Common/Cache';
@@ -36,19 +33,19 @@ import { SettingsUserStore } from 'Stores/User/Settings';
 import { NotificationUserStore } from 'Stores/User/Notification';
 import { AccountUserStore } from 'Stores/User/Account';
 import { ContactUserStore } from 'Stores/User/Contact';
-import { IdentityUserStore } from 'Stores/User/Identity';
 import { FolderUserStore } from 'Stores/User/Folder';
 import { PgpUserStore } from 'Stores/User/Pgp';
+import { SMimeUserStore } from 'Stores/User/SMime';
 import { MessagelistUserStore } from 'Stores/User/Messagelist';
-import { ThemeStore } from 'Stores/Theme';
+import { ThemeStore, initThemes } from 'Stores/Theme';
+import { LanguageStore } from 'Stores/Language';
+import { MessageUserStore } from 'Stores/User/Message';
 
 import Remote from 'Remote/User/Fetch';
 
-import { AccountModel } from 'Model/Account';
-import { IdentityModel } from 'Model/Identity';
-
 import { LoginUserScreen } from 'Screen/User/Login';
 import { MailBoxUserScreen } from 'Screen/User/MailBox';
+import { ContactsUserScreen } from 'Screen/User/Contacts';
 import { SettingsUserScreen } from 'Screen/User/Settings';
 
 import { startScreens, showScreenPopup, arePopupsVisible } from 'Knoin/Knoin';
@@ -60,15 +57,13 @@ import { FolderSystemPopupView } from 'View/Popup/FolderSystem';
 import { AskPopupView } from 'View/Popup/Ask';
 
 import {
+	folderInformation,
 	folderInformationMultiply,
-	refreshFoldersInterval,
-	messagesMoveHelper,
-	messagesDeleteHelper,
-	fetchFolderInformation
+	setRefreshFoldersInterval
 } from 'Common/Folders';
 import { loadFolders } from 'Model/FolderCollection';
 
-class AppUser extends AbstractApp {
+export class AppUser extends AbstractApp {
 	constructor() {
 		super(Remote);
 
@@ -77,129 +72,71 @@ class AppUser extends AbstractApp {
 		let lastTime = Date.now();
 		setInterval(() => {
 			const currentTime = Date.now();
-			if (currentTime > (lastTime + interval + 1000)) {
-				Remote.request('Version',
-					iError => (100 < iError) && (Settings.app('inIframe') ? parent : window).location.reload(),
-					{ Version: Settings.app('version') }
+			(currentTime > (lastTime + interval + 1000))
+			&& Remote.request('Version',
+					iError => (100 < iError) && location.reload(),
+					{ version: Settings.app('version') }
 				);
-			}
 			lastTime = currentTime;
 		}, interval);
 
-		const fn = (ev=>$htmlCL.toggle('rl-ctrl-key-pressed', ev.ctrlKey)).debounce(500);
-		addEventsListener(doc, ['keydown','keyup'], fn);
+		addEventsListener(doc, ['keydown','keyup'], (ev=>$htmlCL.toggle('rl-ctrl-key-pressed', ev.ctrlKey)).debounce(500));
 
 		addShortcut('escape,enter', '', dropdownsDetectVisibility);
 		addEventListener('click', dropdownsDetectVisibility);
+
+		this.folderList = FolderUserStore.folderList;
+		this.messageList = MessagelistUserStore;
+
+		this.ask = AskPopupView;
 	}
 
 	/**
-	 * @param {number} iDeleteType
+	 * @param {number} iFolderType
 	 * @param {string} sFromFolderFullName
-	 * @param {Array} aUidForRemove
-	 * @param {boolean=} bUseFolder = true
+	 * @param {Set} oUids
+	 * @param {boolean=} bDelete = false
 	 */
-	deleteMessagesFromFolder(iDeleteType, sFromFolderFullName, aUidForRemove, bUseFolder) {
+	moveMessagesToFolderType(iFolderType, sFromFolderFullName, oUids, bDelete) {
 		let oMoveFolder = null,
-			nSetSystemFoldersNotification = null;
+			nSetSystemFoldersNotification = 0;
 
-		switch (iDeleteType) {
-			case FolderType.Spam:
+		switch (iFolderType) {
+			case FolderType.Junk:
 				oMoveFolder = getFolderFromCacheList(FolderUserStore.spamFolder());
-				nSetSystemFoldersNotification = SetSystemFoldersNotification.Spam;
+				nSetSystemFoldersNotification = iFolderType;
+				bDelete = bDelete || UNUSED_OPTION_VALUE === FolderUserStore.spamFolder();
 				break;
-			case FolderType.NotSpam:
+			case FolderType.Inbox:
 				oMoveFolder = getFolderFromCacheList(getFolderInboxName());
 				break;
 			case FolderType.Trash:
 				oMoveFolder = getFolderFromCacheList(FolderUserStore.trashFolder());
-				nSetSystemFoldersNotification = SetSystemFoldersNotification.Trash;
+				nSetSystemFoldersNotification = iFolderType;
+				bDelete = bDelete || UNUSED_OPTION_VALUE === FolderUserStore.trashFolder()
+					|| sFromFolderFullName === FolderUserStore.spamFolder()
+					|| sFromFolderFullName === FolderUserStore.trashFolder();
 				break;
 			case FolderType.Archive:
 				oMoveFolder = getFolderFromCacheList(FolderUserStore.archiveFolder());
-				nSetSystemFoldersNotification = SetSystemFoldersNotification.Archive;
+				nSetSystemFoldersNotification = iFolderType;
+				bDelete = bDelete || UNUSED_OPTION_VALUE === FolderUserStore.archiveFolder();
 				break;
 			// no default
 		}
 
-		bUseFolder = undefined === bUseFolder ? true : !!bUseFolder;
-		if (bUseFolder) {
-			if (
-				(FolderType.Spam === iDeleteType && UNUSED_OPTION_VALUE === FolderUserStore.spamFolder()) ||
-				(FolderType.Trash === iDeleteType && UNUSED_OPTION_VALUE === FolderUserStore.trashFolder()) ||
-				(FolderType.Archive === iDeleteType && UNUSED_OPTION_VALUE === FolderUserStore.archiveFolder())
-			) {
-				bUseFolder = false;
-			}
-		}
-
-		if (!oMoveFolder && bUseFolder) {
-			showScreenPopup(FolderSystemPopupView, [nSetSystemFoldersNotification]);
-		} else if (
-			!bUseFolder ||
-			(FolderType.Trash === iDeleteType &&
-				(sFromFolderFullName === FolderUserStore.spamFolder()
-				 || sFromFolderFullName === FolderUserStore.trashFolder()))
-		) {
+		if (bDelete) {
 			showScreenPopup(AskPopupView, [
 				i18n('POPUPS_ASK/DESC_WANT_DELETE_MESSAGES'),
 				() => {
-					messagesDeleteHelper(sFromFolderFullName, aUidForRemove);
-					MessagelistUserStore.removeMessagesFromList(sFromFolderFullName, aUidForRemove);
+					MessagelistUserStore.moveMessages(sFromFolderFullName, oUids);
 				}
 			]);
 		} else if (oMoveFolder) {
-			messagesMoveHelper(sFromFolderFullName, oMoveFolder.fullName, aUidForRemove);
-			MessagelistUserStore.removeMessagesFromList(sFromFolderFullName, aUidForRemove, oMoveFolder.fullName);
+			MessagelistUserStore.moveMessages(sFromFolderFullName, oUids, oMoveFolder.fullName);
+		} else {
+			showScreenPopup(FolderSystemPopupView, [nSetSystemFoldersNotification]);
 		}
-	}
-
-	accountsAndIdentities() {
-		AccountUserStore.loading(true);
-		IdentityUserStore.loading(true);
-
-		Remote.request('AccountsAndIdentities', (iError, oData) => {
-			AccountUserStore.loading(false);
-			IdentityUserStore.loading(false);
-
-			if (!iError) {
-				const
-//					counts = {},
-					accounts = oData.Result.Accounts,
-					mainEmail = SettingsGet('MainEmail');
-
-				if (isArray(accounts)) {
-//					AccountUserStore.accounts.forEach(oAccount => counts[oAccount.email] = oAccount.count());
-
-					AccountUserStore.accounts(
-						accounts.map(
-							sValue => new AccountModel(sValue/*, counts[sValue]*/)
-						)
-					);
-//					accounts.length &&
-					AccountUserStore.accounts.unshift(new AccountModel(mainEmail/*, counts[mainEmail]*/, false));
-				}
-
-				if (isArray(oData.Result.Identities)) {
-					IdentityUserStore(
-						oData.Result.Identities.map(identityData => {
-							const identity = new IdentityModel(
-								pString(identityData.Id),
-								pString(identityData.Email)
-							);
-
-							identity.name(pString(identityData.Name));
-							identity.replyTo(pString(identityData.ReplyTo));
-							identity.bcc(pString(identityData.Bcc));
-							identity.signature(pString(identityData.Signature));
-							identity.signatureInsertBefore(!!identityData.SignatureInsertBefore);
-
-							return identity;
-						})
-					);
-				}
-			}
-		});
 	}
 
 	/**
@@ -207,87 +144,37 @@ class AppUser extends AbstractApp {
 	 * @param {Array=} list = []
 	 */
 	folderInformation(folder, list) {
-		if (folder && folder.trim()) {
-			fetchFolderInformation(
-				(iError, data) => {
-					if (!iError && data.Result) {
-						const result = data.Result,
-							hash = getFolderHash(result.Folder),
-							folderFromCache = getFolderFromCacheList(result.Folder);
-						if (folderFromCache) {
-							folderFromCache.expires = Date.now();
-
-							setFolderHash(result.Folder, result.Hash);
-
-							folderFromCache.messageCountAll(result.MessageCount);
-
-							let unreadCountChange = (folderFromCache.messageCountUnread() !== result.MessageUnseenCount);
-
-							folderFromCache.messageCountUnread(result.MessageUnseenCount);
-
-							if (unreadCountChange) {
-								MessageFlagsCache.clearFolder(folderFromCache.fullName);
-							}
-
-							if (result.Flags.length) {
-								result.Flags.forEach(message =>
-									MessageFlagsCache.setFor(folderFromCache.fullName, message.Uid.toString(), message.Flags)
-								);
-
-								MessagelistUserStore.reloadFlagsAndCachedMessage();
-							}
-
-							MessagelistUserStore.initUidNextAndNewMessages(
-								folderFromCache.fullName,
-								result.UidNext,
-								result.NewMessages
-							);
-
-							if (!hash || unreadCountChange || result.Hash !== hash) {
-								if (folderFromCache.fullName === FolderUserStore.currentFolderFullName()) {
-									MessagelistUserStore.reload();
-								} else if (getFolderInboxName() === folderFromCache.fullName) {
-									Remote.messageList(null, {Folder: getFolderInboxName()}, true);
-								}
-							}
-						}
-					}
-				},
-				folder,
-				list
-			);
-		}
+		folderInformation(folder, list);
 	}
 
 	logout() {
-		Remote.request('Logout', () => {
-			const customLogoutLink = Settings.app('customLogoutLink');
-			if (customLogoutLink) {
-				((window.parent && Settings.app('inIframe')) ? window.parent : window).location.href = customLogoutLink;
-			} else {
-				rl.logoutReload()
-			}
-		});
+		localStorage.removeItem('register_protocol_offered');
+		Remote.request('Logout', () => rl.logoutReload(Settings.app('customLogoutLink')));
 	}
 
 	bootstart() {
 		super.bootstart();
 
-		addEventListener('resize', () => leftPanelDisabled(ThemeStore.isMobile() || 1000 > innerWidth));
 		addEventListener('beforeunload', event => {
-			if (arePopupsVisible()) {
+			if (arePopupsVisible() || (!SettingsUserStore.usePreviewPane() && MessageUserStore.message())) {
 				event.preventDefault();
-				return event.returnValue = "Are you sure you want to exit?";
+				return event.returnValue = i18n('POPUPS_ASK/EXIT_ARE_YOU_SURE');
 			}
 		}, {capture: true});
 	}
 
+	refresh() {
+		initThemes();
+		LanguageStore.language(SettingsGet('language'));
+		this.start();
+	}
+
 	start() {
 		if (SettingsGet('Auth')) {
-			rl.setWindowTitle(i18n('GLOBAL/LOADING'));
+			rl.setTitle(i18n('GLOBAL/LOADING'));
 
-			NotificationUserStore.enableSoundNotification(!!SettingsGet('SoundNotification'));
-			NotificationUserStore.enableDesktopNotification(!!SettingsGet('DesktopNotifications'));
+			SMAudio.notifications(!!SettingsGet('SoundNotification'));
+			NotificationUserStore.enabled(!!SettingsGet('DesktopNotifications'));
 
 			AccountUserStore.email(SettingsGet('Email'));
 
@@ -299,28 +186,17 @@ class AppUser extends AbstractApp {
 					if (value) {
 						startScreens([
 							MailBoxUserScreen,
+							ContactsUserScreen,
 							SettingsUserScreen
 						]);
 
-						setInterval(() => {
-							const cF = FolderUserStore.currentFolderFullName(),
-								iF = getFolderInboxName();
-							this.folderInformation(iF);
-							if (iF !== cF) {
-								this.folderInformation(cF);
-							}
-							folderInformationMultiply();
-						}, refreshFoldersInterval);
+						setRefreshFoldersInterval(pInt(SettingsGet('CheckMailInterval')));
 
-						ContactUserStore.init();
-
-						this.accountsAndIdentities();
+						loadAccountsAndIdentities();
 
 						setTimeout(() => {
 							const cF = FolderUserStore.currentFolderFullName();
-							if (getFolderInboxName() !== cF) {
-								this.folderInformation(cF);
-							}
+							getFolderInboxName() === cF || folderInformation(cF);
 							FolderUserStore.hasCapability('LIST-STATUS') || folderInformationMultiply(true);
 						}, 1000);
 
@@ -333,31 +209,32 @@ class AppUser extends AbstractApp {
 						// initLeftSideLayoutResizer
 						setTimeout(() => {
 							const left = elementById('rl-left'),
-								right = elementById('rl-right'),
 								fToggle = () =>
-									setLayoutResizer(left, right, ClientSideKeyNameFolderListSize,
+									setLayoutResizer(left, ClientSideKeyNameFolderListSize,
 										(ThemeStore.isMobile() || leftPanelDisabled()) ? 0 : 'Width');
-							if (left && right) {
+							if (left) {
 								fToggle();
 								leftPanelDisabled.subscribe(fToggle);
 							}
 						}, 1);
 
-						setInterval(reloadTime(), 60000);
+						setInterval(reloadTime, 60000);
 
 						PgpUserStore.init();
+						SMimeUserStore.loadCertificates();
 
-						// When auto-login is active
-						if (navigator.registerProtocolHandler) {
-							try {
-								navigator.registerProtocolHandler(
-									'mailto',
-									location.protocol + '//' + location.host + location.pathname + '?mailto&to=%s',
-									(SettingsGet('Title') || 'SnappyMail')
-								);
-							} catch (e) {} // eslint-disable-line no-empty
+						setTimeout(() => mailToHelper(SettingsGet('mailToEmail')), 500);
+
+						if (!localStorage.getItem('register_protocol_offered')) {
+							// When auto-login is active
+							navigator.registerProtocolHandler?.(
+								'mailto',
+								location.protocol + '//' + location.host + location.pathname + '?mailto&to=%s',
+								(SettingsGet('title') || 'SnappyMail')
+							);
+							localStorage.setItem('register_protocol_offered', '1');
 						}
-						setTimeout(() => mailToHelper(SettingsGet('MailToEmail')), 500);
+
 					} else {
 						this.logout();
 					}
@@ -365,7 +242,6 @@ class AppUser extends AbstractApp {
 					console.error(e);
 				}
 			});
-
 		} else {
 			startScreens([LoginUserScreen]);
 		}
@@ -377,4 +253,49 @@ class AppUser extends AbstractApp {
 	}
 }
 
-export default new AppUser();
+AskPopupView.password = function(sAskDesc, btnText, ask) {
+	return new Promise(resolve => {
+		this.showModal([
+			sAskDesc,
+			view => resolve({
+				password:view.passphrase(),
+				username:/*ask & 2 ? */view.username(),
+				remember:/*ask & 4 ? */view.remember()
+			}),
+			() => resolve(null),
+			true,
+			ask || 1,
+			btnText
+		]);
+	});
+};
+
+AskPopupView.cryptkey = () => new Promise(resolve => {
+	const fn = () => AskPopupView.showModal([
+		i18n('CRYPTO/ASK_CRYPTKEY_PASS'),
+		view => {
+			let pass = view.passphrase();
+			if (pass) {
+				Remote.post('ResealCryptKey', null, {
+					passphrase: pass
+				}).then(response => {
+					resolve(response?.Result);
+				}).catch(e => {
+					if (111 === e.code) {
+						fn();
+					} else {
+						console.error(e);
+						resolve(null);
+					}
+				});
+			} else {
+				resolve(null);
+			}
+		},
+		() => resolve(null),
+		true,
+		1,
+		i18n('CRYPTO/DECRYPT')
+	]);
+	fn();
+});

@@ -42,6 +42,10 @@ class Response
 		if (\function_exists('gzinflate') && isset($this->headers['content-encoding'])
 		 && (false !== \stripos($this->headers['content-encoding'], 'gzip'))) {
 			$this->body = \gzinflate(\substr($body, 10, -4));
+			if (false === $this->body) {
+				$err = \error_get_last() ?: ['message' => 'gzinflate failed'];
+				throw new \RuntimeException("{$err['message']} for {$request_uri}");
+			}
 		} else {
 			$this->body = $body;
 		}
@@ -76,9 +80,9 @@ class Response
 	{
 		if ($location = $this->getHeader('location')) {
 			$uri = \is_array($location) ? $location[0] : $location;
-			if (!\preg_match('#^[a-z][a-z0-9\\+\\.\\-]+://[^/]+#i', $uri)) {
+			if (!\preg_match('#^([a-z][a-z0-9\\+\\.\\-]+:)?//[^/]+#i', $uri)) {
 				// no host
-				\preg_match('#^([a-z][a-z0-9\\+\\.\\-]+://[^/]+)(/[^\\?\\#]*)#i', $this->final_uri, $match);
+				\preg_match('#^((?:[a-z][a-z0-9\\+\\.\\-]+:)?//[^/]+)(/[^\\?\\#]*)#i', $this->final_uri, $match);
 				if ('/' === $uri[0]) {
 					// absolute path
 					$uri = $match[1] . $uri;
@@ -87,6 +91,9 @@ class Response
 					$rpos = \strrpos($match[2], '/');
 					$uri  = $match[1] . \substr($match[2], 0, $rpos+1) . $uri;
 				}
+			}
+			if ('//' === \substr($uri, 0, 2)) {
+				$uri = \explode(':', $this->request_uri)[0] . ':' . $uri;
 			}
 			return $uri;
 		}

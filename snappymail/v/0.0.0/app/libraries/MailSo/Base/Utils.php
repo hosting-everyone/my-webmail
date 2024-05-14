@@ -59,10 +59,7 @@ abstract class Utils
 				return 'iso-8859-8';
 		}
 
-		$sEncoding = \preg_replace('/^cp-([\d])/', 'cp$1', $sEncoding);
-		$sEncoding = \preg_replace('/^windows?12/', 'windows-12', $sEncoding);
-
-		return $sEncoding;
+		return \preg_replace('/^(cp-?|windows?)(12[\d])/', 'windows-$1', $sEncoding);
 	}
 
 	public static function NormalizeCharsetByValue(string $sCharset, string $sValue) : string
@@ -80,58 +77,11 @@ abstract class Utils
 		return $sCharset;
 	}
 
-	/**
-	 * @param function $fFileExistsCallback = null
-	 */
-	public static function SmartFileExists(string $sFilePath, $fFileExistsCallback = null) : string
-	{
-		$sFilePath = \str_replace('\\', '/', \trim($sFilePath));
-		if (!$fFileExistsCallback)
-		{
-			$fFileExistsCallback = function ($sPath) {
-				return \file_exists($sPath);
-			};
-		}
-
-		if (!$fFileExistsCallback($sFilePath))
-		{
-			return $sFilePath;
-		}
-
-		$aFileInfo = \pathinfo($sFilePath);
-
-		$iIndex = 0;
-
-		do
-		{
-			$iIndex++;
-
-			$sFilePathNew = $aFileInfo['dirname'].'/'.
-				\preg_replace('/\(\d{1,2}\)$/', '', $aFileInfo['filename']).
-				' ('.$iIndex.')'.
-				(empty($aFileInfo['extension']) ? '' : '.'.$aFileInfo['extension'])
-			;
-
-			if (!$fFileExistsCallback($sFilePathNew))
-			{
-				$sFilePath = $sFilePathNew;
-				break;
-			}
-			else if (10 < $iIndex)
-			{
-				break;
-			}
-		}
-		while (true);
-
-		return $sFilePath;
-	}
-
 	public static function MbSupportedEncoding(string $sEncoding) : bool
 	{
 		static $aSupportedEncodings = null;
 		if (null === $aSupportedEncodings) {
-			$aSupportedEncodings = \mb_list_encodings();
+			$aSupportedEncodings = \array_diff(\mb_list_encodings(), ['BASE64','UUENCODE','HTML-ENTITIES','Quoted-Printable']);
 			$aSupportedEncodings = \array_map('strtoupper', \array_unique(
 				\array_merge(
 					$aSupportedEncodings,
@@ -147,56 +97,63 @@ abstract class Utils
 		return \in_array(\strtoupper($sEncoding), $aSupportedEncodings);
 	}
 
-	public static function MbConvertEncoding(string $sInputString, ?string $sInputFromEncoding, string $sInputToEncoding) : string
+	private static $RenameEncoding = [
+		'SHIFT_JIS' => 'SJIS'
+	];
+
+	public static function MbConvertEncoding(string $sInputString, ?string $sFromEncoding, string $sToEncoding) : string
 	{
-		if ($sInputFromEncoding) {
-			$sInputFromEncoding = \strtoupper($sInputFromEncoding);
-			if (!static::MbSupportedEncoding($sInputFromEncoding)) {
-				$sInputFromEncoding = null;
-//				return $sInputString;
+		$sToEncoding = \strtoupper($sToEncoding);
+		if ($sFromEncoding) {
+			$sFromEncoding = \strtoupper($sFromEncoding);
+			if (isset(static::$RenameEncoding[$sFromEncoding])) {
+				$sFromEncoding = static::$RenameEncoding[$sFromEncoding];
+			}
 /*
-				if (\function_exists('iconv')) {
-					return \iconv($sInputFromEncoding, $sInputToEncoding, $sInputString);
+			if ('UTF-8' === $sFromEncoding && $sToEncoding === 'UTF7-IMAP' && \is_callable('imap_utf8_to_mutf7')) {
+				$sResult = \imap_utf8_to_mutf7($sInputString);
+				if (false !== $sResult) {
+					return $sResult;
 				}
+			}
+
+			if ('BASE64' === $sFromEncoding) {
+				static::Base64Decode($sFromEncoding);
+				$sFromEncoding = null;
+			} else if ('UUENCODE' === $sFromEncoding) {
+				\convert_uudecode($sFromEncoding);
+				$sFromEncoding = null;
+			} else if ('QUOTED-PRINTABLE' === $sFromEncoding) {
+				\quoted_printable_decode($sFromEncoding);
+				$sFromEncoding = null;
+			} else
 */
+			if (!static::MbSupportedEncoding($sFromEncoding)) {
+				if (\function_exists('iconv')) {
+					$sResult = \iconv($sFromEncoding, "{$sToEncoding}//IGNORE", $sInputString);
+					return (false !== $sResult) ? $sResult : $sInputString;
+				}
+				\error_log("Unsupported encoding {$sFromEncoding}");
+				$sFromEncoding = null;
+//				return $sInputString;
 			}
 		}
 
 		\mb_substitute_character('none');
-		$sResult = \mb_convert_encoding($sInputString, \strtoupper($sInputToEncoding), $sInputFromEncoding);
+		$sResult = \mb_convert_encoding($sInputString, $sToEncoding, $sFromEncoding);
 		\mb_substitute_character(0xFFFD);
 
 		return (false !== $sResult) ? $sResult : $sInputString;
 	}
 
-	public static function ConvertEncoding(string $sInputString, string $sInputFromEncoding, string $sInputToEncoding) : string
+	public static function ConvertEncoding(string $sInputString, string $sFromEncoding, string $sToEncoding) : string
 	{
-		$sResult = $sInputString;
+		$sFromEncoding = static::NormalizeCharset($sFromEncoding);
+		$sToEncoding = static::NormalizeCharset($sToEncoding);
 
-		$sFromEncoding = static::NormalizeCharset($sInputFromEncoding);
-		$sToEncoding = static::NormalizeCharset($sInputToEncoding);
-
-		if ('' === \trim($sResult) || ($sFromEncoding === $sToEncoding && Enumerations\Charset::UTF_8 !== $sFromEncoding))
+		if ('' === \trim($sInputString) || ($sFromEncoding === $sToEncoding && Enumerations\Charset::UTF_8 !== $sFromEncoding))
 		{
 			return $sInputString;
-		}
-
-		if ($sToEncoding === Enumerations\Charset::UTF_8) {
-			if ($sFromEncoding === Enumerations\Charset::ISO_8859_1) {
-				return \utf8_encode($sInputString);
-			}
-			if ($sFromEncoding === 'utf7-imap') {
-				return static::Utf7ModifiedToUtf8($sInputString);
-			}
-		}
-
-		if ($sFromEncoding === Enumerations\Charset::UTF_8) {
-			if ($sToEncoding === Enumerations\Charset::ISO_8859_1) {
-				return \utf8_decode($sInputString);
-			}
-			if ($sToEncoding === 'utf7-imap') {
-				return static::Utf8ToUtf7Modified($sInputString);
-			}
 		}
 
 		return static::MbConvertEncoding($sInputString, $sFromEncoding, $sToEncoding);
@@ -206,17 +163,6 @@ abstract class Utils
 	{
 		return '' === \trim($sValue)
 			|| !\preg_match('/[^\x09\x10\x13\x0A\x0D\x20-\x7E]/', $sValue);
-	}
-
-	public static function StrMailDomainToLower(string $sValue) : string
-	{
-		$aParts = \explode('@', $sValue);
-		$iLast = \count($aParts) - 1;
-		if ($iLast) {
-			$aParts[$iLast] = \mb_strtolower($aParts[$iLast]);
-		}
-
-		return \implode('@', $aParts);
 	}
 
 	public static function StripSpaces(string $sValue) : string
@@ -233,17 +179,16 @@ abstract class Utils
 	public static function FormatFileSize(int $iSize, int $iRound = 0) : string
 	{
 		$aSizes = array('B', 'KB', 'MB');
-		for ($iIndex = 0; $iSize > 1024 && isset($aSizes[$iIndex + 1]); $iIndex++)
-		{
+		for ($iIndex = 0; $iSize > 1024 && isset($aSizes[$iIndex + 1]); ++$iIndex) {
 			$iSize /= 1024;
 		}
 		return \round($iSize, $iRound).$aSizes[$iIndex];
 	}
 
-	public static function DecodeEncodingValue(string $sEncodedValue, string $sEncodeingType) : string
+	public static function DecodeEncodingValue(string $sEncodedValue, string $sEncodingType) : string
 	{
 		$sResult = $sEncodedValue;
-		switch (\strtolower($sEncodeingType))
+		switch (\strtolower($sEncodingType))
 		{
 			case 'q':
 			case 'quoted_printable':
@@ -263,15 +208,13 @@ abstract class Utils
 		return \preg_replace('/ ([\r]?[\n])/m', ' ', $sInputValue);
 	}
 
-	public static function DecodeHeaderValue(string $sEncodedValue, string $sIncomingCharset = '', string $sForcedIncomingCharset = '') : string
+	public static function DecodeHeaderValue(string $sEncodedValue, string $sIncomingCharset = '') : string
 	{
 		$sValue = $sEncodedValue;
-		if (\strlen($sIncomingCharset))
-		{
+		if (\strlen($sIncomingCharset)) {
 			$sIncomingCharset = static::NormalizeCharsetByValue($sIncomingCharset, $sValue);
 
-			$sValue = static::ConvertEncoding($sValue, $sIncomingCharset,
-				Enumerations\Charset::UTF_8);
+			$sValue = static::ConvertEncoding($sValue, $sIncomingCharset, Enumerations\Charset::UTF_8);
 		}
 
 		$sValue = \preg_replace('/\?=[\n\r\t\s]{1,5}=\?/m', '?==?', $sValue);
@@ -282,15 +225,11 @@ abstract class Utils
 //		\preg_match_all('/=\?[^\?]+\?[q|b|Q|B]\?[^\?]*?\?=/', $sValue, $aMatch);
 		\preg_match_all('/=\?[^\?]+\?[q|b|Q|B]\?.*?\?=/', $sValue, $aMatch);
 
-		if (isset($aMatch[0]) && \is_array($aMatch[0]))
-		{
-			for ($iIndex = 0, $iLen = \count($aMatch[0]); $iIndex < $iLen; $iIndex++)
-			{
-				if (isset($aMatch[0][$iIndex]))
-				{
+		if (isset($aMatch[0]) && \is_array($aMatch[0])) {
+			for ($iIndex = 0, $iLen = \count($aMatch[0]); $iIndex < $iLen; ++$iIndex) {
+				if (isset($aMatch[0][$iIndex])) {
 					$iPos = \strpos($aMatch[0][$iIndex], '*');
-					if (false !== $iPos)
-					{
+					if (false !== $iPos) {
 						$aMatch[0][$iIndex][0] = \substr($aMatch[0][$iIndex][0], 0, $iPos);
 					}
 				}
@@ -304,11 +243,9 @@ abstract class Utils
 		$sMainCharset = '';
 		$bOneCharset = true;
 
-		for ($iIndex = 0, $iLen = \count($aEncodeArray); $iIndex < $iLen; $iIndex++)
-		{
+		for ($iIndex = 0, $iLen = \count($aEncodeArray); $iIndex < $iLen; ++$iIndex) {
 			$aTempArr = array('', $aEncodeArray[$iIndex]);
-			if ('=?' === \substr(\trim($aTempArr[1]), 0, 2))
-			{
+			if ('=?' === \substr(\trim($aTempArr[1]), 0, 2)) {
 				$iPos = \strpos($aTempArr[1], '?', 2);
 				$aTempArr[0] = \substr($aTempArr[1], 2, $iPos - 2);
 				$sEncType = \strtoupper($aTempArr[1][$iPos + 1]);
@@ -327,17 +264,12 @@ abstract class Utils
 				}
 			}
 
-			if (\strlen($aTempArr[0]))
-			{
-				$sCharset = \strlen($sForcedIncomingCharset) ? $sForcedIncomingCharset : $aTempArr[0];
-				$sCharset = static::NormalizeCharset($sCharset, true);
+			if (\strlen($aTempArr[0])) {
+				$sCharset = static::NormalizeCharset($aTempArr[0], true);
 
-				if ('' === $sMainCharset)
-				{
+				if ('' === $sMainCharset) {
 					$sMainCharset = $sCharset;
-				}
-				else if ($sMainCharset !== $sCharset)
-				{
+				} else if ($sMainCharset !== $sCharset) {
 					$bOneCharset = false;
 				}
 			}
@@ -351,14 +283,10 @@ abstract class Utils
 			unset($aTempArr);
 		}
 
-		for ($iIndex = 0, $iLen = \count($aParts); $iIndex < $iLen; $iIndex++)
-		{
-			if ($bOneCharset)
-			{
+		for ($iIndex = 0, $iLen = \count($aParts); $iIndex < $iLen; ++$iIndex) {
+			if ($bOneCharset) {
 				$sValue = \str_replace($aParts[$iIndex][0], $aParts[$iIndex][1], $sValue);
-			}
-			else
-			{
+			} else {
 				$aParts[$iIndex][2] = static::NormalizeCharsetByValue($aParts[$iIndex][2], $aParts[$iIndex][1]);
 
 				$sValue = \str_replace($aParts[$iIndex][0],
@@ -367,8 +295,7 @@ abstract class Utils
 			}
 		}
 
-		if ($bOneCharset && \strlen($sMainCharset))
-		{
+		if ($bOneCharset && \strlen($sMainCharset)) {
 			$sMainCharset = static::NormalizeCharsetByValue($sMainCharset, $sValue);
 			$sValue = static::ConvertEncoding($sValue, $sMainCharset, Enumerations\Charset::UTF_8);
 		}
@@ -380,8 +307,7 @@ abstract class Utils
 	{
 		$sResultHeaders = $sIncHeaders;
 
-		if ($aHeadersToRemove)
-		{
+		if ($aHeadersToRemove) {
 			$aHeadersToRemove = \array_map('strtolower', $aHeadersToRemove);
 
 			$sIncHeaders = \preg_replace('/[\r\n]+/', "\n", $sIncHeaders);
@@ -390,31 +316,21 @@ abstract class Utils
 			$bSkip = false;
 			$aResult = array();
 
-			foreach ($aHeaders as $sLine)
-			{
-				if (\strlen($sLine))
-				{
+			foreach ($aHeaders as $sLine) {
+				if (\strlen($sLine)) {
 					$sFirst = \substr($sLine,0,1);
-					if (' ' === $sFirst || "\t" === $sFirst)
-					{
-						if (!$bSkip)
-						{
+					if (' ' === $sFirst || "\t" === $sFirst) {
+						if (!$bSkip) {
 							$aResult[] = $sLine;
 						}
-					}
-					else
-					{
+					} else {
 						$bSkip = false;
 						$aParts = \explode(':', $sLine, 2);
 
-						if (!empty($aParts) && !empty($aParts[0]))
-						{
-							if (\in_array(\strtolower(\trim($aParts[0])), $aHeadersToRemove))
-							{
+						if (!empty($aParts) && !empty($aParts[0])) {
+							if (\in_array(\strtolower(\trim($aParts[0])), $aHeadersToRemove)) {
 								$bSkip = true;
-							}
-							else
-							{
+							} else {
 								$aResult[] = $sLine;
 							}
 						}
@@ -428,23 +344,23 @@ abstract class Utils
 		return $sResultHeaders;
 	}
 
-	public static function EncodeUnencodedValue(string $sEncodeType, string $sValue) : string
+	/**
+	 * https://datatracker.ietf.org/doc/html/rfc2047
+	 */
+	public static function EncodeHeaderValue(string $sValue, string $sEncodeType = 'B') : string
 	{
 		$sValue = \trim($sValue);
-		if (\strlen($sValue) && !static::IsAscii($sValue))
-		{
+		if (\strlen($sValue) && !static::IsAscii($sValue)) {
 			switch (\strtoupper($sEncodeType))
 			{
 				case 'B':
-					$sValue = '=?'.\strtolower(Enumerations\Charset::UTF_8).
+					return '=?'.\strtolower(Enumerations\Charset::UTF_8).
 						'?B?'.\base64_encode($sValue).'?=';
-					break;
 
 				case 'Q':
-					$sValue = '=?'.\strtolower(Enumerations\Charset::UTF_8).
+					return '=?'.\strtolower(Enumerations\Charset::UTF_8).
 						'?Q?'.\str_replace(array('?', ' ', '_'), array('=3F', '_', '=5F'),
 							\quoted_printable_encode($sValue)).'?=';
-					break;
 			}
 		}
 
@@ -453,7 +369,7 @@ abstract class Utils
 
 	public static function AttributeRfc2231Encode(string $sAttrName, string $sValue, string $sCharset = 'utf-8', string $sLang = '', int $iLen = 1000) : string
 	{
-		$sValue = \strtoupper($sCharset).'\''.$sLang.'\''.
+		$sValue = \strtoupper($sCharset)."'{$sLang}'".
 			\preg_replace_callback('/[\x00-\x20*\'%()<>@,;:\\\\"\/[\]?=\x80-\xFF]/', function ($match) {
 				return \rawurlencode($match[0]);
 			}, $sValue);
@@ -461,28 +377,22 @@ abstract class Utils
 		$iNlen = \strlen($sAttrName);
 		$iVlen = \strlen($sValue);
 
-		if (\strlen($sAttrName) + $iVlen > $iLen - 3)
-		{
+		if (\strlen($sAttrName) + $iVlen > $iLen - 3) {
 			$sections = array();
 			$section = 0;
 
-			for ($i = 0, $j = 0; $i < $iVlen; $i += $j)
-			{
+			for ($i = 0, $j = 0; $i < $iVlen; $i += $j) {
 				$j = $iLen - $iNlen - \strlen($section) - 4;
 				$sections[$section++] = \substr($sValue, $i, $j);
 			}
 
-			for ($i = 0, $n = $section; $i < $n; $i++)
-			{
+			for ($i = 0, $n = $section; $i < $n; ++$i) {
 				$sections[$i] = ' '.$sAttrName.'*'.$i.'*='.$sections[$i];
 			}
 
 			return \implode(";\r\n", $sections);
 		}
-		else
-		{
-			return $sAttrName.'*='.$sValue;
-		}
+		return $sAttrName.'*='.$sValue;
 	}
 
 	public static function EncodeHeaderUtf8AttributeValue(string $sAttrName, string $sValue) : string
@@ -490,43 +400,39 @@ abstract class Utils
 		$sAttrName = \trim($sAttrName);
 		$sValue = \trim($sValue);
 
-		if (\strlen($sValue) && !static::IsAscii($sValue))
-		{
+		if (\strlen($sValue) && !static::IsAscii($sValue)) {
 			$sValue = static::AttributeRfc2231Encode($sAttrName, $sValue);
-		}
-		else
-		{
+		} else {
 			$sValue = $sAttrName.'="'.\str_replace('"', '\\"', $sValue).'"';
 		}
 
 		return \trim($sValue);
 	}
 
+	/**
+	 * @deprecated use getEmailAddressLocalPart
+	 */
 	public static function GetAccountNameFromEmail(string $sEmail) : string
 	{
-		$sResult = '';
-		if (\strlen($sEmail))
-		{
-			$iPos = \strrpos($sEmail, '@');
-			$sResult = (false === $iPos) ? $sEmail : \substr($sEmail, 0, $iPos);
-		}
-
-		return $sResult;
+		return static::getEmailAddressLocalPart($sEmail);
+	}
+	public static function getEmailAddressLocalPart(string $sEmail) : string
+	{
+		$iPos = \strrpos($sEmail, '@');
+		return (false === $iPos) ? $sEmail : \substr($sEmail, 0, $iPos);
 	}
 
+	/**
+	 * @deprecated use getEmailAddressDomain
+	 */
 	public static function GetDomainFromEmail(string $sEmail) : string
 	{
-		$sResult = '';
-		if (\strlen($sEmail))
-		{
-			$iPos = \strrpos($sEmail, '@');
-			if (false !== $iPos && 0 < $iPos)
-			{
-				$sResult = \substr($sEmail, $iPos + 1);
-			}
-		}
-
-		return $sResult;
+		return static::getEmailAddressDomain($sEmail);
+	}
+	public static function getEmailAddressDomain(string $sEmail) : string
+	{
+		$iPos = \strrpos($sEmail, '@');
+		return (false === $iPos) ? '' : \substr($sEmail, $iPos + 1);
 	}
 
 	public static function GetClearDomainName(string $sDomain) : string
@@ -544,243 +450,13 @@ abstract class Utils
 		return false === $iLast ? '' : \strtolower(\substr($sFileName, $iLast + 1));
 	}
 
-	public static function MimeContentType(string $sFileName) : string
-	{
-		$sResult = 'application/octet-stream';
-		$sFileName = \trim(\strtolower($sFileName));
-
-		if ('winmail.dat' === $sFileName)
-		{
-			return 'application/ms-tnef';
-		}
-
-		$aMimeTypes = array(
-
-			'eml'	=> 'message/rfc822',
-			'mime'	=> 'message/rfc822',
-			'txt'	=> 'text/plain',
-			'text'	=> 'text/plain',
-			'def'	=> 'text/plain',
-			'list'	=> 'text/plain',
-			'in'	=> 'text/plain',
-			'ini'	=> 'text/plain',
-			'log'	=> 'text/plain',
-			'sql'	=> 'text/plain',
-			'cfg'	=> 'text/plain',
-			'conf'	=> 'text/plain',
-			'rtx'	=> 'text/richtext',
-			'vcard'	=> 'text/vcard',
-			'vcf'	=> 'text/vcard',
-			'htm'	=> 'text/html',
-			'html'	=> 'text/html',
-			'csv'	=> 'text/csv',
-			'ics'	=> 'text/calendar',
-			'ifb'	=> 'text/calendar',
-			'xml'	=> 'text/xml',
-			'json'	=> 'application/json',
-			'swf'	=> 'application/x-shockwave-flash',
-			'hlp'	=> 'application/winhlp',
-			'wgt'	=> 'application/widget',
-			'chm'	=> 'application/vnd.ms-htmlhelp',
-			'asc'   => 'application/pgp-signature',
-			'p10'	=> 'application/pkcs10',
-			'p7c'	=> 'application/pkcs7-mime',
-			'p7m'	=> 'application/pkcs7-mime',
-			'p7s'	=> 'application/pkcs7-signature',
-			'torrent'	=> 'application/x-bittorrent',
-
-			// scripts
-			'js'	=> 'application/javascript',
-			'pl'	=> 'text/perl',
-			'css'	=> 'text/css',
-			'asp'	=> 'text/asp',
-			'php'	=> 'application/x-php',
-
-			// images
-			'png'	=> 'image/png',
-			'jpg'	=> 'image/jpeg',
-			'jpeg'	=> 'image/jpeg',
-			'jpe'	=> 'image/jpeg',
-			'jfif'	=> 'image/jpeg',
-			'gif'	=> 'image/gif',
-			'bmp'	=> 'image/bmp',
-			'cgm'	=> 'image/cgm',
-			'ief'	=> 'image/ief',
-			'ico'	=> 'image/x-icon',
-			'tif'	=> 'image/tiff',
-			'tiff'	=> 'image/tiff',
-			'svg'	=> 'image/svg+xml',
-			'svgz'	=> 'image/svg+xml',
-			'djv'	=> 'image/vnd.djvu',
-			'djvu'	=> 'image/vnd.djvu',
-			'webp'	=> 'image/webp',
-
-			// archives
-			'zip'	=> 'application/zip',
-			'7z'	=> 'application/x-7z-compressed',
-			'rar'	=> 'application/x-rar-compressed',
-			'exe'	=> 'application/x-msdownload',
-			'dll'	=> 'application/x-msdownload',
-			'scr'	=> 'application/x-msdownload',
-			'com'	=> 'application/x-msdownload',
-			'bat'	=> 'application/x-msdownload',
-			'msi'	=> 'application/x-msdownload',
-			'cab'	=> 'application/vnd.ms-cab-compressed',
-			'gz'	=> 'application/x-gzip',
-			'tgz'	=> 'application/x-gzip',
-			'bz'	=> 'application/x-bzip',
-			'bz2'	=> 'application/x-bzip2',
-			'deb'	=> 'application/x-debian-package',
-			'tar'	=> 'application/x-tar',
-
-			// fonts
-			'psf'	=> 'application/x-font-linux-psf',
-			'otf'	=> 'application/x-font-otf',
-			'pcf'	=> 'application/x-font-pcf',
-			'snf'	=> 'application/x-font-snf',
-			'ttf'	=> 'application/x-font-ttf',
-			'ttc'	=> 'application/x-font-ttf',
-
-			// audio
-			'aac'	=> 'audio/aac',
-			'flac'	=> 'audio/flac',
-			'mp3'	=> 'audio/mpeg',
-			'aif'	=> 'audio/aiff',
-			'aifc'	=> 'audio/aiff',
-			'aiff'	=> 'audio/aiff',
-			'wav'	=> 'audio/x-wav',
-			'midi'	=> 'audio/midi',
-			'mp4a'	=> 'audio/mp4',
-			'ogg'	=> 'audio/ogg',
-			'weba'	=> 'audio/webm',
-			'm3u'	=> 'audio/x-mpegurl',
-
-			// video
-			'qt'	=> 'video/quicktime',
-			'mov'	=> 'video/quicktime',
-			'avi'	=> 'video/x-msvideo',
-			'mpg'	=> 'video/mpeg',
-			'mpeg'	=> 'video/mpeg',
-			'mpe'	=> 'video/mpeg',
-			'm1v'	=> 'video/mpeg',
-			'm2v'	=> 'video/mpeg',
-			'3gp'	=> 'video/3gpp',
-			'3g2'	=> 'video/3gpp2',
-			'h261'	=> 'video/h261',
-			'h263'	=> 'video/h263',
-			'h264'	=> 'video/h264',
-			'jpgv'	=> 'video/jpgv',
-			'mp4'	=> 'video/mp4',
-			'mp4v'	=> 'video/mp4',
-			'mpg4'	=> 'video/mp4',
-			'ogv'	=> 'video/ogg',
-			'webm'	=> 'video/webm',
-			'm4v'	=> 'video/x-m4v',
-			'asf'	=> 'video/x-ms-asf',
-			'asx'	=> 'video/x-ms-asf',
-			'wm'	=> 'video/x-ms-wm',
-			'wmv'	=> 'video/x-ms-wmv',
-			'wmx'	=> 'video/x-ms-wmx',
-			'wvx'	=> 'video/x-ms-wvx',
-			'movie'	=> 'video/x-sgi-movie',
-
-			// adobe
-			'pdf'	=> 'application/pdf',
-			'psd'	=> 'image/vnd.adobe.photoshop',
-			'ai'	=> 'application/postscript',
-			'eps'	=> 'application/postscript',
-			'ps'	=> 'application/postscript',
-
-			// ms office
-			'doc'	=> 'application/msword',
-			'dot'	=> 'application/msword',
-			'rtf'	=> 'application/rtf',
-			'xls'	=> 'application/vnd.ms-excel',
-			'ppt'	=> 'application/vnd.ms-powerpoint',
-			'docx'	=> 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-			'xlsx'	=> 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-			'dotx'	=> 'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
-			'pptx'	=> 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-
-			// open office
-			'odt'	=> 'application/vnd.oasis.opendocument.text',
-			'ods'	=> 'application/vnd.oasis.opendocument.spreadsheet',
-			'odp'	=> 'application/vnd.oasis.opendocument.presentation'
-
-		);
-
-		$sExt = static::GetFileExtension($sFileName);
-		if (\strlen($sExt) && isset($aMimeTypes[$sExt]))
-		{
-			$sResult = $aMimeTypes[$sExt];
-		}
-
-		return $sResult;
-	}
-
-	public static function ContentTypeType(string $sContentType, string $sFileName) : string
-	{
-		$sContentType = \strtolower($sContentType);
-		if (0 === \strpos($sContentType, 'image/')) {
-			return 'image';
-		}
-
-		switch ($sContentType)
-		{
-			case 'application/zip':
-			case 'application/x-7z-compressed':
-			case 'application/x-rar-compressed':
-			case 'application/x-msdownload':
-			case 'application/vnd.ms-cab-compressed':
-			case 'application/gzip':
-			case 'application/x-gzip':
-			case 'application/x-bzip':
-			case 'application/x-bzip2':
-			case 'application/x-debian-package':
-			case 'application/x-tar':
-				return 'archive';
-
-			case 'application/msword':
-			case 'application/rtf':
-			case 'application/vnd.ms-excel':
-			case 'application/vnd.ms-powerpoint':
-			case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-			case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-			case 'application/vnd.openxmlformats-officedocument.wordprocessingml.template':
-			case 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
-			case 'application/vnd.oasis.opendocument.text':
-			case 'application/vnd.oasis.opendocument.spreadsheet':
-				return 'doc';
-
-			case 'application/pdf':
-			case 'application/x-pdf':
-				return 'pdf';
-		}
-
-		switch (\strtolower(static::GetFileExtension($sFileName)))
-		{
-			case 'zip':
-			case '7z':
-			case 'rar':
-			case 'tar':
-			case 'tgz':
-				return 'archive';
-
-			case 'pdf':
-				return 'pdf';
-		}
-
-		return '';
-	}
-
 	/**
 	 * @staticvar bool $bValidateAction
 	 */
 	public static function ResetTimeLimit(int $iTimeToReset = 15, int $iTimeToAdd = 120) : bool
 	{
 		$iTime = \time();
-		if ($iTime < $_SERVER['REQUEST_TIME_FLOAT'] + 5)
-		{
+		if ($iTime < $_SERVER['REQUEST_TIME_FLOAT'] + 5) {
 			// do nothing first 5s
 			return true;
 		}
@@ -788,18 +464,15 @@ abstract class Utils
 		static $bValidateAction = null;
 		static $iResetTimer = null;
 
-		if (null === $bValidateAction)
-		{
+		if (null === $bValidateAction) {
 			$iResetTimer = 0;
 
-			$bValidateAction = static::FunctionExistsAndEnabled('set_time_limit');
+			$bValidateAction = static::FunctionCallable('set_time_limit');
 		}
 
-		if ($bValidateAction && $iTimeToReset < $iTime - $iResetTimer)
-		{
+		if ($bValidateAction && $iTimeToReset < $iTime - $iResetTimer) {
 			$iResetTimer = $iTime;
-			if (!\set_time_limit($iTimeToAdd))
-			{
+			if (!\set_time_limit($iTimeToAdd)) {
 				$bValidateAction = false;
 				return false;
 			}
@@ -810,71 +483,13 @@ abstract class Utils
 		return false;
 	}
 
-	public static function ClearArrayUtf8Values(array &$aInput)
-	{
-		foreach ($aInput as $mKey => $mItem)
-		{
-			if (\is_string($mItem))
-			{
-				$aInput[$mKey] = static::Utf8Clear($mItem);
-			}
-			else if (\is_array($mItem))
-			{
-				static::ClearArrayUtf8Values($mItem);
-				$aInput[$mKey] = $mItem;
-			}
-		}
-	}
-
 	/**
-	 * @param mixed $mInput
+	 * Replace control characters, ampersand and reserved characters (based on Win95 VFAT)
+	 * en.wikipedia.org/wiki/Filename#Reserved_characters_and_words
 	 */
-	public static function Php2js($mInput, ?\MailSo\Log\Logger $oLogger = null) : string
+	public static function SecureFileName(string $sFileName) : string
 	{
-		$sResult = \json_encode($mInput, JSON_UNESCAPED_UNICODE);
-		if (!\is_string($sResult) || '' === $sResult)
-		{
-			if (!$oLogger && \MailSo\Log\Logger::IsSystemEnabled())
-			{
-				$oLogger = \MailSo\Config::$SystemLogger;
-			}
-
-			if ($oLogger)
-			{
-				$oLogger->Write('json_encode: '.\trim(
-						(static::FunctionExistsAndEnabled('json_last_error') ? ' [Error Code: '.\json_last_error().']' : '').
-						(static::FunctionExistsAndEnabled('json_last_error_msg') ? ' [Error Message: '.\json_last_error_msg().']' : '')
-					), \MailSo\Log\Enumerations\Type::WARNING, 'JSON'
-				);
-			}
-
-			if (\is_array($mInput))
-			{
-				if ($oLogger)
-				{
-					$oLogger->WriteDump($mInput, \MailSo\Log\Enumerations\Type::INFO, 'JSON');
-					$oLogger->Write('Trying to clear Utf8 before json_encode', \MailSo\Log\Enumerations\Type::INFO, 'JSON');
-				}
-
-				static::ClearArrayUtf8Values($mInput);
-				$sResult = \json_encode($mInput, JSON_UNESCAPED_UNICODE);
-			}
-		}
-
-		return $sResult;
-	}
-
-	public static function ClearFileName(string $sFileName) : string
-	{
-		return static::Trim(static::ClearNullBite(
-			static::StripSpaces(
-				\str_replace(array('"', '/', '\\', '*', '?', '<', '>', '|', ':'), ' ', $sFileName))));
-	}
-
-	public static function ClearXss(string $sValue) : string
-	{
-		return static::Trim(static::ClearNullBite(
-			\str_replace(array('"', '/', '\\', '*', '?', '<', '>', '|', ':'), ' ', $sValue)));
+		return \preg_replace('#[|\\\\?*<":>+\\[\\]/&\\pC]#su', '-', $sFileName);
 	}
 
 	public static function Trim(string $sValue) : string
@@ -884,24 +499,7 @@ abstract class Utils
 
 	public static function RecRmDir(string $sDir) : bool
 	{
-		\clearstatcache();
-		if (\is_dir($sDir)) {
-			$iterator = new \RecursiveIteratorIterator(
-				new \RecursiveDirectoryIterator($sDir, \FilesystemIterator::SKIP_DOTS),
-				\RecursiveIteratorIterator::CHILD_FIRST);
-			foreach ($iterator as $path) {
-				if ($path->isDir()) {
-					\rmdir($path);
-				} else {
-					\unlink($path);
-				}
-			}
-			\clearstatcache();
-//			\realpath_cache_size() && \clearstatcache(true);
-			return \rmdir($sDir);
-		}
-
-		return false;
+		return static::RecTimeDirRemove($sDir, 0);
 	}
 
 	public static function RecTimeDirRemove(string $sDir, int $iTime2Kill) : bool
@@ -913,9 +511,10 @@ abstract class Utils
 				new \RecursiveDirectoryIterator($sDir, \FilesystemIterator::SKIP_DOTS),
 				\RecursiveIteratorIterator::CHILD_FIRST);
 			foreach ($iterator as $path) {
-				if ($path->isFile() && $path->getMTime() < $iTime) {
+				if ($path->isFile() && (!$iTime2Kill || $path->getMTime() < $iTime)) {
+					\is_callable('opcache_invalidate') && \opcache_invalidate($path, true);
 					\unlink($path);
-				} else if ($path->isDir() && !(new \FilesystemIterator($path))->valid()) {
+				} else if ($path->isDir() && (!$iTime2Kill || !(new \FilesystemIterator($path))->valid())) {
 					\rmdir($path);
 				}
 			}
@@ -925,26 +524,6 @@ abstract class Utils
 		}
 
 		return false;
-	}
-
-	public static function Utf8Truncate(string $sUtfString, int $iLength) : string
-	{
-		if (\strlen($sUtfString) <= $iLength)
-		{
-			return $sUtfString;
-		}
-
-		while ($iLength >= 0)
-		{
-			if ((\ord($sUtfString[$iLength]) < 0x80) || (\ord($sUtfString[$iLength]) >= 0xC0))
-			{
-				return \substr($sUtfString, 0, $iLength);
-			}
-
-			$iLength--;
-		}
-
-		return '';
 	}
 
 	public static function Utf8Clear(?string $sUtfString) : string
@@ -971,24 +550,19 @@ abstract class Utils
 	public static function Base64Decode(string $sString) : string
 	{
 		$sResultString = \base64_decode($sString, true);
-		if (false === $sResultString)
-		{
+		if (false === $sResultString) {
 			$sString = \str_replace(array(' ', "\r", "\n", "\t"), '', $sString);
 			$sString = \preg_replace('/[^a-zA-Z0-9=+\/](.*)$/', '', $sString);
 
-			if (false !== \strpos(\trim(\trim($sString), '='), '='))
-			{
+			if (false !== \strpos(\trim(\trim($sString), '='), '=')) {
 				$sString = \preg_replace('/=([^=])/', '= $1', $sString);
 				$aStrings = \explode(' ', $sString);
-				foreach ($aStrings as $iIndex => $sParts)
-				{
+				foreach ($aStrings as $iIndex => $sParts) {
 					$aStrings[$iIndex] = \base64_decode($sParts);
 				}
 
 				$sResultString = \implode('', $aStrings);
-			}
-			else
-			{
+			} else {
 				$sResultString = \base64_decode($sString);
 			}
 		}
@@ -1003,36 +577,7 @@ abstract class Utils
 
 	public static function UrlSafeBase64Decode(string $sValue) : string
 	{
-		return \base64_decode(\strtr($sValue, '-_', '+/'), '=');
-	}
-
-	public static function ParseFetchSequence(string $sSequence) : array
-	{
-		$aResult = array();
-		$sSequence = \trim($sSequence);
-		if (\strlen($sSequence))
-		{
-			$aSequence = \explode(',', $sSequence);
-			foreach ($aSequence as $sItem)
-			{
-				if (false === \strpos($sItem, ':'))
-				{
-					$aResult[] = (int) $sItem;
-				}
-				else
-				{
-					$aItems = \explode(':', $sItem);
-					$iMax = \max($aItems[0], $aItems[1]);
-
-					for ($iIndex = $aItems[0]; $iIndex <= $iMax; $iIndex++)
-					{
-						$aResult[] = (int) $iIndex;
-					}
-				}
-			}
-		}
-
-		return $aResult;
+		return \base64_decode(\strtr($sValue, '-_', '+/'), true);
 	}
 
 	/**
@@ -1040,23 +585,16 @@ abstract class Utils
 	 */
 	public static function FpassthruWithTimeLimitReset($fResource, int $iBufferLen = 8192) : bool
 	{
-		$bResult = false;
-		if (\is_resource($fResource))
-		{
-			while (!\feof($fResource))
-			{
+		$bResult = \is_resource($fResource);
+		if ($bResult) {
+			while (!\feof($fResource)) {
 				$sBuffer = \fread($fResource, $iBufferLen);
-				if (false !== $sBuffer)
-				{
-					echo $sBuffer;
-					static::ResetTimeLimit();
-					continue;
+				if (false === $sBuffer) {
+					break;
 				}
-
-				break;
+				echo $sBuffer;
+				static::ResetTimeLimit();
 			}
-
-			$bResult = true;
 		}
 
 		return $bResult;
@@ -1064,89 +602,62 @@ abstract class Utils
 
 	/**
 	 * @param resource $rRead
+	 * @param resource $rWrite
 	 */
-	public static function MultipleStreamWriter($rRead, array $aWrite, int $iBufferLen = 8192, bool $bResetTimeLimit = true, bool $bFixCrLf = false, bool $bRewindOnComplete = false) : int
+	public static function WriteStream($rRead, $rWrite, int $iBufferLen = 8192, bool $bFixCrLf = false, bool $bRewindOnComplete = false) : int
 	{
-		$mResult = false;
-		if (\is_resource($rRead) && \count($aWrite))
-		{
-			$mResult = 0;
-			while (!\feof($rRead))
-			{
-				$sBuffer = \fread($rRead, $iBufferLen);
-				if (false === $sBuffer)
-				{
-					$mResult = false;
-					break;
-				}
-
-				if ('' === $sBuffer)
-				{
-					break;
-				}
-
-				if ($bFixCrLf)
-				{
-					$sBuffer = \str_replace("\n", "\r\n", \str_replace("\r", '', $sBuffer));
-				}
-
-				$mResult += \strlen($sBuffer);
-
-				foreach ($aWrite as $rWriteStream)
-				{
-					$mWriteResult = \fwrite($rWriteStream, $sBuffer);
-					if (false === $mWriteResult)
-					{
-						$mResult = false;
-						break 2;
-					}
-				}
-
-				if ($bResetTimeLimit)
-				{
-					static::ResetTimeLimit();
-				}
-			}
+		if (!\is_resource($rRead) || !\is_resource($rWrite)) {
+			return -1;
 		}
 
-		if ($mResult && $bRewindOnComplete)
-		{
-			foreach ($aWrite as $rWriteStream)
-			{
-				if (\is_resource($rWriteStream))
-				{
-					\rewind($rWriteStream);
-				}
+		$iResult = 0;
+
+		while (!\feof($rRead)) {
+			$sBuffer = \fread($rRead, $iBufferLen);
+			if (false === $sBuffer) {
+				return -1;
 			}
+
+			if ('' === $sBuffer) {
+				break;
+			}
+
+			if ($bFixCrLf) {
+				$sBuffer = \str_replace("\n", "\r\n", \str_replace("\r", '', $sBuffer));
+			}
+
+			$iResult += \strlen($sBuffer);
+
+			if (false === \fwrite($rWrite, $sBuffer)) {
+				return -1;
+			}
+
+			static::ResetTimeLimit();
 		}
 
-		return $mResult;
+		if ($bRewindOnComplete) {
+			\rewind($rWrite);
+		}
+
+		return $iResult;
 	}
 
 	public static function Utf7ModifiedToUtf8(string $sStr) : string
 	{
-		$sResult = \is_callable('imap_mutf7_to_utf8')
-			? \imap_mutf7_to_utf8($sStr)
-			: \mb_convert_encoding($sStr, 'UTF-8', 'UTF7-IMAP');
-//			static::MbConvertEncoding($sStr, 'UTF7-IMAP', 'UTF-8');
-//		$sResult = \UConverter::transcode($sStr, \UConverter::UTF8, \UConverter::IMAP_MAILBOX);
-		return (false === $sResult) ? $sStr : $sResult;
+		// imap_mutf7_to_utf8() doesn't support U+10000 and up,
+		// thats why mb_convert_encoding is used
+		return static::MbConvertEncoding($sStr, 'UTF7-IMAP', 'UTF-8');
 	}
 
 	public static function Utf8ToUtf7Modified(string $sStr) : string
 	{
-		$sResult = \is_callable('imap_utf8_to_mutf7')
-			? \imap_utf8_to_mutf7($sStr)
-			: \mb_convert_encoding($sStr, 'UTF7-IMAP', 'UTF-8');
-//			static::MbConvertEncoding($sStr, 'UTF-8', 'UTF7-IMAP');
-//		$sResult = \UConverter::transcode($sStr, \UConverter::IMAP_MAILBOX, \UConverter::UTF8);
-		return (false === $sResult) ? $sStr : $sResult;
+		return static::MbConvertEncoding($sStr, 'UTF-8', 'UTF7-IMAP');
 	}
 
-	public static function FunctionsExistAndEnabled(array $aFunctionNames) : bool
+	public static function FunctionsCallable(array $aFunctionNames) : bool
 	{
 		foreach ($aFunctionNames as $sFunctionName) {
-			if (!static::FunctionExistsAndEnabled($sFunctionName)) {
+			if (!static::FunctionCallable($sFunctionName)) {
 				return false;
 			}
 		}
@@ -1154,7 +665,7 @@ abstract class Utils
 	}
 
 	private static $disabled_functions = null;
-	public static function FunctionExistsAndEnabled(string $sFunctionName) : bool
+	public static function FunctionCallable(string $sFunctionName) : bool
 	{
 		if (null === static::$disabled_functions) {
 			static::$disabled_functions = \array_map('trim', \explode(',', \ini_get('disable_functions')));
@@ -1168,39 +679,9 @@ abstract class Utils
 //			&& \is_callable($mFunctionNameOrNames);
 	}
 
-	public static function ClearNullBite($mValue) : string
-	{
-		return \str_replace('%00', '', $mValue);
-	}
-
-	public static function CharsetDetect(string $sStr) : string
-	{
-		$mResult = '';
-		if (!static::IsAscii($sStr))
-		{
-			$mResult = \mb_detect_encoding($sStr, 'auto', true);
-		}
-
-		return \is_string($mResult) && \strlen($mResult) ? $mResult : '';
-	}
-
 	public static function Sha1Rand(string $sAdditionalSalt = '') : string
 	{
 		return \sha1($sAdditionalSalt . \random_bytes(16));
-	}
-
-	public static function ValidateDomain(string $sDomain, bool $bSimple = false) : bool
-	{
-		$aMatch = array();
-		if ($bSimple)
-		{
-			return \preg_match('/.+(\.[a-zA-Z]+)$/', $sDomain, $aMatch) && !empty($aMatch[1]);
-		}
-
-		return \preg_match('/.+(\.[a-zA-Z]+)$/', $sDomain, $aMatch) && !empty($aMatch[1]) && \in_array($aMatch[1], \explode(' ',
-			'.academy .actor .agency .audio .bar .beer .bike .blue .boutique .cab .camera .camp .capital .cards .careers .cash .catering .center .cheap .city .cleaning .clinic .clothing .club .coffee .community .company .computer .construction .consulting .contractors .cool .credit .dance .dating .democrat .dental .diamonds .digital .direct .directory .discount .domains .education .email .energy .equipment .estate .events .expert .exposed .fail .farm .fish .fitness .florist .fund .futbol .gallery .gift .glass .graphics .guru .help .holdings .holiday .host .hosting .house .institute .international .kitchen .land .life .lighting .limo .link .management .market .marketing .media .menu .moda .partners .parts .photo .photography .photos .pics .pink .press .productions .pub .red .rentals .repair .report .rest .sexy .shoes .social .solar .solutions .space .support .systems .tattoo .tax .technology .tips .today .tools .town .toys .trade .training .university .uno .vacations .vision .vodka .voyage .watch .webcam .wiki .work .works .wtf .zone .aero .asia .biz .cat .com .coop .edu .gov .info .int .jobs .mil .mobi .museum .name .net .org .pro .tel .travel .xxx .xyz '.
-			'.ac .ad .ae .af .ag .ai .al .am .an .ao .aq .ar .as .at .au .aw .ax .az .ba .bb .bd .be .bf .bg .bh .bi .bj .bm .bn .bo .br .bs .bt .bv .bw .by .bz .ca .cc .cd .cf .cg .ch .ci .ck .cl .cm .cn .co .cr .cs .cu .cv .cx .cy .cz .dd .de .dj .dk .dm .do .dz .ec .ee .eg .er .es .et .eu .fi .fj .fk .fm .fo .fr .ga .gb .gd .ge .gf .gg .gh .gi .gl .gm .gn .gp .gq .gr .gs .gt .gu .gw .gy .hk .hm .hn .hr .ht .hu .id .ie .il .im .in .io .iq .ir .is .it .je .jm .jo .jp .ke .kg .kh .ki .km .kn .kp .kr .kw .ky .kz .la .lb .lc .li .lk .lr .ls .lt .lu .lv .ly .ma .mc .md .me .mg .mh .mk .ml .mm .mn .mo .mp .mq .mr .ms .mt .mu .mv .mw .mx .my .mz .na .nc .ne .nf .ng .ni .nl .no .np .nr .nu .nz .om .pa .pe .pf .pg .ph .pk .pl .pm .pn .pr .ps .pt .pw .py .qa .re .ro .rs .ru . .rw .sa .sb .sc .sd .se .sg .sh .si .sj .sk .sl .sm .sn .so .sr .st .su .sv .sy .sz .tc .td .tf .tg .th .tj .tk .tl .tm .tn .to .tp .tr .tt .tv .tw .tz .ua .ug .uk .us .uy .uz .va .vc .ve .vg .vi .vn .vu .wf .ws .ye .yt .za .zm .zw'
-		));
 	}
 
 	public static function ValidateIP(string $sIp) : bool
@@ -1208,41 +689,37 @@ abstract class Utils
 		return !empty($sIp) && $sIp === \filter_var($sIp, FILTER_VALIDATE_IP);
 	}
 
-	public static function IdnToUtf8(string $sStr, bool $bLowerIfAscii = false) : string
+	/**
+	 * @deprecated
+	 */
+	public static function IdnToUtf8(string $sStr) : string
 	{
-		if (\strlen($sStr) && \preg_match('/(^|\.|@)xn--/i', $sStr))
-		{
-			try
-			{
-				$sStr = \SnappyMail\IDN::anyToUtf8($sStr);
-			}
-			catch (\Throwable $oException) {}
+		$trace = \debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2)[1];
+		\SnappyMail\Log::warning('MailSo', "Deprecated function IdnToUtf8 called at {$trace['file']}#{$trace['line']}");
+		if (\preg_match('/(^|\.|@)xn--/i', $sStr)) {
+			$sStr = \str_contains($sStr, '@')
+			? \SnappyMail\IDN::emailToUtf8($string)
+			: \idn_to_utf8($string);
 		}
-
-		return $bLowerIfAscii ? static::StrMailDomainToLower($sStr) : $sStr;
+		return $sStr;
 	}
 
-	public static function IdnToAscii(string $sStr, bool $bLowerIfAscii = false) : string
+	/**
+	 * @deprecated
+	 */
+	public static function IdnToAscii(string $sStr, bool $bLowerCase = false) : string
 	{
-		$sStr = $bLowerIfAscii ? static::StrMailDomainToLower($sStr) : $sStr;
-
-		$sUser = '';
-		$sDomain = $sStr;
-		if (false !== \strpos($sStr, '@'))
-		{
-			$sUser = static::GetAccountNameFromEmail($sStr);
-			$sDomain = static::GetDomainFromEmail($sStr);
+		$trace = \debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2)[1];
+		\SnappyMail\Log::warning('MailSo', "Deprecated function IdnToAscii called at {$trace['file']}#{$trace['line']}");
+		$aParts = \explode('@', $sStr);
+		$sDomain = \array_pop($aParts);
+		if (\preg_match('/[^\x20-\x7E]/', $sDomain)) {
+			$sDomain = \idn_to_ascii($string);
 		}
-
-		if (\strlen($sDomain) && \preg_match('/[^\x20-\x7E]/', $sDomain))
-		{
-			try
-			{
-				$sDomain = \SnappyMail\IDN::anyToAscii($sDomain);
-			}
-			catch (\Throwable $oException) {}
+		if ($bLowerCase) {
+			$sDomain = \strtolower($sDomain);
 		}
-
-		return ('' === $sUser ? '' : $sUser.'@').$sDomain;
+		$aParts[] = $sDomain;
+		return \implode('@', $aParts);
 	}
 }

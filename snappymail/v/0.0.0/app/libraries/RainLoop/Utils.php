@@ -4,16 +4,6 @@ namespace RainLoop;
 
 class Utils
 {
-	/**
-	 * @var string
-	 */
-	static $CookieDefaultPath = '';
-
-	/**
-	 * @var bool|null
-	 */
-	static $CookieDefaultSecure = null;
-
 	const
 		/**
 		 * 30 days cookie
@@ -27,6 +17,25 @@ class Utils
 		 */
 		SESSION_TOKEN = 'smsession';
 
+	/**
+	 * @param mixed $value
+	 * @param int $flags Bitmask
+	 */
+	public static function jsonEncode($value, int $flags = \JSON_INVALID_UTF8_SUBSTITUTE) : string
+	{
+		try {
+			/* Issue with \SnappyMail\HTTP\Stream
+			if (Api::Config()->Get('debug', 'enable', false)) {
+				$flags |= \JSON_PRETTY_PRINT;
+			}
+			*/
+			return \json_encode($value, $flags | \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR);
+		} catch (\Throwable $e) {
+			Api::Logger()->WriteException($e, \LOG_ERR, 'JSON');
+		}
+		return '';
+	}
+
 	public static function EncodeKeyValuesQ(array $aValues, string $sCustomKey = '') : string
 	{
 		return \SnappyMail\Crypt::EncryptUrlSafe(
@@ -35,37 +44,40 @@ class Utils
 		);
 	}
 
-	public static function DecodeKeyValuesQ(string $sEncodedValues, string $sCustomKey = '') : ?array
+	public static function DecodeKeyValuesQ(string $sEncodedValues, string $sCustomKey = '') : array
 	{
 		return \SnappyMail\Crypt::DecryptUrlSafe(
 			$sEncodedValues,
 			\sha1(APP_SALT.$sCustomKey.'Q'.static::GetSessionToken(false))
-		) ?: null;
+		) ?: array();
 	}
 
 	public static function GetSessionToken(bool $generate = true) : ?string
 	{
-		$sToken = static::GetCookie(self::SESSION_TOKEN, null);
+		$sToken = \SnappyMail\Cookies::get(self::SESSION_TOKEN);
 		if (!$sToken) {
 			if (!$generate) {
 				return null;
 			}
 			\SnappyMail\Log::debug('TOKENS', 'New SESSION_TOKEN');
 			$sToken = \MailSo\Base\Utils::Sha1Rand(APP_SALT);
-			static::SetCookie(self::SESSION_TOKEN, $sToken);
+			\SnappyMail\Cookies::set(self::SESSION_TOKEN, $sToken);
 		}
 		return \sha1('Session'.APP_SALT.$sToken.'Token'.APP_SALT);
 	}
 
 	public static function GetConnectionToken() : string
 	{
-		$sToken = static::GetCookie(self::CONNECTION_TOKEN);
-		if (!$sToken)
-		{
-			$sToken = \MailSo\Base\Utils::Sha1Rand(APP_SALT);
-			static::SetCookie(self::CONNECTION_TOKEN, $sToken, \time() + 3600 * 24 * 30);
+		$oActions = \RainLoop\Api::Actions();
+		$oAccount = $oActions->getAccountFromToken(false) ?: $oActions->getMainAccountFromToken(false);
+		if ($oAccount) {
+			return $oAccount->Hash();
 		}
-
+		$sToken = \SnappyMail\Cookies::get(self::CONNECTION_TOKEN);
+		if (!$sToken) {
+			$sToken = \MailSo\Base\Utils::Sha1Rand(APP_SALT);
+			\SnappyMail\Cookies::set(self::CONNECTION_TOKEN, $sToken, \time() + 3600 * 24 * 30);
+		}
 		return \sha1('Connection'.APP_SALT.$sToken.'Token'.APP_SALT);
 	}
 
@@ -76,114 +88,46 @@ class Utils
 
 	public static function UpdateConnectionToken() : void
 	{
-		$sToken = static::GetCookie(self::CONNECTION_TOKEN);
-		if ($sToken)
-		{
-			static::SetCookie(self::CONNECTION_TOKEN, $sToken, \time() + 3600 * 24 * 30);
+		$sToken = \SnappyMail\Cookies::get(self::CONNECTION_TOKEN);
+		if ($sToken) {
+			\SnappyMail\Cookies::set(self::CONNECTION_TOKEN, $sToken, \time() + 3600 * 24 * 30);
 		}
 	}
 
 	public static function ClearHtmlOutput(string $sHtml) : string
 	{
 //		return $sHtml;
-		return \preg_replace(
-			['@\\s*/>@', '/\\s*&nbsp;/i', '/&nbsp;\\s*/i', '/[\\r\\n\\t]+/', '/>\\s+</'],
-			['>', "\xC2\xA0", "\xC2\xA0", ' ', '><'],
+		return \preg_replace('/>\\s+</', '><', \preg_replace(
+			['@\\s*/>@', '/\\s*&nbsp;/i', '/&nbsp;\\s*/i', '/[\\r\\n\\t]+/'],
+			['>', "\xC2\xA0", "\xC2\xA0", ' '],
 			\trim($sHtml)
-		);
-	}
-
-	/**
-	 * @param mixed $mDefault = null
-	 * @return mixed
-	 */
-	public static function GetCookie(string $sName, $mDefault = null)
-	{
-		return isset($_COOKIE[$sName]) ? $_COOKIE[$sName] : $mDefault;
-	}
-
-	public static function GetSecureCookie(string $sName)
-	{
-		return isset($_COOKIE[$sName]) && 1024 > \strlen($_COOKIE[$sName])
-			? \SnappyMail\Crypt::DecryptFromJSON(\MailSo\Base\Utils::UrlSafeBase64Decode($_COOKIE[$sName]))
-			: null;
-	}
-
-	public static function SetCookie(string $sName, string $sValue = '', int $iExpire = 0, bool $bHttpOnly = true)
-	{
-		$sPath = static::$CookieDefaultPath;
-		$_COOKIE[$sName] = $sValue;
-		\setcookie($sName, $sValue, array(
-			'expires' => $iExpire,
-			'path' => $sPath && \strlen($sPath) ? $sPath : '/',
-//			'domain' => $sDomain,
-			'secure' => isset($_SERVER['HTTPS']) || static::$CookieDefaultSecure,
-			'httponly' => $bHttpOnly,
-			'samesite' => 'Strict'
 		));
-	}
-
-	public static function ClearCookie(string $sName)
-	{
-		if (isset($_COOKIE[$sName])) {
-			$sPath = static::$CookieDefaultPath;
-			unset($_COOKIE[$sName]);
-			\setcookie($sName, '', array(
-				'expires' => \time() - 3600 * 24 * 30,
-				'path' => $sPath && \strlen($sPath) ? $sPath : '/',
-//				'domain' => null,
-				'secure' => isset($_SERVER['HTTPS']) || static::$CookieDefaultSecure,
-				'httponly' => true,
-				'samesite' => 'Strict'
-			));
-		}
-	}
-
-	public static function UrlEncode(string $sV, bool $bEncode = false) : string
-	{
-		return $bEncode ? \urlencode($sV) : $sV;
 	}
 
 	public static function WebPath() : string
 	{
 		static $sAppPath;
 		if (!$sAppPath) {
-			$sAppPath = \preg_replace('#index\\.php.*$#D', '', $_SERVER['SCRIPT_NAME']);
-//			$sAppPath = Api::Config()->Get('labs', 'app_default_path', '');
+			$sAppPath = \rtrim(Api::Config()->Get('webmail', 'app_path', '')
+				?: \preg_replace('#index\\.php.*$#D', '', $_SERVER['SCRIPT_NAME']),
+			'/') . '/';
 		}
 		return $sAppPath;
 	}
 
 	public static function WebVersionPath() : string
 	{
-		return self::WebPath().'snappymail/v/'.APP_VERSION.'/';
+		return self::WebPath() . 'snappymail/v/' . APP_VERSION . '/';
+		/**
+		 * TODO: solve this to support other paths.
+		 * https://github.com/the-djmaze/snappymail/issues/685
+		 */
+//		return self::WebPath() . \str_replace(APP_INDEX_ROOT_PATH, '', APP_VERSION_ROOT_PATH);
 	}
 
-	public static function WebStaticPath() : string
+	public static function WebStaticPath(string $path = '') : string
 	{
-		return self::WebVersionPath().'static/';
-	}
-
-	public static function RemoveSuggestionDuplicates(array $aSuggestions) : array
-	{
-		$aResult = array();
-
-		foreach ($aSuggestions as $aItem)
-		{
-			$sLine = \implode('~~', $aItem);
-			if (!isset($aResult[$sLine]))
-			{
-				$aResult[$sLine] = $aItem;
-			}
-		}
-
-		return array_values($aResult);
-	}
-
-	public static function CustomParseIniFile(string $sFileName, bool $bProcessSections = false) : array
-	{
-		return @\parse_ini_file($sFileName, !!$bProcessSections) ?: array();
-//		return @\parse_ini_string(\file_get_contents($sFileName), $bProcessSections) ?: array();
+		return self::WebVersionPath() . 'static/' . $path;
 	}
 
 	public static function inOpenBasedir(string $name) : string
@@ -198,36 +142,27 @@ class Utils
 					return true;
 				}
 			}
-			\SnappyMail\Log::warning('OpenBasedir', "open_basedir restriction in effect. {$name} is not within the allowed path(s): " . \ini_get('open_basedir'));
+//			\SnappyMail\Log::warning('OpenBasedir', "open_basedir restriction in effect. {$name} is not within the allowed path(s): " . \ini_get('open_basedir'));
 			return false;
 		}
 		return true;
-	}
-
-	/**
-	 * Replace control characters, ampersand, spaces and reserved characters (based on Win95 VFAT)
-	 * en.wikipedia.org/wiki/Filename#Reserved_characters_and_words
-	 */
-	public static function fixName(string $filename) : string
-	{
-		return \preg_replace('#[|\\\\?*<":>+\\[\\]/&\\s\\pC]#su', '-', $filename);
 	}
 
 	public static function saveFile(string $filename, string $data) : void
 	{
 		$dir = \dirname($filename);
 		if (!\is_dir($dir) && !\mkdir($dir, 0700, true)) {
-			throw new Exceptions\Exception('Failed to create directory "'.$dir.'"');
+			throw new \RuntimeException('Failed to create directory "'.$dir.'"');
 		}
 		if (false === \file_put_contents($filename, $data)) {
-			throw new Exceptions\Exception('Failed to save file "'.$filename.'"');
+			throw new \RuntimeException('Failed to save file "'.$filename.'"');
 		}
 		\clearstatcache();
 		\chmod($filename, 0600);
 /*
 		try {
 		} catch (\Throwable $oException) {
-			throw new Exceptions\Exception($oException->getMessage() . ': ' . \error_get_last()['message']);
+			throw new \RuntimeException($oException->getMessage() . ': ' . \error_get_last()['message']);
 		}
 */
 	}

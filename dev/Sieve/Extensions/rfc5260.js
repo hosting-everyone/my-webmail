@@ -6,10 +6,10 @@ import {
 	GrammarNumber,
 	GrammarQuotedString,
 	GrammarStringList,
-	GrammarTest
+	TestCommand
 } from 'Sieve/Grammar';
 
-export class DateTest extends GrammarTest
+export class DateTest extends TestCommand
 {
 	constructor()
 	{
@@ -36,7 +36,7 @@ export class DateTest extends GrammarTest
 			+ ' ' + this.match_type
 			+ ' ' + this.header_name
 			+ ' ' + this.date_part
-			+ ' ' + this.key_list.toString();
+			+ ' ' + this.key_list;
 	}
 
 	pushArguments(args)
@@ -49,16 +49,16 @@ export class DateTest extends GrammarTest
 				this.originalzone = true;
 			} else if (':last' === arg) {
 				this.last = true;
-			} else if (':zone' === args[i-1]) {
+			} else if (i && ':zone' === args[i-1]) {
 				this.zone.value = arg.value;
-			} else if (':index' === args[i-1]) {
+			} else if (i && ':index' === args[i-1]) {
 				this.index.value = arg.value;
 			}
 		});
 	}
 }
 
-export class CurrentDateTest extends GrammarTest
+export class CurrentDateTest extends TestCommand
 {
 	constructor()
 	{
@@ -77,7 +77,7 @@ export class CurrentDateTest extends GrammarTest
 			+ (this.comparator ? ' :comparator ' + this.comparator : '')
 			+ ' ' + this.match_type
 			+ ' ' + this.date_part
-			+ ' ' + this.key_list.toString();
+			+ ' ' + this.key_list;
 	}
 
 	pushArguments(args)
@@ -85,7 +85,7 @@ export class CurrentDateTest extends GrammarTest
 		this.key_list = args.pop();
 		this.date_part = args.pop();
 		args.forEach((arg, i) => {
-			if (':zone' === args[i-1]) {
+			if (i && ':zone' === args[i-1]) {
 				this.zone.value = arg.value;
 			}
 		});

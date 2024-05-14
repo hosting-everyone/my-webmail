@@ -3,14 +3,14 @@
  */
 
 import {
-	GrammarCommand,
+	ActionCommand,
 	GrammarQuotedString,
 	GrammarString,
 	GrammarStringList,
-	GrammarTest
+	TestCommand
 } from 'Sieve/Grammar';
 
-class FlagCommand extends GrammarCommand
+class FlagCommand extends ActionCommand
 {
 	constructor()
 	{
@@ -23,7 +23,8 @@ class FlagCommand extends GrammarCommand
 
 	toString()
 	{
-		return this.identifier + ' ' + this._variablename + ' ' + this.list_of_flags.toString() + ';';
+		let name = this._variablename;
+		return this.identifier + (name.length ? ' ' + this.variablename : '') + ' ' + this.list_of_flags + ';';
 	}
 
 	get variablename()
@@ -63,7 +64,7 @@ export class RemoveFlagCommand extends FlagCommand
 {
 }
 
-export class HasFlagTest extends GrammarTest
+export class HasFlagTest extends TestCommand
 {
 	constructor()
 	{
@@ -79,8 +80,8 @@ export class HasFlagTest extends GrammarTest
 		return 'hasflag'
 			+ ' ' + this.match_type
 			+ (this.comparator ? ' :comparator ' + this.comparator : '')
-			+ ' ' + this.variable_list.toString()
-			+ ' ' + this.list_of_flags.toString();
+			+ ' ' + this.variable_list
+			+ ' ' + this.list_of_flags;
 	}
 
 	pushArguments(args)

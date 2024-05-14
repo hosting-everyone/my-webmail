@@ -13,6 +13,7 @@ DomainAdminStore.fetch = () => {
 			if (!iError) {
 				DomainAdminStore(
 					data.Result.map(item => {
+						item.name = IDN.toUnicode(item.name);
 						item.disabled = ko.observable(item.disabled);
 						item.askDelete = ko.observable(false);
 						return item;
@@ -20,6 +21,6 @@ DomainAdminStore.fetch = () => {
 				);
 			}
 		}, {
-			IncludeAliases: 1
+			includeAliases: 1
 		});
 };

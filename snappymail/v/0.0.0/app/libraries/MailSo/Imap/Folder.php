@@ -11,58 +11,56 @@
 
 namespace MailSo\Imap;
 
+use MailSo\Imap\Enumerations\MetadataKeys;
+
 /**
  * @category MailSo
  * @package Imap
  */
-class Folder
+class Folder implements \JsonSerializable
 {
 	// RFC5258 Response data STATUS items when using LIST-EXTENDED
 	use Traits\Status;
 
-	/**
-	 * @var string
-	 */
-	private $sFullName;
+	private ?string $sDelimiter;
 
-	/**
-	 * @var string
-	 */
-	private $sDelimiter;
-
-	/**
-	 * @var array
-	 */
-	private $aFlagsLowerCase;
+	private array $aAttributes;
 
 	/**
 	 * RFC 5464
 	 */
-	private $aMetadata = array();
+	private array $aMetadata = array();
+
+	public ?Responses\ACL $myRights = null;
 
 	/**
-	 * @throws \MailSo\Base\Exceptions\InvalidArgumentException
+	 * @throws \ValueError
 	 */
-	function __construct(string $sFullName, string $sDelimiter = null, array $aFlags = array())
+	function __construct(string $sFullName, string $sDelimiter = null, array $aAttributes = array())
 	{
 		if (!\strlen($sFullName)) {
-			throw new \MailSo\Base\Exceptions\InvalidArgumentException;
+			throw new \ValueError;
 		}
-		$this->sFullName = $sFullName;
+		$this->FullName = $sFullName;
 		$this->setDelimiter($sDelimiter);
-		$this->setFlags($aFlags);
+		$this->setAttributes($aAttributes);
 /*
 		// RFC 5738
-		if (\in_array('\\noutf8', $this->aFlagsLowerCase)) {
+		if (\in_array('\\noutf8', $this->aAttributes)) {
 		}
-		if (\in_array('\\utf8only', $this->aFlagsLowerCase)) {
+		if (\in_array('\\utf8only', $this->aAttributes)) {
 		}
 */
 	}
 
-	public function setFlags(array $aFlags) : void
+	public function setAttributes(array $aAttributes) : void
 	{
-		$this->aFlagsLowerCase = \array_map('strtolower', $aFlags);
+		$this->aAttributes = \array_map('mb_strtolower', $aAttributes);
+	}
+
+	public function setSubscribed() : void
+	{
+		$this->aAttributes = \array_unique(\array_merge($this->aAttributes, ['\\subscribed']));
 	}
 
 	public function setDelimiter(?string $sDelimiter) : void
@@ -72,7 +70,7 @@ class Folder
 
 	public function Name() : string
 	{
-		$sNameRaw = $this->sFullName;
+		$sNameRaw = $this->FullName;
 		if ($this->sDelimiter) {
 			$aNames = \explode($this->sDelimiter, $sNameRaw);
 			return \end($aNames);
@@ -80,34 +78,27 @@ class Folder
 		return $sNameRaw;
 	}
 
-	public function FullName() : string
-	{
-		return $this->sFullName;
-	}
-
 	public function Delimiter() : ?string
 	{
 		return $this->sDelimiter;
 	}
 
-	public function FlagsLowerCase() : array
+	public function Selectable() : bool
 	{
-		return $this->aFlagsLowerCase;
+		return !\in_array('\\noselect', $this->aAttributes)
+			&& !\in_array('\\nonexistent', $this->aAttributes);
 	}
 
-	public function IsSelectable() : bool
+	public function IsSubscribed() : bool
 	{
-		return !\in_array('\\noselect', $this->aFlagsLowerCase) && !\in_array('\\nonexistent', $this->aFlagsLowerCase);
+		return \in_array('\\subscribed', $this->aAttributes);
 	}
 
 	public function IsInbox() : bool
 	{
-		return 'INBOX' === \strtoupper($this->sFullName) || \in_array('\\inbox', $this->aFlagsLowerCase);
+		return 'INBOX' === \strtoupper($this->FullName) || \in_array('\\inbox', $this->aAttributes);
 	}
 
-	/**
-	 * @param mixed $mData
-	 */
 	public function SetMetadata(string $sName, string $sData) : void
 	{
 		$this->aMetadata[$sName] = $sData;
@@ -118,19 +109,78 @@ class Folder
 		$this->aMetadata = $aMetadata;
 	}
 
-	/**
-	 * @return mixed
-	 */
 	public function GetMetadata(string $sName) : ?string
 	{
 		return isset($this->aMetadata[$sName]) ? $this->aMetadata[$sName] : null;
 	}
 
-	/**
-	 * @return array
-	 */
 	public function Metadata() : array
 	{
 		return $this->aMetadata;
+	}
+
+	// JMAP RFC 8621
+	public function Role() : ?string
+	{
+		$role = \strtolower($this->GetMetadata(MetadataKeys::SPECIALUSE) ?: '');
+		if (!$role) {
+			$match = \array_intersect([
+				'\\inbox',
+				'\\all',       // '\\allmail'
+				'\\archive',
+				'\\drafts',
+				'\\flagged',   // '\\starred'
+				'\\important',
+				'\\junk',      // '\\spam'
+				'\\sent',      // '\\sentmail'
+				'\\trash',     // '\\bin'
+			], $this->aAttributes);
+			if ($match) {
+				$role = \array_shift($match);
+			}
+			if (!$role && 'INBOX' === \strtoupper($this->FullName)) {
+				return 'inbox';
+			}
+		}
+		return $role ? \ltrim($role, '\\') : null;
+	}
+
+	#[\ReturnTypeWillChange]
+	public function jsonSerialize()
+	{
+		$selectable = $this->Selectable();
+		$result = array(
+			'@Object' => 'Object/Folder',
+			'name' => $this->Name(),
+			'fullName' => $this->FullName,
+			'delimiter' => (string) $this->sDelimiter,
+			'attributes' => $this->aAttributes,
+			'metadata' => $this->aMetadata,
+			'uidNext' => $this->UIDNEXT,
+			// https://datatracker.ietf.org/doc/html/rfc8621#section-2
+			'totalEmails' => $this->MESSAGES,
+			'unreadEmails' => $this->UNSEEN,
+			'id' => $this->MAILBOXID,
+			'size' => $this->SIZE,
+			'role' => $this->Role(),
+/*
+			'rights' => $this->myRights,
+			'myRights' => $this->myRights ?: [
+				'mayReadItems'   => $selectable,
+				'mayAddItems'    => $selectable,
+				'mayRemoveItems' => $selectable,
+				'maySetSeen'     => $selectable,
+				'maySetKeywords' => $selectable,
+				'mayCreateChild' => $selectable,
+				'mayRename'      => $selectable,
+				'mayDelete'      => $selectable,
+				'maySubmit'      => $selectable
+			]
+*/
+		);
+		if ($this->etag) {
+			$result['etag'] = $this->etag;
+		}
+		return $result;
 	}
 }

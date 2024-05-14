@@ -1,6 +1,6 @@
-import { settings, mailbox } from 'Common/Links';
+import { settings } from 'Common/Links';
+import { mailbox } from 'Common/Links';
 import { getFolderInboxName } from 'Common/Cache';
-
 import { AbstractViewLeft } from 'Knoin/AbstractViews';
 
 export class SettingsMenuUserView extends AbstractViewLeft {
@@ -17,7 +17,7 @@ export class SettingsMenuUserView extends AbstractViewLeft {
 		return settings(route);
 	}
 
-	backToMailBoxClick() {
+	backToInbox() {
 		hasher.setHash(mailbox(getFolderInboxName()));
 	}
 }

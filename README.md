@@ -5,6 +5,10 @@
   <br>
   <h1>SnappyMail</h1>
   <br>
+
+[![github-actions](https://github.com/the-djmaze/snappymail/actions/workflows/docker.yml/badge.svg)](https://github.com/the-djmaze/snappymail/actions/workflows/docker.yml)
+[![docker-image-size](https://img.shields.io/docker/image-size/djmaze/snappymail/latest)](https://hub.docker.com/r/djmaze/snappymail/tags)
+
   <p>
     Simple, modern, lightweight &amp; fast web-based email client.
   </p>
@@ -26,7 +30,7 @@ For more information about the product, check [snappymail.eu](https://snappymail
 
 Information about installing the product, check the [wiki page](https://github.com/the-djmaze/snappymail/wiki/Installation-instructions).
 
-And don't forget to read the [RainLoop documentation](https://www.rainloop.net/docs/).
+And don't forget to read the whole [Wiki](https://github.com/the-djmaze/snappymail/wiki).
 
 ## License
 
@@ -34,19 +38,19 @@ And don't forget to read the [RainLoop documentation](https://www.rainloop.net/d
 **GNU AFFERO GENERAL PUBLIC LICENSE Version 3 (AGPL)**.
 http://www.gnu.org/licenses/agpl-3.0.html
 
-Copyright (c) 2020 - 2022 SnappyMail
-Copyright (c) 2013 - 2021 RainLoop
+Copyright (c) 2020 - 2024 SnappyMail
+Copyright (c) 2013 - 2022 RainLoop
 
 ## Modifications
 
 This fork of RainLoop has the following changes:
 
-* Privacy/GDPR friendly (no: Social, Gravatar, Facebook, Google, Twitter, DropBox, OwnCloud, X-Mailer)
+* Privacy/GDPR friendly (no: Social, Gravatar, Facebook, Google, Twitter, DropBox, X-Mailer)
 * Admin uses password_hash/password_verify
 * Auth failed attempts written to syslog
 * Added Fail2ban instructions
-* ES2018
-* PHP 7.3+ required
+* ES2020
+* PHP 7.4+ required
 * PHP mbstring extension required
 * PHP replaced pclZip with PharData and ZipArchive
 * Dark mode
@@ -57,11 +61,13 @@ This fork of RainLoop has the following changes:
 * Removed background video support
 * Removed Sentry (Application Monitoring and Error Tracking Software)
 * Removed Spyc yaml
+* Removed OwnCloud
 * Replaced gulp-uglify with gulp-terser
 * CRLF => LF line endings
 * Embed boot.js and boot.css into index.html
-* Ongoing removal of old JavaScript code (things are native these days)
+* Removal of old JavaScript code (things are native these days)
 * Added modified [Squire](https://github.com/neilj/Squire) HTML editor as replacement for CKEditor
+* Updated [Sabre/VObject](https://github.com/sabre-io/vobject)
 * Split Admin specific JavaScript code from User code
 * Split Sieve specific JavaScript code from User code
 * JSON reviver
@@ -74,16 +80,10 @@ This fork of RainLoop has the following changes:
 * Added support to load plugins as .phar
 * Replaced old Sabre library
 * AddressBook Contacts support MySQL/MariaDB utf8mb4
-* Prevent Google FLoC
 * Added [Fetch Metadata Request Headers](https://www.w3.org/TR/fetch-metadata/) checks
 * Reduced excessive DOM size
 * Support [Kolab groupware](https://kolab.org/)
-* Support IMAP RFC 2971 ID extension
-* Support IMAP RFC 5258 LIST-EXTENDED
-* Support IMAP RFC 5464 METADATA
-* Support IMAP RFC 5819 LIST-STATUS
-* Support IMAP RFC 7628 SASL OAUTHBEARER aka XOAUTH2
-* Support IMAP4rev2 RFC 9051
+* Support many more [IMAP RFC's](https://snappymail.eu/comparison#IMAP)
 * Support Sodium and OpenSSL for encryption
 * Much better PGP support
 
@@ -93,11 +93,11 @@ This fork of RainLoop has the following changes:
 This fork uses downsized/simplified versions of scripts and has no support for Internet Explorer nor Edge Legacy.
 Supported are:
 
-* Chrome 69+
-* Edge 79+
-* Firefox 69+
-* Opera 56+
-* Safari 12+
+* Chrome 80+
+* Edge 80+
+* Firefox 78+
+* Opera 67+
+* Safari 13.1+
 
 
 ### Removal of old JavaScript
@@ -105,10 +105,8 @@ Supported are:
 The result is faster and smaller download code (good for mobile networks).
 
 * Added dev/prototype.js for some additional features
-* boot.js without webpack overhead
 * Modified Jua.js to be without jQuery
 * Replaced Autolinker with simple https/email detection
-* Replaced ifvisible.js with simple drop-in replacement
 * Replaced momentToNode with proper HTML5 `<time>`
 * Replaced resize listeners with ResizeObserver
 * Replaced bootstrap.js with native drop-in replacement
@@ -119,6 +117,8 @@ The result is faster and smaller download code (good for mobile networks).
 * Replaced simplestatemanager with CSS @media
 * Replaced inputosaurus with own code
 * Replaced keymaster with own shortcuts handler
+* Replaced OpenPGP.js v2 with OpenPGP.js v5
+* Removed ifvisible.js
 * Removed pikaday
 * Removed underscore
 * Removed polyfills
@@ -136,32 +136,32 @@ The result is faster and smaller download code (good for mobile networks).
 * Removed ProgressJS
 
 
-RainLoop 1.15 vs SnappyMail
+RainLoop 1.17 vs SnappyMail
 
 |js/*           	|RainLoop 	|Snappy   	|
 |---------------	|--------:	|--------:	|
-|admin.js        	|2.158.025	|   79.018	|
-|app.js          	|4.215.733	|  407.697	|
-|boot.js         	|  672.433	|    2.025	|
-|libs.js         	|  647.679	|  200.131	|
-|sieve.js         	|        0	|   75.642	|
-|polyfills.js    	|  325.908	|        0	|
+|admin.js        	|2.170.153	|   83.494	|
+|app.js          	|4.207.787	|  436.310	|
+|boot.js         	|  868.735	|    4.147	|
+|libs.js         	|  658.812	|  193.716	|
+|sieve.js         	|        0	|   84.598	|
+|polyfills.js    	|  334.608	|        0	|
 |serviceworker.js	|        0	|      285	|
-|TOTAL           	|8.019.778	|  764.798	|
+|TOTAL           	|8.240.095	|  802.550	|
 
 |js/min/*       	|RainLoop 	|Snappy   	|RL gzip	|SM gzip	|RL brotli	|SM brotli	|
 |---------------	|--------:	|--------:	|------:	|------:	|--------:	|--------:	|
-|admin.min.js    	|  255.514	|   39.256	| 73.899	| 13.076	| 60.674  	| 11.702	|
-|app.min.js      	|  516.000	|  194.148	|140.430	| 62.297	|110.657  	| 53.432	|
-|boot.min.js     	|   66.456	|    1.252	| 22.553	|    782	| 20.043  	|    631	|
-|libs.min.js     	|  574.626	|   96.201	|177.280	| 35.522	|151.855  	| 31.746	|
-|sieve.min.js     	|        0	|   36.632	|      0	|  9.689	|      0  	|  8.770	|
-|polyfills.min.js	|   32.608	|        0	| 11.315	|      0	| 10.072  	|      0	|
-|TOTAL user      	|1.189.690	|  291.601	|351.061	| 98.601	|292.627  	| 85.809	|
-|TOTAL user sieve	|1.189.690	|  328.233	|351.061	|108.290	|292.627  	| 94.579	|
-|TOTAL admin     	|1.189.690	|  136.709	|351.061	| 49.380	|292.627  	| 44.079	|
+|admin.min.js    	|  256.831	|   40.856	| 73.606	| 13.776	| 60.877  	| 12.345	|
+|app.min.js      	|  515.367	|  197.511	|139.456	| 67.058	|110.485  	| 57.209	|
+|boot.min.js     	|   84.659	|    2.087	| 26.998	|  1.204	| 23.643  	|  1.002	|
+|libs.min.js     	|  584.772	|   92.365	|180.901	| 34.487	|155.182  	| 30.830	|
+|sieve.min.js     	|        0	|   41.093	|      0	| 10.325	|      0  	|  9.327	|
+|polyfills.min.js	|   32.837	|        0	| 11.406	|      0	| 10.175  	|      0	|
+|TOTAL user      	|1.217.635	|  291.963	|358.761	|102.749	|299.485  	| 89.041	|
+|TOTAL user+sieve	|1.217.635	|  333.056	|358.761	|113.074	|299.485  	| 98.368	|
+|TOTAL admin     	|  959.099	|  135.308	|292.911	| 49.467	|249.877  	| 44.177	|
 
-For a user its around 70% smaller and faster than traditional RainLoop.
+For a user it is around 68% smaller and faster than traditional RainLoop.
 
 ### CSS changes
 
@@ -169,6 +169,7 @@ For a user its around 70% smaller and faster than traditional RainLoop.
 * Themes work in mobile mode
 * Bugfix invalid/conflicting css rules
 * Use flexbox
+* Use border-box
 * Split app.css to have separate admin.css
 * Remove oldschool 'float'
 * Remove unused css
@@ -187,12 +188,12 @@ For a user its around 70% smaller and faster than traditional RainLoop.
 
 |css/*       	|RainLoop	|Snappy   	|RL gzip	|SM gzip	|SM brotli	|
 |------------	|-------:	|------:	|------:	|------:	|--------:	|
-|app.css     	| 340.334	| 80.865	| 46.959	| 16.751	| 14.420	|
-|app.min.css 	| 274.791	| 65.086	| 39.618	| 14.855	| 13.088	|
+|app.css     	| 340.331	| 84.629	| 46.946	| 17.652	| 15.127	|
+|app.min.css 	| 274.947	| 67.995	| 39.647	| 15.562	| 13.568	|
 |boot.css    	|       	|  1.326	|       	|    664	|    545	|
 |boot.min.css	|       	|  1.071	|       	|    590	|    474	|
-|admin.css    	|       	| 29.977	|       	|  6.795	|  5.900	|
-|admin.min.css	|       	| 24.101	|       	|  6.167	|  5.421	|
+|admin.css    	|       	| 30.528	|       	|  7.001	|  6.088	|
+|admin.min.css	|       	| 24.652	|       	|  6.325	|  5.574	|
 
 ### PGP
 RainLoop uses the old OpenPGP.js v2
@@ -206,7 +207,7 @@ See https://github.com/the-djmaze/openpgpjs for development
 
 |OpenPGP        	|RainLoop 	|Snappy   	|RL gzip	|SM gzip	|RL brotli	|SM brotli	|
 |---------------	|--------:	|--------:	|------:	|-------:	|--------:	|--------:	|
-|openpgp.min.js 	|  330.742	|  539.642	|102.388	| 167.112	| 84.241  	|  137.447	|
+|openpgp.min.js 	|  330.742	|  546.309	|102.388	| 169.249	| 84.241  	|  138.751	|
 |openpgp.worker 	|    1.499	|         	|    824	|        	|    695 	|        	|
 
 
@@ -216,7 +217,6 @@ The [Squire](https://github.com/neilj/Squire) implementation is not 100% compati
 Still TODO:
 
 * support for tables (really needed?!?)
-* support BIDI (really needed?!?)
 
 |       	| normal	| min    	| gzip  	| min gzip	|
 |--------	|-------:	|-------:	|------:	|--------:	|
@@ -224,5 +224,3 @@ Still TODO:
 |ckeditor	|       ?	| 520.035	|      ?	|  155.916	|
 
 CKEditor including the 7 asset requests (css,language,plugins,icons) is 633.46 KB / 180.47 KB (gzip).
-
-To use the old CKEditor, you must install the plugin.

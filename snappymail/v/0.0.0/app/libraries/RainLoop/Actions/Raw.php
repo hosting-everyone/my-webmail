@@ -5,27 +5,32 @@ namespace RainLoop\Actions;
 trait Raw
 {
 	/**
-	 * @throws \MailSo\Base\Exceptions\Exception
+	 * @throws \MailSo\RuntimeException
 	 */
 	public function RawViewAsPlain() : bool
 	{
-		$this->initMailClientConnection();
-
-		$sRawKey = (string) $this->GetActionParam('RawKey', '');
-		$aValues = $this->getDecodedRawKeyValue($sRawKey);
-
-		$sFolder = isset($aValues['Folder']) ? $aValues['Folder'] : '';
-		$iUid = (isset($aValues['Uid']) ? (int) $aValues['Uid'] : 0);
-		$sMimeIndex = (string) (isset($aValues['MimeIndex']) ? $aValues['MimeIndex'] : '');
-
-		\header('Content-Type: text/plain');
-
-		return $this->MailClient()->MessageMimeStream(function ($rResource) {
-			if (\is_resource($rResource))
-			{
-				\MailSo\Base\Utils::FpassthruWithTimeLimitReset($rResource);
-			}
-		}, $sFolder, $iUid, $sMimeIndex);
+		$oAccount = $this->getAccountFromToken();
+		$sRawKey = $this->GetActionParam('RawKey', '');
+		$aValues = $this->decodeRawKey($sRawKey);
+		if (!empty($aValues['folder']) && !empty($aValues['uid'])
+		 && !empty($aValues['accountHash']) && $aValues['accountHash'] === $oAccount->Hash()
+		) {
+			$this->verifyCacheByKey($sRawKey);
+			$this->initMailClientConnection();
+			\header('Content-Type: text/plain');
+			return $this->MailClient()->MessageMimeStream(
+				function ($rResource) use ($sRawKey) {
+					if (\is_resource($rResource)) {
+						$this->cacheByKey($sRawKey);
+						\MailSo\Base\Utils::FpassthruWithTimeLimitReset($rResource);
+					}
+				},
+				(string) $aValues['folder'],
+				(int) $aValues['uid'],
+				isset($aValues['mimeIndex']) ? (string) $aValues['mimeIndex'] : ''
+			);
+		}
+		return false;
 	}
 
 	public function RawDownload() : bool
@@ -50,24 +55,19 @@ trait Raw
 
 		$oAccount = $this->getAccountFromToken();
 
-		$sData = $this->StorageProvider()->Get($oAccount,
+		$mData = $this->StorageProvider()->Get($oAccount,
 			\RainLoop\Providers\Storage\Enumerations\StorageType::CONFIG,
 			'background'
 		);
 
-		if (!empty($sData))
-		{
-			$aData = \json_decode($sData, true);
-			unset($sData);
-
-			if (!empty($aData['ContentType']) && !empty($aData['Raw']) &&
-				\in_array($aData['ContentType'], array('image/png', 'image/jpg', 'image/jpeg')))
-			{
+		if (!empty($mData)) {
+			$mData = \json_decode($mData, true);
+			if (!empty($mData['ContentType']) && !empty($mData['Raw'])) {
 				$this->cacheByKey($sRawKey);
 
-				\header('Content-Type: '.$aData['ContentType']);
-				echo \base64_decode($aData['Raw']);
-				unset($aData);
+				\header('Content-Type: '.$mData['ContentType']);
+				echo \base64_decode($mData['Raw']);
+				unset($mData);
 
 				return true;
 			}
@@ -76,267 +76,204 @@ trait Raw
 		return false;
 	}
 
-	public function RawPublic() : bool
+	private function clearFileName(string $sFileName, string $sContentType, string $sMimeIndex, int $iMaxLength = 250): string
 	{
-		$sRawKey = (string) $this->GetActionParam('RawKey', '');
-		$this->verifyCacheByKey($sRawKey);
+		$sFileName = !\strlen($sFileName) ? \preg_replace('/[^a-zA-Z0-9]/', '.', (empty($sMimeIndex) ? '' : $sMimeIndex . '.') . $sContentType) : $sFileName;
+		$sClearedFileName = \MailSo\Base\Utils::StripSpaces(\preg_replace('/[\.]+/', '.', $sFileName));
+		$sExt = \MailSo\Base\Utils::GetFileExtension($sClearedFileName);
 
-		$sHash = $sRawKey;
-		$sData = '';
-
-		if (!empty($sHash))
-		{
-			$sData = $this->StorageProvider()->Get(null,
-				\RainLoop\Providers\Storage\Enumerations\StorageType::NOBODY,
-				\RainLoop\KeyPathHelper::PublicFile($sHash)
-			);
+		if (10 < $iMaxLength && $iMaxLength < \strlen($sClearedFileName) - \strlen($sExt)) {
+			$sClearedFileName = \substr($sClearedFileName, 0, $iMaxLength) . (empty($sExt) ? '' : '.' . $sExt);
 		}
 
-		$aMatch = array();
-		if (!empty($sData) && 0 === \strpos($sData, 'data:') &&
-			\preg_match('/^data:([^:]+):/', $sData, $aMatch) && !empty($aMatch[1]))
-		{
-			$sContentType = \trim($aMatch[1]);
-			if (\in_array($sContentType, array('image/png', 'image/jpg', 'image/jpeg')))
-			{
-				$this->cacheByKey($sRawKey);
-
-				\header('Content-Type: '.$sContentType);
-				echo \preg_replace('/^data:[^:]+:/', '', $sData);
-				unset($sData);
-
-				return true;
-			}
-		}
-
-		return false;
+		return \MailSo\Base\Utils::SecureFileName(\MailSo\Base\Utils::Utf8Clear($sClearedFileName));
 	}
 
+	/**
+	 * Message, Message Attachment or Zip
+	 */
 	private function rawSmart(bool $bDownload, bool $bThumbnail = false) : bool
 	{
 		$sRawKey = (string) $this->GetActionParam('RawKey', '');
-		$aValues = $this->getDecodedRawKeyValue($sRawKey);
 
-		$sRange = $this->Http()->GetHeader('Range');
+		$oAccount = $this->getAccountFromToken();
+		$aValues = $this->decodeRawKey($sRawKey);
+		if (empty($aValues['accountHash']) || $aValues['accountHash'] !== $oAccount->Hash()) {
+			return false;
+		}
 
+		$sRange = \MailSo\Base\Http::GetHeader('Range');
 		$aMatch = array();
 		$sRangeStart = $sRangeEnd = '';
 		$bIsRangeRequest = false;
-
-		if (!empty($sRange) && 'bytes=0-' !== \strtolower($sRange) && \preg_match('/^bytes=([0-9]+)-([0-9]*)/i', \trim($sRange), $aMatch))
+		if (!empty($sRange) && 'bytes=0-' !== \strtolower($sRange)
+		 && \preg_match('/^bytes=([0-9]+)-([0-9]*)/i', \trim($sRange), $aMatch))
 		{
 			$sRangeStart = $aMatch[1];
 			$sRangeEnd = $aMatch[2];
-
 			$bIsRangeRequest = true;
+		} else {
+			$this->verifyCacheByKey($sRawKey);
 		}
 
-		$sFolder = isset($aValues['Folder']) ? $aValues['Folder'] : '';
-		$iUid = isset($aValues['Uid']) ? (int) $aValues['Uid'] : 0;
-		$sMimeIndex = isset($aValues['MimeIndex']) ? (string) $aValues['MimeIndex'] : '';
+		$sMimeIndex = isset($aValues['mimeIndex']) ? (string) $aValues['mimeIndex'] : '';
+		$sContentTypeIn = isset($aValues['mimeType']) ? (string) $aValues['mimeType'] : '';
+		$sFileNameIn = isset($aValues['fileName']) ? (string) $aValues['fileName'] : '';
 
-		$sContentTypeIn = isset($aValues['MimeType']) ? (string) $aValues['MimeType'] : '';
-		$sFileNameIn = isset($aValues['FileName']) ? (string) $aValues['FileName'] : '';
-		$sFileHashIn = isset($aValues['FileHash']) ? (string) $aValues['FileHash'] : '';
-
-		$bDetectImageOrientation = !!$this->Config()->Get('labs', 'detect_image_exif_orientation', true);
-
-		if (!empty($sFileHashIn))
-		{
-			$this->verifyCacheByKey($sRawKey);
-
-			$oAccount = $this->getAccountFromToken();
-
+		if (!empty($aValues['fileHash'])) {
+			$rResource = $this->FilesProvider()->GetFile($oAccount, (string) $aValues['fileHash']);
+			if (!\is_resource($rResource)) {
+				return false;
+			}
 			// https://github.com/the-djmaze/snappymail/issues/144
 			if ('.pdf' === \substr($sFileNameIn,-4)) {
 				$sContentTypeOut = 'application/pdf'; // application/octet-stream
 			} else {
-				$sContentTypeOut = $sContentTypeIn ?: \MailSo\Base\Utils::MimeContentType($sFileNameIn);
+				$sContentTypeOut = $sContentTypeIn
+					?: \SnappyMail\File\MimeType::fromFilename($sFileNameIn)
+					?: 'application/octet-stream';
 			}
+			$sFileNameOut = $this->clearFileName($sFileNameIn, $sContentTypeIn, $sMimeIndex);
+			\header('Content-Type: '.$sContentTypeOut);
+			\MailSo\Base\Http::setContentDisposition('attachment', ['filename' => $sFileNameOut]);
+			\header('Accept-Ranges: none');
+			\header('Content-Transfer-Encoding: binary');
+			\MailSo\Base\Utils::FpassthruWithTimeLimitReset($rResource);
+			return true;
+		}
 
-			$sFileNameOut = $this->MainClearFileName($sFileNameIn, $sContentTypeIn, $sMimeIndex);
-
-			$rResource = $this->FilesProvider()->GetFile($oAccount, $sFileHashIn);
-			if (\is_resource($rResource))
-			{
-				\header('Content-Type: '.$sContentTypeOut);
-				\header('Content-Disposition: attachment; '.
-					\trim(\MailSo\Base\Utils::EncodeHeaderUtf8AttributeValue('filename', $sFileNameOut)));
-
-				\header('Accept-Ranges: none');
-				\header('Content-Transfer-Encoding: binary');
-
-				\MailSo\Base\Utils::FpassthruWithTimeLimitReset($rResource);
-				return true;
-			}
-
+		$sFolder = isset($aValues['folder']) ? (string) $aValues['folder'] : '';
+		$iUid = isset($aValues['uid']) ? (int) $aValues['uid'] : 0;
+		if (empty($sFolder) || 1 > $iUid) {
 			return false;
 		}
-		else
-		{
-			if (!empty($sFolder) && 0 < $iUid)
-			{
-				$this->verifyCacheByKey($sRawKey);
-			}
-		}
 
-		$oAccount = $this->initMailClientConnection();
+		$this->initMailClientConnection();
 
 		$self = $this;
 		return $this->MailClient()->MessageMimeStream(
 			function($rResource, $sContentType, $sFileName, $sMimeIndex = '') use (
-				$self, $oAccount, $sRawKey, $sContentTypeIn, $sFileNameIn, $bDownload, $bThumbnail, $bDetectImageOrientation,
+				$self, $sRawKey, $sContentTypeIn, $sFileNameIn, $bDownload, $bThumbnail,
 				$bIsRangeRequest, $sRangeStart, $sRangeEnd
 			) {
-				if ($oAccount && \is_resource($rResource))
-				{
+				if (\is_resource($rResource)) {
 					\MailSo\Base\Utils::ResetTimeLimit();
-
-					$sContentTypeOut = $sContentTypeIn;
-					if (empty($sContentTypeOut))
-					{
-						$sContentTypeOut = $sContentType;
-						if (empty($sContentTypeOut))
-						{
-							$sContentTypeOut = (empty($sFileName)) ? 'text/plain' : \MailSo\Base\Utils::MimeContentType($sFileName);
-						}
-					}
-
-					$sFileNameOut = $sFileNameIn;
-					if (empty($sFileNameOut))
-					{
-						$sFileNameOut = $sFileName;
-					}
-
-					// https://github.com/the-djmaze/snappymail/issues/144
-					if ('.pdf' === \substr($sFileNameOut,-4)) {
-						$sContentTypeOut = 'application/pdf';
-					}
-
-					$sFileNameOut = $self->MainClearFileName($sFileNameOut, $sContentTypeOut, $sMimeIndex);
 
 					$self->cacheByKey($sRawKey);
 
-					$sLoadedData = null;
-					if (!$bDownload)
-					{
-						if ($bThumbnail)
+					$self->logWrite(\print_r([
+						$sFileName,
+						$sContentType,
+						$sFileNameIn,
+						$sContentTypeIn
+					],true), \LOG_DEBUG, 'RAW');
+
+					if ($sFileNameIn) {
+						$sFileName = $sFileNameIn;
+					}
+					$sFileName = $self->clearFileName($sFileName, $sContentType, $sMimeIndex);
+
+					if ('.pdf' === \substr($sFileName, -4)) {
+						// https://github.com/the-djmaze/snappymail/issues/144
+						$sContentType = 'application/pdf';
+					} else {
+						$sContentType = $sContentTypeIn
+							?: $sContentType
+//							?: \SnappyMail\File\MimeType::fromStream($rResource, $sFileName)
+							?: \SnappyMail\File\MimeType::fromFilename($sFileName)
+							?: 'application/octet-stream';
+					}
+
+					if (!$bDownload) {
+						$bDetectImageOrientation = $self->Config()->Get('labs', 'image_exif_auto_rotate', false)
+							// Mostly only JPEG has EXIF metadata
+							&& 'image/jpeg' == $sContentType;
+						try
 						{
-							try
-							{
-								$oImage = static::loadImage(\stream_get_contents($rResource), $bDetectImageOrientation, 60);
-								\header('Content-Disposition: inline; '.
-									\trim(\MailSo\Base\Utils::EncodeHeaderUtf8AttributeValue('filename', $sFileNameOut.'_thumb60x60.png')));
+							if ($bThumbnail) {
+								$oImage = static::loadImage($rResource, $bDetectImageOrientation, 48);
+								\MailSo\Base\Http::setContentDisposition('inline', ['filename' => $sFileName.'_thumb60x60.png']);
 								$oImage->show('png');
 //								$oImage->show('webp'); // Little Britain: "Safari says NO"
 								exit;
-							}
-							catch (\Throwable $oException)
-							{
-								$self->Logger()->WriteExceptionShort($oException);
-							}
-						}
-						else if ($bDetectImageOrientation &&
-							\in_array($sContentTypeOut, array('image/png', 'image/jpeg', 'image/jpg', 'image/webp')))
-						{
-							try
-							{
-								$sLoadedData = \stream_get_contents($rResource);
-								$oImage = static::loadImage($sLoadedData, $bDetectImageOrientation);
-								\header('Content-Disposition: inline; '.
-									\trim(\MailSo\Base\Utils::EncodeHeaderUtf8AttributeValue('filename', $sFileNameOut)));
+							} else if ($bDetectImageOrientation) {
+								$oImage = static::loadImage($rResource, $bDetectImageOrientation);
+								\MailSo\Base\Http::setContentDisposition('inline', ['filename' => $sFileName]);
 								$oImage->show();
-							}
-							catch (\Throwable $oException)
-							{
-								$self->Logger()->WriteExceptionShort($oException);
+//								$oImage->show('webp'); // Little Britain: "Safari says NO"
+								exit;
 							}
 						}
-						else
+						catch (\Throwable $oException)
 						{
-							$sLoadedData = \stream_get_contents($rResource);
+							$self->Logger()->WriteExceptionShort($oException);
+							\MailSo\Base\Http::StatusHeader(500);
+							exit;
 						}
 					}
 
-					if ($bDownload || $sLoadedData)
-					{
-						if (!headers_sent()) {
-							\header('Content-Type: '.$sContentTypeOut);
-							\header('Content-Disposition: '.($bDownload ? 'attachment' : 'inline').'; '.
-								\trim(\MailSo\Base\Utils::EncodeHeaderUtf8AttributeValue('filename', $sFileNameOut)));
+					if (!\headers_sent()) {
+						\header('Content-Type: '.$sContentType);
+						\MailSo\Base\Http::setContentDisposition($bDownload ? 'attachment' : 'inline', ['filename' => $sFileName]);
+						\header('Accept-Ranges: bytes');
+						\header('Content-Transfer-Encoding: binary');
+					}
 
-							\header('Accept-Ranges: bytes');
-							\header('Content-Transfer-Encoding: binary');
-						}
+					$sLoadedData = null;
+					if ($bIsRangeRequest || !$bDownload) {
+						$sLoadedData = \stream_get_contents($rResource);
+					}
 
-						if ($bIsRangeRequest && !$sLoadedData)
-						{
-							$sLoadedData = \stream_get_contents($rResource);
-						}
+					\MailSo\Base\Utils::ResetTimeLimit();
 
-						\MailSo\Base\Utils::ResetTimeLimit();
+					if ($sLoadedData) {
+						if ($bIsRangeRequest && (\strlen($sRangeStart) || \strlen($sRangeEnd))) {
+							$iFullContentLength = \strlen($sLoadedData);
 
-						if ($sLoadedData)
-						{
-							if ($bIsRangeRequest && (\strlen($sRangeStart) || \strlen($sRangeEnd)))
-							{
-								$iFullContentLength = \strlen($sLoadedData);
+							\MailSo\Base\Http::StatusHeader(206);
 
-								\MailSo\Base\Http::StatusHeader(206);
+							$iRangeStart = \max(0, \intval($sRangeStart));
+							$iRangeEnd = \max(0, \intval($sRangeEnd));
 
-								$iRangeStart = (int) $sRangeStart;
-								$iRangeEnd = (int) $sRangeEnd;
-
-								if ('' === $sRangeEnd)
-								{
-									$sLoadedData = 0 < $iRangeStart ? \substr($sLoadedData, $iRangeStart) : $sLoadedData;
-								}
-								else
-								{
-									if ($iRangeStart < $iRangeEnd)
-									{
-										$sLoadedData = \substr($sLoadedData, $iRangeStart, $iRangeEnd - $iRangeStart);
-									}
-									else
-									{
-										$sLoadedData = 0 < $iRangeStart ? \substr($sLoadedData, $iRangeStart) : $sLoadedData;
-									}
-								}
-
-								$iContentLength = \strlen($sLoadedData);
-
-								if (0 < $iContentLength)
-								{
-									\header('Content-Length: '.$iContentLength);
-									\header('Content-Range: bytes '.$sRangeStart.'-'.(0 < $iRangeEnd ? $iRangeEnd : $iFullContentLength - 1).'/'.$iFullContentLength);
-								}
-
-								echo $sLoadedData;
-							}
-							else
-							{
-								echo $sLoadedData;
+							if ($iRangeEnd && $iRangeStart < $iRangeEnd) {
+								$sLoadedData = \substr($sLoadedData, $iRangeStart, $iRangeEnd - $iRangeStart);
+							} else if ($iRangeStart) {
+								$sLoadedData = \substr($sLoadedData, $iRangeStart);
 							}
 
-							unset($sLoadedData);
+							$iContentLength = \strlen($sLoadedData);
+
+							if (0 < $iContentLength) {
+								\header('Content-Length: '.$iContentLength);
+								\header('Content-Range: bytes '.$sRangeStart.'-'.($iRangeEnd ?: $iFullContentLength - 1).'/'.$iFullContentLength);
+							}
+						} else {
+							\header('Content-Length: '.\strlen($sLoadedData));
 						}
-						else
-						{
-							\MailSo\Base\Utils::FpassthruWithTimeLimitReset($rResource);
-						}
+
+						echo $sLoadedData;
+
+						unset($sLoadedData);
+					} else {
+						\MailSo\Base\Utils::FpassthruWithTimeLimitReset($rResource);
 					}
 				}
-			}, $sFolder, $iUid, $sMimeIndex);
+			}, $sFolder, $iUid, $sMimeIndex
+		);
 	}
 
-	private static function loadImage(string $data, bool $bDetectImageOrientation = true, int $iThumbnailBoxSize = 0) : \SnappyMail\Image
+	private static function loadImage($resource, bool $bDetectImageOrientation = false, int $iThumbnailBoxSize = 0) : \SnappyMail\Image
 	{
 		if (\extension_loaded('gmagick'))      { $handler = 'gmagick'; }
 		else if (\extension_loaded('imagick')) { $handler = 'imagick'; }
 		else if (\extension_loaded('gd'))      { $handler = 'gd2'; }
 		else { return null; }
-		$handler = 'SnappyMail\\Image\\'.$handler.'::createFromString';
-		$oImage = $handler($data);
+		$handler = 'SnappyMail\\Image\\'.$handler.'::createFromStream';
+		$oImage = $handler($resource);
+
+		if (!$oImage->valid()) {
+			throw new \Exception('Loading image failed');
+		}
 
 		// rotateImageByOrientation
 		if ($bDetectImageOrientation) {

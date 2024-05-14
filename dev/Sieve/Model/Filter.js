@@ -36,11 +36,9 @@ export class FilterModel extends AbstractModel {
 		this.addObservables({
 			enabled: true,
 			askDelete: false,
-			canBeDeleted: true,
 
 			name: '',
 			nameError: false,
-			nameFocused: false,
 
 			conditionsType: FilterRulesType.Any,
 
@@ -54,10 +52,10 @@ export class FilterModel extends AbstractModel {
 			actionValueFourth: '',
 			actionValueFourthError: false,
 
-			actionMarkAsRead: false,
+			markAsRead: false,
 
-			actionKeep: true,
-			actionNoStop: false,
+			keep: true,
+			stop: true,
 
 			actionType: FilterAction.MoveTo
 		});
@@ -66,7 +64,7 @@ export class FilterModel extends AbstractModel {
 
 		const fGetRealFolderName = folderFullName => {
 //			const folder = getFolderFromCacheList(folderFullName);
-//			return folder ? folder.fullName.replace('.' === folder.delimiter ? /\./ : /[\\/]+/, ' / ') : folderFullName;
+//			return folder?.fullName.replace('.' === folder.delimiter ? /\./ : /[\\/]+/, ' / ') : folderFullName;
 			return folderFullName;
 		};
 
@@ -182,27 +180,6 @@ export class FilterModel extends AbstractModel {
 		return true;
 	}
 
-	toJson() {
-		return {
-//			'@Object': 'Object/Filter',
-			ID: this.id,
-			Enabled: this.enabled() ? 1 : 0,
-			Name: this.name(),
-			Conditions: this.conditions.map(item => item.toJson()),
-			ConditionsType: this.conditionsType(),
-
-			ActionType: this.actionType(),
-			ActionValue: this.actionValue(),
-			ActionValueSecond: this.actionValueSecond(),
-			ActionValueThird: this.actionValueThird(),
-			ActionValueFourth: this.actionValueFourth(),
-
-			Keep: this.actionKeep() ? 1 : 0,
-			Stop: this.actionNoStop() ? 0 : 1,
-			MarkAsRead: this.actionMarkAsRead() ? 1 : 0
-		};
-	}
-
 	addCondition() {
 		this.conditions.push(new FilterConditionModel());
 	}
@@ -211,8 +188,22 @@ export class FilterModel extends AbstractModel {
 		this.conditions.remove(oConditionToDelete);
 	}
 
-	setRecipients() {
-//		this.actionValueFourth(AccountUserStore.getEmailAddresses().join(', '));
+	toJSON() {
+		return {
+			ID: this.id,
+			Enabled: this.enabled(),
+			Name: this.name(),
+			Conditions: this.conditions(),
+			ConditionsType: this.conditionsType(),
+			ActionType: this.actionType(),
+			ActionValue: this.actionValue(),
+			ActionValueSecond: this.actionValueSecond(),
+			ActionValueThird: this.actionValueThird(),
+			ActionValueFourth: this.actionValueFourth(),
+			Keep: this.keep(),
+			Stop: this.stop(),
+			MarkAsRead: this.markAsRead()
+		};
 	}
 
 	/**
@@ -221,21 +212,23 @@ export class FilterModel extends AbstractModel {
 	 * @returns {?FilterModel}
 	 */
 	static reviveFromJson(json) {
+		json.id = json.ID;
+		delete json.ID;
 		const filter = super.reviveFromJson(json);
 		if (filter) {
-			filter.id = filter.id ? '' + filter.id : '';
+			filter.id = '' + (filter.id || '');
 			filter.conditions(
-				json.Conditions ? json.Conditions.map(aData => FilterConditionModel.reviveFromJson(aData)).filter(v => v) : []
+				(json.Conditions || json.conditions || []).map(condition => {
+					condition['@Object'] = 'Object/FilterCondition';
+					return FilterConditionModel.reviveFromJson(condition)
+				}).filter(v => v)
 			);
-			filter.actionKeep(0 != json.Keep);
-			filter.actionNoStop(0 == json.Stop);
-			filter.actionMarkAsRead(1 == json.MarkAsRead);
 		}
 		return filter;
 	}
 
-	cloneSelf() {
-		const filter = new FilterModel();
+	assignTo(target) {
+		const filter = target || new FilterModel();
 
 		filter.id = this.id;
 
@@ -246,7 +239,7 @@ export class FilterModel extends AbstractModel {
 
 		filter.conditionsType(this.conditionsType());
 
-		filter.actionMarkAsRead(this.actionMarkAsRead());
+		filter.markAsRead(this.markAsRead());
 
 		filter.actionType(this.actionType());
 
@@ -257,8 +250,8 @@ export class FilterModel extends AbstractModel {
 		filter.actionValueThird(this.actionValueThird());
 		filter.actionValueFourth(this.actionValueFourth());
 
-		filter.actionKeep(this.actionKeep());
-		filter.actionNoStop(this.actionNoStop());
+		filter.keep(this.keep());
+		filter.stop(this.stop());
 
 		filter.conditions(this.conditions.map(item => item.cloneSelf()));
 

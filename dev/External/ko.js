@@ -1,8 +1,8 @@
 import ko from 'ko';
 import { i18nToNodes } from 'Common/Translator';
 import { doc, createElement } from 'Common/Globals';
-import { SaveSettingsStep } from 'Common/Enums';
-import { arrayLength, isFunction, forEachObjectEntry } from 'Common/Utils';
+import { SaveSettingStatus } from 'Common/Enums';
+import { isFunction, forEachObjectEntry } from 'Common/Utils';
 
 export const
 	errorTip = (element, value) => value
@@ -26,14 +26,30 @@ export const
 	addSubscribablesTo = (target, subscribables) =>
 		forEachObjectEntry(subscribables, (key, fn) => target[key].subscribe(fn)),
 
-	dispose = disposable => disposable && isFunction(disposable.dispose) && disposable.dispose(),
+	dispose = disposable => isFunction(disposable?.dispose) && disposable.dispose(),
+
+	onEvent = (element, event, fn) => {
+		element.addEventListener(event, fn);
+		ko.utils.domNodeDisposal.addDisposeCallback(element, () => element.removeEventListener(event, fn));
+	},
+
+	onKey = (key, element, fValueAccessor, fAllBindings, model) => {
+		let fn = event => {
+			if (key == event.key) {
+//				stopEvent(event);
+//				element.dispatchEvent(new Event('change'));
+				fValueAccessor().call(model);
+			}
+		};
+		onEvent(element, 'keydown', fn);
+	},
 
 	// With this we don't need delegateRunOnDestroy
 	koArrayWithDestroy = data => {
 		data = ko.observableArray(data);
 		data.subscribe(changes =>
 			changes.forEach(item =>
-				'deleted' === item.status && null == item.moved && item.value.onDestroy && item.value.onDestroy()
+				'deleted' === item.status && null == item.moved && item.value.onDestroy?.()
 			)
 		, data, 'arrayChange');
 		return data;
@@ -50,38 +66,32 @@ Object.assign(ko.bindingHandlers, {
 		},
 		update: (element, fValueAccessor) => {
 			let value = ko.unwrap(fValueAccessor());
-			value = isFunction(value) ? value() : value;
-			errorTip(element, value);
+			errorTip(element, isFunction(value) ? value() : value);
 		}
 	},
 
 	onEnter: {
-		init: (element, fValueAccessor, fAllBindings, viewModel) => {
-			let fn = event => {
-				if ('Enter' == event.key) {
-					element.dispatchEvent(new Event('change'));
-					fValueAccessor().call(viewModel);
-				}
-			};
-			element.addEventListener('keydown', fn);
-			ko.utils.domNodeDisposal.addDisposeCallback(element, () => element.removeEventListener('keydown', fn));
-		}
+		init: (element, fValueAccessor, fAllBindings, model) =>
+			onKey('Enter', element, fValueAccessor, fAllBindings, model)
+	},
+
+	onEsc: {
+		init: (element, fValueAccessor, fAllBindings, model) =>
+			onKey('Escape', element, fValueAccessor, fAllBindings, model)
 	},
 
 	onSpace: {
-		init: (element, fValueAccessor, fAllBindings, viewModel) => {
-			let fn = event => {
-				if (' ' == event.key) {
-					fValueAccessor().call(viewModel, event);
-				}
-			};
-			element.addEventListener('keyup', fn);
-			ko.utils.domNodeDisposal.addDisposeCallback(element, () => element.removeEventListener('keyup', fn));
-		}
+		init: (element, fValueAccessor, fAllBindings, model) =>
+			onKey(' ', element, fValueAccessor, fAllBindings, model)
 	},
 
-	i18nInit: {
-		init: element => i18nToNodes(element)
+	toggle: {
+		init: (element, fValueAccessor) => {
+			let observable = fValueAccessor(),
+				fn = () => observable(!observable());
+			onEvent(element, 'click', fn);
+			onEvent(element, 'keydown', event => ' ' == event.key && fn());
+		}
 	},
 
 	i18nUpdate: {
@@ -91,16 +101,12 @@ Object.assign(ko.bindingHandlers, {
 		}
 	},
 
-	title: {
-		update: (element, fValueAccessor) => element.title = ko.unwrap(fValueAccessor())
-	},
-
 	command: {
 		init: (element, fValueAccessor, fAllBindings, viewModel, bindingContext) => {
 			const command = fValueAccessor();
 
 			if (!command || !command.canExecute) {
-				throw new Error('Value should be a command');
+				throw Error('Value should be a command');
 			}
 
 			ko.bindingHandlers['FORM'==element.nodeName ? 'submit' : 'click'].init(
@@ -112,11 +118,8 @@ Object.assign(ko.bindingHandlers, {
 			);
 		},
 		update: (element, fValueAccessor) => {
-			const cl = element.classList,
-				command = fValueAccessor();
-
-			let disabled = !command.canExecute();
-			cl.toggle('disabled', disabled);
+			let disabled = !fValueAccessor().canExecute();
+			element.classList.toggle('disabled', disabled);
 
 			if (element.matches('INPUT,TEXTAREA,BUTTON')) {
 				element.disabled = disabled;
@@ -128,7 +131,7 @@ Object.assign(ko.bindingHandlers, {
 		init: (element) => {
 			let icon = element;
 			if (element.matches('input,select,textarea')) {
-				element.classList.add('settings-saved-trigger-input');
+				element.classList.add('settings-save-trigger-input');
 				element.after(element.saveTriggerIcon = icon = createElement('span'));
 			}
 			icon.classList.add('settings-save-trigger');
@@ -137,55 +140,29 @@ Object.assign(ko.bindingHandlers, {
 			const value = parseInt(ko.unwrap(fValueAccessor()),10);
 			let cl = (element.saveTriggerIcon || element).classList;
 			if (element.saveTriggerIcon) {
-				cl.toggle('saving', value === SaveSettingsStep.Animate);
-				cl.toggle('success', value === SaveSettingsStep.TrueResult);
-				cl.toggle('error', value === SaveSettingsStep.FalseResult);
+				cl.toggle('saving', value === SaveSettingStatus.Saving);
+				cl.toggle('success', value === SaveSettingStatus.Success);
+				cl.toggle('error', value === SaveSettingStatus.Failed);
 			}
 			cl = element.classList;
-			cl.toggle('success', value === SaveSettingsStep.TrueResult);
-			cl.toggle('error', value === SaveSettingsStep.FalseResult);
+			cl.toggle('success', value === SaveSettingStatus.Success);
+			cl.toggle('error', value === SaveSettingStatus.Failed);
 		}
 	}
 });
 
 // extenders
 
-ko.extenders.limitedList = (target, limitedList) => {
-	const result = ko
-		.computed({
-			read: target,
-			write: newValue => {
-				let currentValue = target(),
-					list = ko.unwrap(limitedList);
-				list = arrayLength(list) ? list : [''];
-				if (!list.includes(newValue)) {
-					newValue = list.includes(currentValue, list) ? currentValue : list[0];
-					target(newValue + ' ');
-				}
-				target(newValue);
-			}
-		})
-		.extend({ notify: 'always' });
-
-	result(target());
-
-	if (!result.valueHasMutated) {
-		result.valueHasMutated = () => target.valueHasMutated();
-	}
-
-	return result;
-};
-
 ko.extenders.toggleSubscribeProperty = (target, options) => {
 	const prop = options[1];
 	if (prop) {
 		target.subscribe(
-			prev => prev && prev[prop] && prev[prop](false),
+			prev => prev?.[prop]?.(false),
 			options[0],
 			'beforeChange'
 		);
 
-		target.subscribe(next => next && next[prop] && next[prop](true), options[0]);
+		target.subscribe(next => next?.[prop]?.(true), options[0]);
 	}
 
 	return target;

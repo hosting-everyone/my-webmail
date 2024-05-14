@@ -29,6 +29,11 @@ class GD2 implements \SnappyMail\Image
 		return $this->getImageBlob();
 	}
 
+	public function valid() : bool
+	{
+		return $this->img && 0 < \imagesx($this->img);
+	}
+
 	public static function createFromString(string &$data)
 	{
 		if (!($imginfo = \getimagesizefromstring($data))) {
@@ -45,7 +50,8 @@ class GD2 implements \SnappyMail\Image
 		}
 		$gd2 = new static();
 		$gd2->img = \imagecreatefromstring($data);
-		if (!\is_resource($gd2->img)) {
+		// resource or PHP8 GdImage
+		if (!$gd2->img) {
 			throw new \InvalidArgumentException('Failed to load image');
 		}
 		$gd2->file = 'blob';
@@ -53,6 +59,12 @@ class GD2 implements \SnappyMail\Image
 		$gd2->format = $format;
 		$gd2->orientation = Exif::getImageOrientation($data, $imginfo);
 		return $gd2;
+	}
+
+	public static function createFromStream($fp)
+	{
+		$data = \stream_get_contents($fp);
+		return static::createFromString($data);
 	}
 
 	public function getOrientation() : int
@@ -212,7 +224,7 @@ class GD2 implements \SnappyMail\Image
 		/** rotate clockwise */
 		if (!\function_exists('imagerotate')) { require __DIR__ . '/gd2/imagerotate.inc'; }
 		$tmp_img = \imagerotate($this->img, $degrees * -1, 0);
-		if (!\is_resource($tmp_img)) { return false; }
+		if (!$tmp_img) { return false; }
 		\imagedestroy($this->img);
 		$this->img = $tmp_img;
 		return true;
@@ -229,7 +241,7 @@ class GD2 implements \SnappyMail\Image
 		if (!$width  || ($bestfit && $tx < $ty)) { $width  = \round($x / $ty); }
 		if (!$height || ($bestfit && $tx > $ty)) { $height = \round($y / $tx); }
 		$tmp_img = $this->create_image($width, $height);
-		if (!\is_resource($tmp_img)) { return false; }
+		if (!$tmp_img) { return false; }
 		\imagealphablending($tmp_img, false);
 		if (!\imagecopyresampled($tmp_img, $this->img, 0, 0, 0, 0, $width, $height, $x, $y)) {
 			if (!\imagecopyresized($tmp_img, $this->img, 0, 0, 0, 0, $width, $height, $x, $y)) {

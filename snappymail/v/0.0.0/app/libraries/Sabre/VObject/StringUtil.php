@@ -5,32 +5,23 @@ namespace Sabre\VObject;
 /**
  * Useful utilities for working with various strings.
  *
- * @copyright Copyright (C) 2007-2013 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
- * @license http://code.google.com/p/sabredav/wiki/License Modified BSD License
+ * @license http://sabre.io/license/ Modified BSD License
  */
-class StringUtil {
-
+class StringUtil
+{
     /**
-     * Returns true or false depending on if a string is valid UTF-8
-     *
-     * @param string $str
-     * @return bool
+     * Returns true or false depending on if a string is valid UTF-8.
      */
-    static function isUTF8($str) {
-
-        // First check.. mb_check_encoding
-        if (!mb_check_encoding($str, 'UTF-8')) {
-            return false;
-        }
-
+    public static function isUTF8(string $str): bool
+    {
         // Control characters
-        if (preg_match('%(?:[\x00-\x08\x0B-\x0C\x0E\x0F])%', $str)) {
+        if (preg_match('%[\x00-\x08\x0B-\x0C\x0E\x0F]%', $str)) {
             return false;
         }
 
-        return true;
-
+        return (bool) preg_match('%%u', $str);
     }
 
     /**
@@ -38,24 +29,14 @@ class StringUtil {
      *
      * Currently only ISO-5991-1 input and UTF-8 input is supported, but this
      * may be expanded upon if we receive other examples.
-     *
-     * @param string $str
-     * @return string
      */
-    static function convertToUTF8($str) {
-
-        $encoding = mb_detect_encoding($str , array('UTF-8','ISO-8859-1'), true);
-
-        if ($encoding === 'ISO-8859-1') {
-            $newStr = utf8_encode($str);
-        } else {
-            $newStr = $str;
+    public static function convertToUTF8(string $str): string
+    {
+        if (!mb_check_encoding($str, 'UTF-8') && mb_check_encoding($str, 'ISO-8859-1')) {
+            $str = mb_convert_encoding($str, 'UTF-8', 'ISO-8859-1');
         }
 
         // Removing any control characters
-        return (preg_replace('%(?:[\x00-\x08\x0B-\x0C\x0E\x0F])%', '', $newStr));
-
+        return preg_replace('%(?:[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F])%', '', $str);
     }
-
 }
-

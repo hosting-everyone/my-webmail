@@ -1,15 +1,13 @@
-import { pString, pInt } from 'Common/Utils';
-import { Settings } from 'Common/Globals';
+import { pInt } from 'Common/Utils';
+import { doc, Settings, SettingsAdmin } from 'Common/Globals';
 
 const
+	BASE = doc.location.pathname.replace(/\/+$/,'') + '/',
 	HASH_PREFIX = '#/',
-	SERVER_PREFIX = './?',
-	VERSION = Settings.app('version'),
-	VERSION_PREFIX = () => Settings.app('webVersionPath') || 'snappymail/v/' + VERSION + '/',
 
-	adminPath = () => rl.adminArea() && !Settings.app('adminHostUse'),
+	adminPath = () => rl.adminArea() && !SettingsAdmin('host'),
 
-	prefix = () => SERVER_PREFIX + (adminPath() ? Settings.app('adminPath') : '');
+	prefix = () => BASE + '?' + (adminPath() ? SettingsAdmin('path') : '');
 
 export const
 	SUB_QUERY_PREFIX = '&q[]=',
@@ -23,7 +21,7 @@ export const
 	/**
 	 * @returns {string}
 	 */
-	logoutLink = () => adminPath() ? prefix() : './',
+	logoutLink = () => adminPath() ? prefix() : BASE,
 
 	/**
 	 * @param {string} type
@@ -32,29 +30,23 @@ export const
 	 * @returns {string}
 	 */
 	serverRequestRaw = (type, hash) =>
-		SERVER_PREFIX + '/Raw/' + SUB_QUERY_PREFIX + '/'
-		+ '0/' // AuthAccountHash ?
+		BASE + '?/Raw/' + SUB_QUERY_PREFIX + '/'
+		+ '0/' // Settings.get('accountHash') ?
 		+ (type
 			? type + '/' + (hash ? SUB_QUERY_PREFIX + '/' + hash : '')
 			: ''),
 
 	/**
 	 * @param {string} download
-	 * @param {string=} customSpecSuffix
 	 * @returns {string}
 	 */
-	attachmentDownload = (download, customSpecSuffix) =>
-		serverRequestRaw('Download', download, customSpecSuffix),
+	attachmentDownload = (download) =>
+		serverRequestRaw('Download', download),
 
 	proxy = url =>
-		SERVER_PREFIX + '/ProxyExternal/' + btoa(url).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
-/*
-		return './?/ProxyExternal/'.Utils::EncodeKeyValuesQ(array(
-			'Rnd' => \md5(\microtime(true)),
-			'Token' => Utils::GetConnectionToken(),
-			'Url' => $sUrl
-		)).'/';
-*/
+		BASE + '?/ProxyExternal/'
+			+ btoa(url.replace(/ /g, '%20')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+//			+ b64EncodeJSONSafe(url.replace(/ /g, '%20')),
 
 	/**
 	 * @param {string} type
@@ -62,32 +54,40 @@ export const
 	 */
 	serverRequest = type => prefix() + '/' + type + '/' + SUB_QUERY_PREFIX + '/0/',
 
+	// Is '?/Css/0/Admin' needed?
+	cssLink = theme => BASE + '?/Css/0/User/-/' + encodeURI(theme) + '/-/' + Date.now() + '/Hash/-/Json/',
+
 	/**
 	 * @param {string} lang
 	 * @param {boolean} isAdmin
 	 * @returns {string}
 	 */
 	langLink = (lang, isAdmin) =>
-		SERVER_PREFIX + '/Lang/0/' + (isAdmin ? 'Admin' : 'App') + '/' + encodeURI(lang) + '/' + VERSION + '/',
+		BASE + '?/Lang/0/' + (isAdmin ? 'Admin' : 'App')
+			+ '/' + encodeURI(lang)
+			+ '/' + Settings.app('version') + '/',
 
 	/**
 	 * @param {string} path
 	 * @returns {string}
 	 */
-	staticLink = path => VERSION_PREFIX() + 'static/' + path,
+	staticLink = path => Settings.app('webVersionPath') + 'static/' + path,
 
 	/**
 	 * @param {string} theme
 	 * @returns {string}
 	 */
 	themePreviewLink = theme => {
-		let prefix = VERSION_PREFIX();
-		if ('@custom' === theme.slice(-7)) {
-			theme = theme.slice(0, theme.length - 7).trim();
-			prefix = Settings.app('webPath') || '';
+		if (theme.endsWith('@nextcloud')) {
+			theme = theme.slice(0, theme.length - 10).trim();
+			return parent.OC.webroot + '/themes/' + encodeURI(theme) + '/snappymail/preview.png';
 		}
-
-		return prefix + 'themes/' + encodeURI(theme) + '/images/preview.png';
+		let path = 'webVersionPath';
+		if (theme.endsWith('@custom')) {
+			theme = theme.slice(0, theme.length - 7).trim();
+			path = 'webPath';
+		}
+		return Settings.app(path) + 'themes/' + encodeURI(theme) + '/images/preview.png';
 	},
 
 	/**
@@ -119,22 +119,24 @@ export const
 	 * @param {number=} threadUid = 0
 	 * @returns {string}
 	 */
-	mailBox = (folder, page, search, threadUid) => {
+	mailBox = (folder, page, search, threadUid, messageUid) => {
 		let result = [HASH_PREFIX + 'mailbox'];
 
 		if (folder) {
 			result.push(folder + (threadUid ? '~' + threadUid : ''));
 		}
 
-		page = pInt(page, 1);
-		if (1 < page) {
-			result.push('p' + page);
-		}
-
-		search = pString(search);
-		if (search) {
-			result.push(encodeURI(search));
+		if (messageUid) {
+			result.push('m' + messageUid);
+		} else {
+			page = pInt(page, 1);
+			if (1 < page) {
+				result.push('p' + page);
+			}
+			search && result.push(encodeURI(search));
 		}
 
 		return result.join('/');
-	};
+	},
+
+	mailBoxMessage = (folder, messageUid) => mailBox(folder, 1, '', 0, pInt(messageUid));

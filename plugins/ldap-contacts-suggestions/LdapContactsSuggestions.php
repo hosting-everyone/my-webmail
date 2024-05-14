@@ -2,60 +2,27 @@
 
 class LdapContactsSuggestions implements \RainLoop\Providers\Suggestions\ISuggestions
 {
-	/**
-	 * @var string
-	 */
-	private $sLdapUri = 'ldap://localhost:389';
+	use \MailSo\Log\Inherit;
 
-	/**
-	 * @var bool
-	 */
-	private $bUseStartTLS = True;
+	private string $sLdapUri = 'ldap://localhost:389';
 
-	/**
-	 * @var string
-	 */
-	private $sBindDn = null;
+	private bool $bUseStartTLS = true;
 
-	/**
-	 * @var string
-	 */
-	private $sBindPassword = null;
+	private string $sBindDn = '';
 
-	/**
-	 * @var string
-	 */
-	private $sBaseDn = 'ou=People,dc=example,dc=com';
+	private string $sBindPassword = '';
 
-	/**
-	 * @var string
-	 */
-	private $sObjectClasses = 'inetOrgPerson';
+	private string $sBaseDn = 'ou=People,dc=example,dc=com';
 
-	/**
-	 * @var string
-	 */
-	private $sUidAttributes = 'uid';
+	private string $sObjectClasses = 'inetOrgPerson';
 
-	/**
-	 * @var string
-	 */
-	private $sNameAttributes = 'displayName,cn,givenName,sn';
+	private string $sUidAttributes = 'uid';
 
-	/**
-	 * @var string
-	 */
-	private $sEmailAttributes = 'mailAddress,mail,mailAlternateAddress,mailAlias';
+	private string $sNameAttributes = 'displayName,cn,givenName,sn';
 
-	/**
-	 * @var \MailSo\Log\Logger
-	 */
-	private $oLogger = null;
+	private string $sEmailAttributes = 'mailAddress,mail,mailAlternateAddress,mailAlias';
 
-	/**
-	 * @var string
-	 */
-	private $sAllowedEmails = '*';
+	private string $sAllowedEmails = '*';
 
 	/**
 	 * @param string $sLdapUri
@@ -75,8 +42,7 @@ class LdapContactsSuggestions implements \RainLoop\Providers\Suggestions\ISugges
 	{
 		$this->sLdapUri = $sLdapUri;
 		$this->bUseStartTLS = $bUseStartTLS;
-		if (0 < \strlen($sBindDn))
-		{
+		if (\strlen($sBindDn)) {
 			$this->sBindDn = $sBindDn;
 			$this->sBindPassword = $sBindPassword;
 		}
@@ -90,142 +56,51 @@ class LdapContactsSuggestions implements \RainLoop\Providers\Suggestions\ISugges
 		return $this;
 	}
 
-	/**
-	 * @param \RainLoop\Model\Account $oAccount
-	 * @param string $sQuery
-	 * @param int $iLimit = 20
-	 *
-	 * @return array
-	 */
-	public function Process(RainLoop\Model\Account $oAccount, string $sQuery, int $iLimit = 20): array
+	public function Process(\RainLoop\Model\Account $oAccount, string $sQuery, int $iLimit = 20): array
 	{
 		$sQuery = \trim($sQuery);
 
-		if (2 > \strlen($sQuery))
+		if (2 > \strlen($sQuery)
+		 || !$oAccount
+		 || !\RainLoop\Plugins\Helper::ValidateWildcardValues($oAccount->Email(), $this->sAllowedEmails))
 		{
 			return array();
 		}
-		else if (!$oAccount || !\RainLoop\Plugins\Helper::ValidateWildcardValues($oAccount->Email(), $this->sAllowedEmails))
-		{
-			return array();
-		}
 
-		$aResult = $this->ldapSearch($oAccount, $sQuery);
-
-		$aResult = \RainLoop\Utils::RemoveSuggestionDuplicates($aResult);
-		if ($iLimit < \count($aResult))
-		{
-			$aResult = \array_slice($aResult, 0, $iLimit);
-		}
-
-		return $aResult;
-	}
-
-	/**
-	 * @param array $aLdapItem
-	 * @param array $aEmailAttributes
-	 * @param array $aNameAttributes
-	 * @param array $aUidAttributes
-	 *
-	 * @return array
-	 */
-	private function findNameAndEmail($aLdapItem, $aEmailAttributes, $aNameAttributes, $aUidAttributes)
-	{
-		$sEmail = $sName = $sUid = '';
-		if ($aLdapItem)
-		{
-			foreach ($aEmailAttributes as $sField)
-			{
-				$sField = \strtolower($sField);
-				if (!empty($aLdapItem[$sField][0]))
-				{
-					$sEmail = \trim($aLdapItem[$sField][0]);
-					if (!empty($sEmail))
-					{
-						break;
-					}
-				}
-			}
-
-			foreach ($aNameAttributes as $sField)
-			{
-				$sField = \strtolower($sField);
-				if (!empty($aLdapItem[$sField][0]))
-				{
-					$sName = \trim($aLdapItem[$sField][0]);
-					if (!empty($sName))
-					{
-						break;
-					}
-				}
-			}
-
-			foreach ($aUidAttributes as $sField)
-			{
-				$sField = \strtolower($sField);
-				if (!empty($aLdapItem[$sField][0]))
-				{
-					$sUid = \trim($aLdapItem[$sField][0]);
-					if (!empty($sUid))
-					{
-						break;
-					}
-				}
-			}
-		}
-
-		return array($sEmail, $sName, $sUid);
-	}
-
-	/**
-	 * @param \RainLoop\Model\Account $oAccount
-	 * @param string $sQuery
-	 *
-	 * @return array
-	 */
-	private function ldapSearch($oAccount, $sQuery)
-	{
 		$sSearchEscaped = $this->escape($sQuery);
 
 		$aResult = array();
 		$oCon = @\ldap_connect($this->sLdapUri);
-		if ($oCon)
-		{
-			$this->oLogger->Write('ldap_connect: connected', \MailSo\Log\Enumerations\Type::INFO, 'LDAP');
+		if ($oCon) {
+			$this->logWrite('ldap_connect: connected', \LOG_INFO, 'LDAP');
 
 			@\ldap_set_option($oCon, LDAP_OPT_PROTOCOL_VERSION, 3);
 
-			if ($this->bUseStartTLS && !@\ldap_start_tls($oCon))
-			{
+			if ($this->bUseStartTLS && !@\ldap_start_tls($oCon)) {
 				$this->logLdapError($oCon, 'ldap_start_tls');
 				return $aResult;
 			}
 
-			if (!@\ldap_bind($oCon, $this->sBindDn, $this->sBindPassword))
-			{
-				if (is_null($this->sBindDn))
-				{
+			if (!@\ldap_bind($oCon, $this->sBindDn, $this->sBindPassword)) {
+				if (\is_null($this->sBindDn)) {
 					$this->logLdapError($oCon, 'ldap_bind (anonymous)');
-				}
-				else
-				{
+				} else {
 					$this->logLdapError($oCon, 'ldap_bind');
 				}
-
 				return $aResult;
 			}
 
-			$sDomain = \MailSo\Base\Utils::GetDomainFromEmail($oAccount->Email());
+			$sDomain = \MailSo\Base\Utils::getEmailAddressDomain($oAccount->Email());
 			$sBaseDn = \strtr($this->sBaseDn, array(
 				'{domain}' => $sDomain,
 				'{domain:dc}' => 'dc='.\strtr($sDomain, array('.' => ',dc=')),
 				'{email}' => $oAccount->Email(),
-				'{email:user}' => \MailSo\Base\Utils::GetAccountNameFromEmail($oAccount->Email()),
+				'{email:user}' => \MailSo\Base\Utils::getEmailAddressLocalPart($oAccount->Email()),
 				'{email:domain}' => $sDomain,
-				'{login}' => $oAccount->Login(),
-				'{imap:login}' => $oAccount->Login(),
-				'{imap:host}' => $oAccount->DomainIncHost(),
-				'{imap:port}' => $oAccount->DomainIncPort()
+				'{login}' => $oAccount->IncLogin(),
+				'{imap:login}' => $oAccount->IncLogin(),
+				'{imap:host}' => $oAccount->Domain()->ImapSettings()->host,
+				'{imap:port}' => $oAccount->Domain()->ImapSettings()->port
 			));
 
 			$aObjectClasses = empty($this->sObjectClasses) ? array() : \explode(',', $this->sObjectClasses);
@@ -242,11 +117,9 @@ class LdapContactsSuggestions implements \RainLoop\Providers\Suggestions\ISugges
 
 			$iObjCount = 0;
 			$sObjFilter = '';
-			foreach ($aObjectClasses as $sItem)
-			{
-				if (!empty($sItem))
-				{
-					$iObjCount++;
+			foreach ($aObjectClasses as $sItem) {
+				if (!empty($sItem)) {
+					++$iObjCount;
 					$sObjFilter .= '(objectClass='.$sItem.')';
 				}
 			}
@@ -254,10 +127,8 @@ class LdapContactsSuggestions implements \RainLoop\Providers\Suggestions\ISugges
 
 			$aItems = array();
 			$sSubFilter = '';
-			foreach ($aFields as $sItem)
-			{
-				if (!empty($sItem))
-				{
+			foreach ($aFields as $sItem) {
+				if (!empty($sItem)) {
 					$aItems[] = $sItem;
 					$sSubFilter .= '('.$sItem.'=*'.$sSearchEscaped.'*)';
 				}
@@ -268,47 +139,79 @@ class LdapContactsSuggestions implements \RainLoop\Providers\Suggestions\ISugges
 			$sFilter .= (1 < count($aItems) ? '(|' : '').$sSubFilter.(1 < count($aItems) ? ')' : '');
 			$sFilter .= ')';
 
-			$this->oLogger->Write('ldap_search: start: '.$sBaseDn.' / '.$sFilter, \MailSo\Log\Enumerations\Type::INFO, 'LDAP');
+			$this->logWrite('ldap_search: start: '.$sBaseDn.' / '.$sFilter, \LOG_INFO, 'LDAP');
 			$oS = @\ldap_search($oCon, $sBaseDn, $sFilter, $aItems, 0, 30, 30);
-			if ($oS)
-			{
+			if ($oS) {
 				$aEntries = @\ldap_get_entries($oCon, $oS);
-				if (is_array($aEntries))
-				{
-					if (isset($aEntries['count']))
-					{
+				if (is_array($aEntries)) {
+					if (isset($aEntries['count'])) {
 						unset($aEntries['count']);
 					}
 
-					foreach ($aEntries as $aItem)
-					{
-						if ($aItem)
-						{
+					foreach ($aEntries as $aItem) {
+						if ($aItem) {
 							$sName = $sEmail = '';
 							list ($sEmail, $sName) = $this->findNameAndEmail($aItem, $aEmails, $aNames, $aUIDs);
-							if (!empty($sEmail))
-							{
+							if (!empty($sEmail)) {
 								$aResult[] = array($sEmail, $sName);
 							}
 						}
 					}
-				}
-				else
-				{
+				} else {
 					$this->logLdapError($oCon, 'ldap_get_entries');
 				}
-			}
-			else
-			{
+			} else {
 				$this->logLdapError($oCon, 'ldap_search');
 			}
 		}
-		else
-		{
-			return $aResult;
+
+		return \array_slice($aResult, 0, $iLimit);
+	}
+
+	/**
+	 * @param array $aLdapItem
+	 * @param array $aEmailAttributes
+	 * @param array $aNameAttributes
+	 * @param array $aUidAttributes
+	 *
+	 * @return array
+	 */
+	private function findNameAndEmail($aLdapItem, $aEmailAttributes, $aNameAttributes, $aUidAttributes)
+	{
+		$sEmail = $sName = $sUid = '';
+		if ($aLdapItem) {
+			foreach ($aEmailAttributes as $sField) {
+				$sField = \strtolower($sField);
+				if (!empty($aLdapItem[$sField][0])) {
+					$sEmail = \trim($aLdapItem[$sField][0]);
+					if (!empty($sEmail)) {
+						break;
+					}
+				}
+			}
+
+			foreach ($aNameAttributes as $sField) {
+				$sField = \strtolower($sField);
+				if (!empty($aLdapItem[$sField][0])) {
+					$sName = \trim($aLdapItem[$sField][0]);
+					if (!empty($sName)) {
+						break;
+					}
+				}
+			}
+
+			foreach ($aUidAttributes as $sField) {
+				$sField = \strtolower($sField);
+				if (!empty($aLdapItem[$sField][0])) {
+					$sUid = \trim($aLdapItem[$sField][0]);
+					if (!empty($sUid)) {
+						break;
+					}
+				}
+			}
 		}
 
-		return $aResult;
+		return array($sEmail, $sName, $sUid);
 	}
 
 	/**
@@ -321,8 +224,7 @@ class LdapContactsSuggestions implements \RainLoop\Providers\Suggestions\ISugges
 		$aNewChars = array();
 		$aChars = array('\\', '*', '(', ')', \chr(0));
 
-		foreach ($aChars as $iIndex => $sValue)
-		{
+		foreach ($aChars as $iIndex => $sValue) {
 			$aNewChars[$iIndex] = '\\'.\str_pad(\dechex(\ord($sValue)), 2, '0');
 		}
 
@@ -337,28 +239,10 @@ class LdapContactsSuggestions implements \RainLoop\Providers\Suggestions\ISugges
 	 */
 	public function logLdapError($oCon, $sCmd)
 	{
-		if ($this->oLogger)
-		{
+		if ($this->oLogger) {
 			$sError = $oCon ? @\ldap_error($oCon) : '';
 			$iErrno = $oCon ? @\ldap_errno($oCon) : 0;
-
-			$this->oLogger->Write($sCmd.' error: '.$sError.' ('.$iErrno.')',
-				\MailSo\Log\Enumerations\Type::WARNING, 'LDAP');
+			$this->logWrite($sCmd.' error: '.$sError.' ('.$iErrno.')', \LOG_WARNING, 'LDAP');
 		}
-	}
-
-	/**
-	 * @param \MailSo\Log\Logger $oLogger
-	 *
-	 * @return \LdapContactsSuggestions
-	 */
-	public function SetLogger($oLogger)
-	{
-		if ($oLogger instanceof \MailSo\Log\Logger)
-		{
-			$this->oLogger = $oLogger;
-		}
-
-		return $this;
 	}
 }

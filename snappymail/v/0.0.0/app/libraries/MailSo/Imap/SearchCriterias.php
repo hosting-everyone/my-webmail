@@ -16,11 +16,10 @@ namespace MailSo\Imap;
  * @category MailSo
  * @package Mail
  */
-abstract class SearchCriterias
+class SearchCriterias
 {
 	const
-		RegEx = 'in|e?mail|from|to|subject|has|is|date|text|body|size|larger|bigger|smaller|maxsize|minsize';
-
+		RegEx = 'in|e?mail|from|to|subject|has|is|date|since|before|text|body|size|larger|bigger|smaller|maxsize|minsize|keyword|older_than|newer_than|on|senton|sentsince|sentbefore|header';
 	/**
 		https://datatracker.ietf.org/doc/html/rfc3501#section-6.4.4
 
@@ -51,12 +50,12 @@ abstract class SearchCriterias
 		✔ HEADER <field-name> <string>
 			Messages that have a header with the specified field-name (as
 			defined in [RFC-2822]) and that contains the specified string
-			in the text of the header (what comes after the colon).  If the
+			in the text of the header (what comes after the colon). If the
 			string to search is zero-length, this matches all messages that
 			have a header line with the specified field-name regardless of
 			the contents.
 
-		☐ KEYWORD <flag>
+		✔ KEYWORD <flag>
 			Messages with the specified keyword flag set.
 
 		✔ LARGER <n>
@@ -66,22 +65,22 @@ abstract class SearchCriterias
 		☐ NOT <search-key>
 			Messages that do not match the specified search key.
 
-		☐ ON <date>
+		✔ ON <date>
 			Messages whose internal date (disregarding time and timezone)
 			is within the specified date.
 
 		✔ OR <search-key1> <search-key2>
 			Messages that match either search key.
 
-		☐ SENTBEFORE <date>
+		✔ SENTBEFORE <date>
 			Messages whose [RFC-2822] Date: header (disregarding time and
 			timezone) is earlier than the specified date.
 
-		☐ SENTON <date>
+		✔ SENTON <date>
 			Messages whose [RFC-2822] Date: header (disregarding time and
 			timezone) is within the specified date.
 
-		☐ SENTSINCE <date>
+		✔ SENTSINCE <date>
 			Messages whose [RFC-2822] Date: header (disregarding time and
 			timezone) is within or later than the specified date.
 
@@ -107,7 +106,7 @@ abstract class SearchCriterias
 
 		☐ UID <sequence set>
 			Messages with unique identifiers corresponding to the specified
-			unique identifier set.  Sequence set ranges are permitted.
+			unique identifier set. Sequence set ranges are permitted.
 
 		☐ UNKEYWORD <flag>
 			Messages that do not have the specified keyword flag set.
@@ -116,8 +115,8 @@ abstract class SearchCriterias
 		✔ UNFLAGGED
 		✔ SEEN
 		✔ UNSEEN
-		☐ ANSWERED
-		☐ UNANSWERED
+		✔ ANSWERED
+		✔ UNANSWERED
 		☐ DELETED
 		☐ UNDELETED
 		☐ DRAFT
@@ -127,16 +126,32 @@ abstract class SearchCriterias
 		X RECENT
 	*/
 
-	public static function fromString(\MailSo\Imap\ImapClient $oImapClient, string $sFolderName, string $sSearch, int $iTimeZoneOffset = 0, bool &$bUseCache = true) : string
+	private array $criterias = [];
+	public bool $fuzzy = false;
+
+	function prepend(string $rule)
 	{
-		$bUseCache = true;
+		\array_unshift($this->criterias, $rule);
+	}
+
+	function __toString() : string
+	{
+		if ($this->fuzzy) {
+			$keys = ['BCC','BODY','CC','FROM','SUBJECT','TEXT','TO'];
+			foreach ($this->criterias as $i => $key) {
+				if (\in_array($key, $keys)) {
+					$this->criterias[$i] = "FUZZY {$key}";
+				}
+			}
+		}
+		$sCriteriasResult = \trim(\implode(' ', $this->criterias));
+		return $sCriteriasResult ?: 'ALL';
+	}
+
+	public static function fromString(\MailSo\Imap\ImapClient $oImapClient, string $sFolderName, string $sSearch, bool $bHideDeleted, bool &$bUseCache = true) : self
+	{
 		$iTimeFilter = 0;
 		$aCriteriasResult = array();
-
-		if (0 < \MailSo\Config::$MessageListDateFilter) {
-			$iD = \time() - 3600 * 24 * 30 * \MailSo\Config::$MessageListDateFilter;
-			$iTimeFilter = \gmmktime(1, 1, 1, \gmdate('n', $iD), 1, \gmdate('Y', $iD));
-		}
 
 		$sSearch = \trim($sSearch);
 		if (\strlen($sSearch)) {
@@ -147,7 +162,7 @@ abstract class SearchCriterias
 			if (!$aLines) {
 				$sValue = static::escapeSearchString($oImapClient, $sSearch);
 
-				if (\MailSo\Config::$MessageListFastSimpleSearch) {
+				if ($oImapClient->Settings->fast_simple_search) {
 					$aCriteriasResult[] = 'OR OR OR';
 					$aCriteriasResult[] = 'FROM';
 					$aCriteriasResult[] = $sValue;
@@ -162,7 +177,7 @@ abstract class SearchCriterias
 					$aCriteriasResult[] = $sValue;
 				}
 			} else {
-				if (isset($aLines['IN']) && $oImapClient->IsSupported('MULTISEARCH') && \in_array($aLines['IN'], ['subtree','subtree-one','mailboxes'])) {
+				if (isset($aLines['IN']) && $oImapClient->hasCapability('MULTISEARCH') && \in_array($aLines['IN'], ['subtree','subtree-one','mailboxes'])) {
 					$aCriteriasResult[] = "IN ({$aLines['IN']} \"{$sFolderName}\")";
 				}
 
@@ -186,24 +201,27 @@ abstract class SearchCriterias
 					if (\is_string($sRawValue) && '' === \trim($sRawValue)) {
 						continue;
 					}
-					$sValue = static::escapeSearchString($oImapClient, $sRawValue);
 					switch ($sName) {
 						case 'FROM':
 						case 'SUBJECT':
+						case 'BODY': // $sValue = \trim(\MailSo\Base\Utils::StripSpaces($sValue), '"');
 							$aCriteriasResult[] = $sName;
-							$aCriteriasResult[] = $sValue;
+							$aCriteriasResult[] = static::escapeSearchString($oImapClient, $sRawValue);
+							break;
+						case 'KEYWORD':
+							$aCriteriasResult[] = $sName;
+							$aCriteriasResult[] = static::escapeSearchString(
+								$oImapClient,
+								\MailSo\Base\Utils::Utf8ToUtf7Modified($sRawValue)
+							);
 							break;
 
 						case 'TO':
+							$sValue = static::escapeSearchString($oImapClient, $sRawValue);
 							$aCriteriasResult[] = 'OR';
 							$aCriteriasResult[] = 'TO';
 							$aCriteriasResult[] = $sValue;
 							$aCriteriasResult[] = 'CC';
-							$aCriteriasResult[] = $sValue;
-
-						case 'BODY':
-//							$sMainText = \trim(\MailSo\Base\Utils::StripSpaces($sMainText), '"');
-							$aCriteriasResult[] = 'BODY';
 							$aCriteriasResult[] = $sValue;
 							break;
 
@@ -216,10 +234,22 @@ abstract class SearchCriterias
 							$aCriteriasResult[] = 'HEADER Content-Type multipart/report';
 							break;
 
+						case 'HEADER':
+							$aValue = \explode(' ', $sRawValue, 2);
+							$aCriteriasResult[] = 'HEADER '
+								. static::escapeSearchString($oImapClient, $aValue[0])
+								. ' '
+								. static::escapeSearchString($oImapClient, $aValue[1]);
+							break;
+
 						case 'FLAGGED':
 						case 'UNFLAGGED':
 						case 'SEEN':
 						case 'UNSEEN':
+						case 'ANSWERED':
+						case 'UNANSWERED':
+						case 'DELETED':
+						case 'UNDELETED':
 							$aCriteriasResult[] = $sName;
 							$bUseCache = false;
 							break;
@@ -227,35 +257,45 @@ abstract class SearchCriterias
 						case 'LARGER':
 						case 'SMALLER':
 							$aCriteriasResult[] = $sName;
-							$aCriteriasResult[] =  static::parseFriendlySize($sRawValue);
+							$aCriteriasResult[] = static::parseFriendlySize($sRawValue);
+							break;
+
+						case 'SINCE':
+							$sValue = static::parseSearchDate($sRawValue);
+							if ($sValue) {
+								$iTimeFilter = \max($iTimeFilter, $sValue);
+							}
+							break;
+						case 'ON':
+						case 'SENTON':
+						case 'SENTSINCE':
+						case 'SENTBEFORE':
+						case 'BEFORE':
+							$sValue = static::parseSearchDate($sRawValue);
+							if ($sValue) {
+								$aCriteriasResult[] = $sName;
+								$aCriteriasResult[] = \gmdate('j-M-Y', $sValue);
+							}
 							break;
 
 						case 'DATE':
 							$iDateStampFrom = $iDateStampTo = 0;
-							$sDate = $sRawValue;
-							$aDate = \explode('/', $sDate);
+							$aDate = \explode('/', $sRawValue);
 							if (2 === \count($aDate)) {
 								if (\strlen($aDate[0])) {
-									$iDateStampFrom = static::parseSearchDate($aDate[0], $iTimeZoneOffset);
+									$iDateStampFrom = static::parseSearchDate($aDate[0]);
 								}
-
 								if (\strlen($aDate[1])) {
-									$iDateStampTo = static::parseSearchDate($aDate[1], $iTimeZoneOffset);
+									$iDateStampTo = static::parseSearchDate($aDate[1]);
 									$iDateStampTo += 60 * 60 * 24;
 								}
-							} else {
-								if (\strlen($sDate)) {
-									$iDateStampFrom = static::parseSearchDate($sDate, $iTimeZoneOffset);
-									$iDateStampTo = $iDateStampFrom + 60 * 60 * 24;
-								}
+							} else if (\strlen($sRawValue)) {
+								$iDateStampFrom = static::parseSearchDate($sRawValue);
+								$iDateStampTo = $iDateStampFrom + 60 * 60 * 24;
 							}
 
 							if (0 < $iDateStampFrom) {
-								$aCriteriasResult[] = 'SINCE';
-								$aCriteriasResult[] = \gmdate('j-M-Y', $iTimeFilter > $iDateStampFrom ?
-									$iTimeFilter : $iDateStampFrom);
-
-								$iTimeFilter = 0;
+								$iTimeFilter = \max($iTimeFilter, $iDateStampFrom);
 							}
 
 							if (0 < $iDateStampTo) {
@@ -263,43 +303,85 @@ abstract class SearchCriterias
 								$aCriteriasResult[] = \gmdate('j-M-Y', $iDateStampTo);
 							}
 							break;
+
+						// https://www.rfc-editor.org/rfc/rfc5032.html
+						case 'OLDER':
+						case 'YOUNGER':
+							// time interval in seconds
+							$sValue = \intval($sRawValue);
+							if (0 < $sValue && $oImapClient->hasCapability('WITHIN')) {
+								$aCriteriasResult[] = $sName;
+								$aCriteriasResult[] = $sValue;
+							}
+							break;
+
+						// https://github.com/the-djmaze/snappymail/issues/625
+						case 'READ':
+						case 'UNREAD':
+							$aCriteriasResult[] = \str_replace('READ', 'SEEN', $sName);
+							$bUseCache = false;
+							break;
+						case 'OLDER_THAN':
+							$oDate = (new \DateTime())->sub(new \DateInterval("P{$sRawValue}"));
+							if ($oImapClient->hasCapability('WITHIN')) {
+								$aCriteriasResult[] = 'OLDER';
+								$aCriteriasResult[] = \time() - $oDate->getTimestamp();
+							} else {
+								$aCriteriasResult[] = 'BEFORE';
+								$aCriteriasResult[] = $oDate->format('j-M-Y');
+							}
+							break;
+						case 'NEWER_THAN':
+							$oDate = (new \DateTime())->sub(new \DateInterval("P{$sRawValue}"));
+							if ($oImapClient->hasCapability('WITHIN')) {
+								$aCriteriasResult[] = 'YOUNGER';
+								$aCriteriasResult[] = \time() - $oDate->getTimestamp();
+							} else {
+								$iTimeFilter = \max(
+									$iTimeFilter,
+									(new \DateTime())->sub(new \DateInterval("P{$sRawValue}"))->getTimestamp()
+								);
+							}
+							break;
 					}
 				}
 			}
 		}
 
-		$sCriteriasResult = \trim(\implode(' ', $aCriteriasResult));
-
 		if (0 < $iTimeFilter) {
-			$sCriteriasResult .= ' SINCE '.\gmdate('j-M-Y', $iTimeFilter);
+			$aCriteriasResult[] = 'SINCE';
+//			$aCriteriasResult[] = \gmdate('j-M-Y', $iTimeFilter);
+			$aCriteriasResult[] = \gmdate('j-M-Y', $iTimeFilter);
 		}
 
-		$sCriteriasResult = \trim($sCriteriasResult);
-		if (\MailSo\Config::$MessageListUndeletedOnly) {
-			$sCriteriasResult = \trim($sCriteriasResult.' UNDELETED');
+		if ($bHideDeleted && !\in_array('DELETED', $aCriteriasResult) && !\in_array('UNDELETED', $aCriteriasResult)) {
+			$aCriteriasResult[] = 'UNDELETED';
 		}
 
-		$sCriteriasResult = \trim($sCriteriasResult);
-		if (\MailSo\Config::$MessageListPermanentFilter) {
-			$sCriteriasResult = \trim($sCriteriasResult.' '.\MailSo\Config::$MessageListPermanentFilter);
+		if ($oImapClient->Settings->search_filter) {
+			$aCriteriasResult[] = $oImapClient->Settings->search_filter;
 		}
 
-		$sCriteriasResult = \trim($sCriteriasResult);
-
-		return $sCriteriasResult ?: 'ALL';
+		$search = new self;
+		$search->criterias = $aCriteriasResult;
+		return $search;
 	}
 
-	private static function escapeSearchString(\MailSo\Imap\ImapClient $oImapClient, string $sSearch) : string
+	public static function escapeSearchString(\MailSo\Imap\ImapClient $oImapClient, string $sSearch) : string
 	{
-		return !\MailSo\Base\Utils::IsAscii($sSearch)
-			? '{'.\strlen($sSearch).'}'."\r\n".$sSearch : $oImapClient->EscapeString($sSearch);
+		// https://github.com/the-djmaze/snappymail/issues/836
+//		return $oImapClient->EscapeString($sSearch);
+//		return \MailSo\Base\Utils::IsAscii($sSearch) || $oImapClient->hasCapability('QQMail'))
+		return (\MailSo\Base\Utils::IsAscii($sSearch) || !$oImapClient->hasCapability('LITERAL+'))
+			? $oImapClient->EscapeString($sSearch)
+			: '{'.\strlen($sSearch).'}'."\r\n{$sSearch}";
 	}
 
-	private static function parseSearchDate(string $sDate, int $iTimeZoneOffset) : int
+	private static function parseSearchDate(string $sDate) : int
 	{
 		if (\strlen($sDate)) {
-			$oDateTime = \DateTime::createFromFormat('Y.m.d', $sDate, \MailSo\Base\DateTimeHelper::GetUtcTimeZoneObject());
-			return $oDateTime ? $oDateTime->getTimestamp() - $iTimeZoneOffset : 0;
+			$oDateTime = \DateTime::createFromFormat('Y-m-d', $sDate, \MailSo\Base\DateTimeHelper::GetUtcTimeZoneObject());
+			return $oDateTime ? $oDateTime->getTimestamp() : 0;
 		}
 		return 0;
 	}
@@ -309,9 +391,9 @@ abstract class SearchCriterias
 		$sSize = \preg_replace('/[^0-9KM]/', '', \strtoupper($sSize));
 		$iResult = \intval($sSize);
 		switch (\substr($sSize, -1)) {
-			case 'K':
-				$iResult *= 1024;
 			case 'M':
+				$iResult *= 1024;
+			case 'K':
 				$iResult *= 1024;
 		}
 		return $iResult;
@@ -340,15 +422,26 @@ abstract class SearchCriterias
 				$sName = 'SMALLER';
 			}
 			switch ($sName) {
+				case 'DATE':
+					$mValue = \rtrim($mValue,'/') . '/';
 				case 'BODY':
 				case 'EMAIL':
 				case 'FROM':
 				case 'TO':
 				case 'SUBJECT':
+				case 'KEYWORD':
 				case 'IN':
 				case 'SMALLER':
 				case 'LARGER':
-				case 'DATE':
+				case 'SINCE':
+				case 'ON':
+				case 'SENTON':
+				case 'SENTSINCE':
+				case 'SENTBEFORE':
+				case 'BEFORE':
+				case 'OLDER':
+				case 'YOUNGER':
+				case 'HEADER':
 					if (\strlen($mValue)) {
 						$aResult[$sName] = $mValue;
 					}
@@ -359,6 +452,10 @@ abstract class SearchCriterias
 				case 'UNFLAGGED':
 				case 'SEEN':
 				case 'UNSEEN':
+				case 'ANSWERED':
+				case 'UNANSWERED':
+				case 'DELETED':
+				case 'UNDELETED':
 					$aResult[$sName] = true;
 					break;
 			}
@@ -376,7 +473,7 @@ abstract class SearchCriterias
 		$aCache = array();
 
 		$sSearch = \MailSo\Base\Utils::StripSpaces($sSearch);
-		$sSearch = \trim(\preg_replace('/('.static::RegEx.'): /i', '\\1:', $sSearch));
+		$sSearch = \trim(\preg_replace('/('.static::RegEx.'):\\s+/i', '\\1:', $sSearch));
 
 		$mMatch = array();
 		if (\preg_match_all('/".*?(?<!\\\)"/', $sSearch, $mMatch)) {
@@ -403,7 +500,7 @@ abstract class SearchCriterias
 			}
 		}
 
-		if (\preg_match_all('/('.static::RegEx.'):([^\s]*)/i', $sSearch, $mMatch)) {
+		if (\preg_match_all('/('.static::RegEx.'):([^\\s]*)/i', $sSearch, $mMatch)) {
 			if (\is_array($mMatch[0])) {
 				foreach ($mMatch[0] as $sToken) {
 					$sSearch = \str_replace($sToken, '', $sSearch);
@@ -431,6 +528,8 @@ abstract class SearchCriterias
 						foreach (\explode(',', \strtoupper($mMatch[2][$iIndex])) as $sName) {
 							$aResult[\trim($sName)] = true;
 						}
+					} else if ('DATE' === $sName) {
+						$aResult[$sName] = \str_replace('.', '-', $mMatch[2][$iIndex]);
 					} else {
 						$aResult[$sName] = $mMatch[2][$iIndex];
 					}

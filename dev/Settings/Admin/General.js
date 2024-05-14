@@ -1,15 +1,9 @@
 import ko from 'ko';
 
-import {
-	isArray,
-	changeTheme,
-	convertThemeName
-} from 'Common/Utils';
-
 import { addObservablesTo, addSubscribablesTo, addComputablesTo } from 'External/ko';
 
-import { SaveSettingsStep } from 'Common/Enums';
-import { Settings, SettingsGet, SettingsCapa } from 'Common/Globals';
+import { SaveSettingStatus } from 'Common/Enums';
+import { SettingsAdmin, SettingsGet, SettingsCapa } from 'Common/Globals';
 import { translatorReload, convertLangName } from 'Common/Translator';
 
 import { AbstractViewSettings } from 'Knoin/AbstractViews';
@@ -17,7 +11,7 @@ import { showScreenPopup } from 'Knoin/Knoin';
 
 import Remote from 'Remote/Admin/Fetch';
 
-import { ThemeStore } from 'Stores/Theme';
+import { ThemeStore, convertThemeName, changeTheme } from 'Stores/Theme';
 import { LanguageStore } from 'Stores/Language';
 import { LanguagesPopupView } from 'View/Popup/Languages';
 
@@ -26,22 +20,14 @@ export class AdminSettingsGeneral extends AbstractViewSettings {
 		super();
 
 		this.language = LanguageStore.language;
-		this.languages = LanguageStore.languages;
-
-		const aLanguagesAdmin = Settings.app('languagesAdmin');
-		this.languagesAdmin = ko.observableArray(isArray(aLanguagesAdmin) ? aLanguagesAdmin : []);
-		this.languageAdmin = ko
-			.observable(SettingsGet('LanguageAdmin'))
-			.extend({ limitedList: this.languagesAdmin });
+		this.languageAdmin = ko.observable(SettingsAdmin('language'));
 
 		this.theme = ThemeStore.theme;
 		this.themes = ThemeStore.themes;
 
-		this.addSettings(['AllowLanguagesOnSettings','NewMoveToFolder']);
+		this.addSettings(['allowLanguagesOnSettings']);
 
 		addObservablesTo(this, {
-			attachmentLimitTrigger: SaveSettingsStep.Idle,
-			themeTrigger: SaveSettingsStep.Idle,
 			capaThemes: SettingsCapa('Themes'),
 			capaUserBackground: SettingsCapa('UserBackground'),
 			capaAdditionalAccounts: SettingsCapa('AdditionalAccounts'),
@@ -59,16 +45,16 @@ export class AdminSettingsGeneral extends AbstractViewSettings {
 		*/
 
 		this.attachmentLimit = ko
-			.observable(SettingsGet('AttachmentLimit') / (1024 * 1024))
+			.observable(SettingsGet('attachmentLimit') / (1024 * 1024))
 			.extend({ debounce: 500 });
 
-		this.addSetting('Language');
-		this.addSetting('AttachmentLimit');
+		this.addSetting('language');
+		this.addSetting('attachmentLimit');
 		this.addSetting('Theme', value => changeTheme(value, this.themeTrigger));
 
-		this.uploadData = SettingsGet('PhpUploadSizes');
+		this.uploadData = SettingsGet('phpUploadSizes');
 		this.uploadDataDesc =
-			this.uploadData && (this.uploadData.upload_max_filesize || this.uploadData.post_max_size)
+			(this.uploadData?.upload_max_filesize || this.uploadData?.post_max_size)
 				? [
 						this.uploadData.upload_max_filesize
 							? 'upload_max_filesize = ' + this.uploadData.upload_max_filesize + '; '
@@ -84,20 +70,20 @@ export class AdminSettingsGeneral extends AbstractViewSettings {
 			languageAdminFullName: () => convertLangName(this.languageAdmin())
 		});
 
-		this.languageAdminTrigger = ko.observable(SaveSettingsStep.Idle).extend({ debounce: 100 });
+		this.languageAdminTrigger = ko.observable(SaveSettingStatus.Idle).extend({ debounce: 100 });
 
 		const fReloadLanguageHelper = (saveSettingsStep) => () => {
 				this.languageAdminTrigger(saveSettingsStep);
-				setTimeout(() => this.languageAdminTrigger(SaveSettingsStep.Idle), 1000);
+				setTimeout(() => this.languageAdminTrigger(SaveSettingStatus.Idle), 1000);
 			},
 			fSaveHelper = key => value => Remote.saveSetting(key, value);
 
 		addSubscribablesTo(this, {
 			languageAdmin: value => {
-				this.languageAdminTrigger(SaveSettingsStep.Animate);
-				translatorReload(true, value)
-					.then(fReloadLanguageHelper(SaveSettingsStep.TrueResult), fReloadLanguageHelper(SaveSettingsStep.FalseResult))
-					.then(() => Remote.saveSetting('LanguageAdmin', value));
+				this.languageAdminTrigger(SaveSettingStatus.Saving);
+				translatorReload(value, 1)
+					.then(fReloadLanguageHelper(SaveSettingStatus.Success), fReloadLanguageHelper(SaveSettingStatus.Failed))
+					.then(() => Remote.saveSetting('languageAdmin', value));
 			},
 
 			capaAdditionalAccounts: fSaveHelper('CapaAdditionalAccounts'),
@@ -113,14 +99,18 @@ export class AdminSettingsGeneral extends AbstractViewSettings {
 	}
 
 	selectLanguage() {
-		showScreenPopup(LanguagesPopupView, [this.language, this.languages(), LanguageStore.userLanguage()]);
+		showScreenPopup(LanguagesPopupView, [
+			this.language,
+			LanguageStore.languages,
+			LanguageStore.userLanguage()
+		]);
 	}
 
 	selectLanguageAdmin() {
 		showScreenPopup(LanguagesPopupView, [
 			this.languageAdmin,
-			this.languagesAdmin(),
-			SettingsGet('UserLanguageAdmin')
+			SettingsAdmin('languages'),
+			SettingsAdmin('clientLanguage')
 		]);
 	}
 }

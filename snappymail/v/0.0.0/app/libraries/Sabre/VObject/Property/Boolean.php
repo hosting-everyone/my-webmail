@@ -2,48 +2,40 @@
 
 namespace Sabre\VObject\Property;
 
-use
-    Sabre\VObject\Property;
+use Sabre\VObject\Property;
 
 /**
- * Boolean property
+ * Boolean property.
  *
- * This object represents BOOLEAN values. These are always the case-insenstive
+ * This object represents BOOLEAN values. These are always the case-insensitive
  * string TRUE or FALSE.
  *
  * Automatic conversion to PHP's true and false are done.
  *
- * @copyright Copyright (C) 2007-2013 fruux GmbH. All rights reserved.
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
- * @license http://code.google.com/p/sabredav/wiki/License Modified BSD License
+ * @license http://sabre.io/license/ Modified BSD License
  */
-class Boolean extends Property {
-
+class Boolean extends Property
+{
     /**
      * Sets a raw value coming from a mimedir (iCalendar/vCard) file.
      *
      * This has been 'unfolded', so only 1 line will be passed. Unescaping is
      * not yet done, but parameters are not included.
-     *
-     * @param string $val
-     * @return void
      */
-    public function setRawMimeDirValue($val) {
-
-        $val = strtoupper($val)==='TRUE'?true:false;
+    public function setRawMimeDirValue(string $val): void
+    {
+        $val = 'TRUE' === strtoupper($val);
         $this->setValue($val);
-
     }
 
     /**
      * Returns a raw mime-dir representation of the value.
-     *
-     * @return string
      */
-    public function getRawMimeDirValue() {
-
-        return $this->value?'TRUE':'FALSE';
-
+    public function getRawMimeDirValue(): string
+    {
+        return $this->value ? 'TRUE' : 'FALSE';
     }
 
     /**
@@ -51,13 +43,24 @@ class Boolean extends Property {
      *
      * This corresponds to the VALUE= parameter. Every property also has a
      * 'default' valueType.
-     *
-     * @return string
      */
-    public function getValueType() {
-
+    public function getValueType(): string
+    {
         return 'BOOLEAN';
-
     }
 
+    /**
+     * Hydrate data from an XML subtree, as it would appear in a xCard or xCal
+     * object.
+     */
+    public function setXmlValue(array $value): void
+    {
+        $value = array_map(
+            function ($value) {
+                return 'true' === $value;
+            },
+            $value
+        );
+        parent::setXmlValue($value);
+    }
 }

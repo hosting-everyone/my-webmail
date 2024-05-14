@@ -6,13 +6,13 @@
 import { capa } from 'Sieve/Utils';
 
 import {
-	GrammarCommand,
+	ActionCommand,
 	GrammarNumber,
 	GrammarQuotedString,
 	GrammarStringList
 } from 'Sieve/Grammar';
 
-export class VacationCommand extends GrammarCommand
+export class VacationCommand extends ActionCommand
 {
 	constructor()
 	{
@@ -42,10 +42,11 @@ export class VacationCommand extends GrammarCommand
 			result += ' :subject ' + this._subject;
 		}
 		if (this._from.length) {
-			result += ' :from ' + this.arguments[':from'];
+			result += ' :from ' + this._from;
+//			result += ' :from ' + this.arguments[':from'];
 		}
 		if (this.addresses.length) {
-			result += ' :addresses ' + this.addresses.toString();
+			result += ' :addresses ' + this.addresses;
 		}
 		if (this.mime) {
 			result += ' :mime';
@@ -76,9 +77,9 @@ export class VacationCommand extends GrammarCommand
 		args.forEach((arg, i) => {
 			if (':mime' === arg) {
 				this.mime = true;
-			} else if (':addresses' === args[i-1]) {
+			} else if (i && ':addresses' === args[i-1]) {
 				this.addresses = arg; // GrammarStringList
-			} else if (':' === args[i-1][0]) {
+			} else if (i && ':' === args[i-1][0]) {
 				// :days, :seconds, :subject, :from, :handle
 				this[args[i-1].replace(':','_')].value = arg.value;
 			}

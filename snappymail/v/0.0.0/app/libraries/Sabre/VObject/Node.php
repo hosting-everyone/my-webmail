@@ -2,107 +2,138 @@
 
 namespace Sabre\VObject;
 
+use Sabre\Xml;
+
 /**
  * A node is the root class for every element in an iCalendar of vCard object.
  *
- * @copyright Copyright (C) 2007-2013 fruux GmbH. All rights reserved.
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
- * @license http://code.google.com/p/sabredav/wiki/License Modified BSD License
+ * @license http://sabre.io/license/ Modified BSD License
  */
-abstract class Node implements \IteratorAggregate, \ArrayAccess, \Countable {
-
+abstract class Node implements \IteratorAggregate, \ArrayAccess, \Countable, \JsonSerializable, Xml\XmlSerializable
+{
     /**
      * The following constants are used by the validate() method.
+     *
+     * If REPAIR is set, the validator will attempt to repair any broken data
+     * (if possible).
      */
-    const REPAIR = 1;
+    public const REPAIR = 1;
+
+    /**
+     * If this option is set, the validator will operate on the vcards on the
+     * assumption that the vcards need to be valid for CardDAV.
+     *
+     * This means for example that the UID is required, whereas it is not for
+     * regular vcards.
+     */
+    public const PROFILE_CARDDAV = 2;
+
+    /**
+     * If this option is set, the validator will operate on iCalendar objects
+     * on the assumption that the vcards need to be valid for CalDAV.
+     *
+     * This means for example that calendars can only contain objects with
+     * identical component types and UIDs.
+     */
+    public const PROFILE_CALDAV = 4;
 
     /**
      * Reference to the parent object, if this is not the top object.
-     *
-     * @var Node
      */
-    public $parent;
+    public ?Node $parent;
 
     /**
-     * Iterator override
-     *
-     * @var ElementList
+     * Iterator override.
      */
-    protected $iterator = null;
+    protected ?ElementList $iterator = null;
 
     /**
-     * The root document
-     *
-     * @var Component
+     * The root document.
      */
-    protected $root;
+    protected ?Component $root;
 
     /**
-     * Serializes the node into a mimedir format
-     *
-     * @return string
+     * Serializes the node into a mimedir format.
      */
-    abstract function serialize();
+    abstract public function serialize(): string;
 
     /**
      * This method returns an array, with the representation as it should be
-     * encoded in json. This is used to create jCard or jCal documents.
+     * encoded in JSON. This is used to create jCard or jCal documents.
      *
-     * @return array
+     * @return array|string
      */
-    abstract function jsonSerialize();
+    #[\ReturnTypeWillChange]
+    abstract public function jsonSerialize();
+
+    /**
+     * This method serializes the data into XML. This is used to create xCard or
+     * xCal documents.
+     *
+     * @param Xml\Writer $writer XML writer
+     */
+    abstract public function xmlSerialize(Xml\Writer $writer): void;
+
+    /**
+     * Call this method on a document if you're done using it.
+     *
+     * It's intended to remove all circular references, so PHP can easily clean
+     * it up.
+     */
+    public function destroy(): void
+    {
+        $this->parent = null;
+        $this->root = null;
+    }
 
     /* {{{ IteratorAggregator interface */
 
     /**
-     * Returns the iterator for this object
-     *
-     * @return ElementList
+     * Returns the iterator for this object.
      */
-    public function getIterator() {
-
-        if (!is_null($this->iterator))
+    #[\ReturnTypeWillChange]
+    public function getIterator(): ?ElementList
+    {
+        if (!is_null($this->iterator)) {
             return $this->iterator;
+        }
 
-        return new ElementList(array($this));
-
+        return new ElementList([$this]);
     }
 
     /**
-     * Sets the overridden iterator
+     * Sets the overridden iterator.
      *
      * Note that this is not actually part of the iterator interface
-     *
-     * @param ElementList $iterator
-     * @return void
      */
-    public function setIterator(ElementList $iterator) {
-
+    public function setIterator(ElementList $iterator): void
+    {
         $this->iterator = $iterator;
-
     }
 
     /**
      * Validates the node for correctness.
      *
      * The following options are supported:
-     *   - Node::REPAIR - If something is broken, and automatic repair may
-     *                    be attempted.
+     *   Node::REPAIR - May attempt to automatically repair the problem.
      *
-     * An array is returned with warnings.
+     * This method returns an array with detected problems.
+     * Every element has the following properties:
      *
-     * Every item in the array has the following properties:
-     *    * level - (number between 1 and 3 with severity information)
-     *    * message - (human readable message)
-     *    * node - (reference to the offending node)
+     *  * level - problem level.
+     *  * message - A human-readable string describing the issue.
+     *  * node - A reference to the problematic node.
      *
-     * @param int $options
-     * @return array
+     * The level means:
+     *   1 - The issue was repaired (only happens if REPAIR was turned on)
+     *   2 - An inconsequential issue
+     *   3 - A severe issue.
      */
-    public function validate($options = 0) {
-
-        return array();
-
+    public function validate(int $options = 0): array
+    {
+        return [];
     }
 
     /* }}} */
@@ -110,21 +141,19 @@ abstract class Node implements \IteratorAggregate, \ArrayAccess, \Countable {
     /* {{{ Countable interface */
 
     /**
-     * Returns the number of elements
-     *
-     * @return int
+     * Returns the number of elements.
      */
-    public function count() {
-
+    #[\ReturnTypeWillChange]
+    public function count(): int
+    {
         $it = $this->getIterator();
-        return $it->count();
 
+        return $it->count();
     }
 
     /* }}} */
 
     /* {{{ ArrayAccess Interface */
-
 
     /**
      * Checks if an item exists through ArrayAccess.
@@ -132,13 +161,13 @@ abstract class Node implements \IteratorAggregate, \ArrayAccess, \Countable {
      * This method just forwards the request to the inner iterator
      *
      * @param int $offset
-     * @return bool
      */
-    public function offsetExists($offset) {
-
+    #[\ReturnTypeWillChange]
+    public function offsetExists($offset): bool
+    {
         $iterator = $this->getIterator();
-        return $iterator->offsetExists($offset);
 
+        return $iterator->offsetExists($offset);
     }
 
     /**
@@ -147,13 +176,13 @@ abstract class Node implements \IteratorAggregate, \ArrayAccess, \Countable {
      * This method just forwards the request to the inner iterator
      *
      * @param int $offset
-     * @return mixed
      */
-    public function offsetGet($offset) {
-
+    #[\ReturnTypeWillChange]
+    public function offsetGet($offset)
+    {
         $iterator = $this->getIterator();
-        return $iterator->offsetGet($offset);
 
+        return $iterator->offsetGet($offset);
     }
 
     /**
@@ -162,19 +191,19 @@ abstract class Node implements \IteratorAggregate, \ArrayAccess, \Countable {
      * This method just forwards the request to the inner iterator
      *
      * @param int $offset
-     * @param mixed $value
-     * @return void
      */
-    public function offsetSet($offset,$value) {
-
+    #[\ReturnTypeWillChange]
+    public function offsetSet($offset, $value): void
+    {
         $iterator = $this->getIterator();
-        $iterator->offsetSet($offset,$value);
+        $iterator->offsetSet($offset, $value);
 
-    // @codeCoverageIgnoreStart
-    //
-    // This method always throws an exception, so we ignore the closing
-    // brace
+        // @codeCoverageIgnoreStart
+        //
+        // This method always throws an exception, so we ignore the closing
+        // brace
     }
+
     // @codeCoverageIgnoreEnd
 
     /**
@@ -183,18 +212,19 @@ abstract class Node implements \IteratorAggregate, \ArrayAccess, \Countable {
      * This method just forwards the request to the inner iterator
      *
      * @param int $offset
-     * @return void
      */
-    public function offsetUnset($offset) {
-
+    #[\ReturnTypeWillChange]
+    public function offsetUnset($offset): void
+    {
         $iterator = $this->getIterator();
         $iterator->offsetUnset($offset);
 
-    // @codeCoverageIgnoreStart
-    //
-    // This method always throws an exception, so we ignore the closing
-    // brace
+        // @codeCoverageIgnoreStart
+        //
+        // This method always throws an exception, so we ignore the closing
+        // brace
     }
+
     // @codeCoverageIgnoreEnd
 
     /* }}} */

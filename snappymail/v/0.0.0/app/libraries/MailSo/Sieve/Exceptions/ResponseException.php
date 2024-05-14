@@ -16,12 +16,9 @@ namespace MailSo\Sieve\Exceptions;
  * @package Sieve
  * @subpackage Exceptions
  */
-class ResponseException extends \MailSo\Sieve\Exceptions\Exception
+class ResponseException extends \MailSo\RuntimeException
 {
-	/**
-	 * @var array
-	 */
-	private $aResponses;
+	private array $aResponses;
 
 	public function __construct(array $aResponses = array(), string $sMessage = '', int $iCode = 0, ?\Throwable $oPrevious = null)
 	{
@@ -37,7 +34,7 @@ class ResponseException extends \MailSo\Sieve\Exceptions\Exception
 
 	public function GetLastResponse() : ?\MailSo\Sieve\Response
 	{
-		$iCnt = count($this->aResponses);
+		$iCnt = \count($this->aResponses);
 		return $iCnt ? $this->aResponses[$iCnt - 1] : null;
 	}
 }

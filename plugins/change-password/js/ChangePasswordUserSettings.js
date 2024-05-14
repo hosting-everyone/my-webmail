@@ -34,6 +34,9 @@
 	class ChangePasswordUserSettings
 	{
 		constructor() {
+			let minLength = rl.pluginSettingsGet('change-password', 'pass_min_length');
+			let minStrength = rl.pluginSettingsGet('change-password', 'pass_min_strength');
+
 			this.changeProcess = ko.observable(false);
 			this.errorDescription = ko.observable('');
 			this.passwordMismatch = ko.observable(false);
@@ -43,6 +46,7 @@
 			this.currentPasswordError = ko.observable(false);
 			this.newPassword = ko.observable('');
 			this.newPassword2 = ko.observable('');
+			this.pass_min_length = minLength;
 
 			this.currentPassword.subscribe(() => this.resetUpdate(true));
 			this.newPassword.subscribe(() => this.resetUpdate());
@@ -51,9 +55,14 @@
 			ko.decorateCommands(this, {
 				saveNewPasswordCommand: self => !self.changeProcess()
 					&& '' !== self.currentPassword()
-					&& '' !== self.newPassword()
-					&& '' !== self.newPassword2()
+					&& self.newPassword().length >= minLength
+					&& self.newPassword2() == self.newPassword()
+					&& (!this.meter || this.meter.value >= minStrength)
 			});
+		}
+
+		submitForm(form) {
+			form.reportValidity() && this.saveNewPasswordCommand();
 		}
 
 		saveNewPasswordCommand() {
@@ -63,9 +72,28 @@
 			} else {
 				this.reset(true);
 				rl.pluginRemoteRequest(
-					(...args) => {
-						console.dir(...args);
-						this.onChangePasswordResponse(...args);
+					(iError, data) => {
+						this.reset(false);
+						if (iError) {
+							this.passwordUpdateError(true);
+							if (131 === iError) {
+								// Notification.CurrentPasswordIncorrect
+								this.currentPasswordError(true);
+							}
+							this.errorDescription((data && rl.i18n(data.ErrorMessageAdditional))
+								|| rl.i18n('NOTIFICATIONS/COULD_NOT_SAVE_NEW_PASSWORD'));
+						} else {
+							this.currentPassword('');
+							this.newPassword('');
+							this.newPassword2('');
+							this.passwordUpdateSuccess(true);
+/*
+							const refresh = rl.app.refresh;
+							rl.app.refresh = ()=>{};
+							rl.setData(data.Result);
+							rl.app.refresh = refresh;
+*/
+						}
 					},
 					'ChangePassword',
 					{
@@ -90,9 +118,9 @@
 		}
 
 		onBuild(dom) {
-			let input = dom.querySelector('.new-password'),
-				meter = dom.querySelector('.new-password-meter');
-			input && meter && input.addEventListener('input',() => meter.value = getPassStrength(input.value));
+			let meter = dom.querySelector('.new-password-meter');
+			meter && this.newPassword.subscribe(value => meter.value = getPassStrength(value));
+			this.meter = meter;
 		}
 
 		onHide() {
@@ -100,25 +128,6 @@
 			this.currentPassword('');
 			this.newPassword('');
 			this.newPassword2('');
-		}
-
-		onChangePasswordResponse(iError, data) {
-			this.reset(false);
-			if (iError) {
-				this.passwordUpdateError(true);
-				if (131 === iError) {
-					// Notification.CurrentPasswordIncorrect
-					this.currentPasswordError(true);
-				}
-				this.errorDescription((data && rl.i18n(data.ErrorMessageAdditional))
-					|| rl.i18n('NOTIFICATIONS/COULD_NOT_SAVE_NEW_PASSWORD'));
-			} else {
-				this.currentPassword('');
-				this.newPassword('');
-				this.newPassword2('');
-				this.passwordUpdateSuccess(true);
-				rl.setData(data.Result);
-			}
 		}
 	}
 

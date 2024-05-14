@@ -1,9 +1,12 @@
 import ko from 'ko';
 
+//import { koComputable } from 'External/ko';
 import { SettingsCapa, SettingsGet } from 'Common/Globals';
+import { loadAccountsAndIdentities } from 'Common/UtilsUser';
 
 import { AccountUserStore } from 'Stores/User/Account';
 import { IdentityUserStore } from 'Stores/User/Identity';
+import { SettingsUserStore } from 'Stores/User/Settings';
 import Remote from 'Remote/User/Fetch';
 
 import { showScreenPopup } from 'Knoin/Knoin';
@@ -16,13 +19,18 @@ export class UserSettingsAccounts /*extends AbstractViewSettings*/ {
 		this.allowAdditionalAccount = SettingsCapa('AdditionalAccounts');
 		this.allowIdentities = SettingsCapa('Identities');
 
-		this.accounts = AccountUserStore.accounts;
+		this.accounts = AccountUserStore;
 		this.loading = AccountUserStore.loading;
 		this.identities = IdentityUserStore;
-		this.mainEmail = SettingsGet('MainEmail');
+		this.mainEmail = SettingsGet('mainEmail');
 
 		this.accountForDeletion = ko.observable(null).askDeleteHelper();
 		this.identityForDeletion = ko.observable(null).askDeleteHelper();
+
+		this.showUnread = SettingsUserStore.showUnreadCount;
+		SettingsUserStore.showUnreadCount.subscribe(value => Remote.saveSetting('ShowUnreadCount', value));
+
+//		this.additionalAccounts = koComputable(() => AccountUserStore.filter(account => account.isAdditional()));
 	}
 
 	addNewAccount() {
@@ -30,7 +38,7 @@ export class UserSettingsAccounts /*extends AbstractViewSettings*/ {
 	}
 
 	editAccount(account) {
-		if (account && account.isAdditional()) {
+		if (account?.isAdditional()) {
 			showScreenPopup(AccountPopupView, [account]);
 		}
 	}
@@ -48,22 +56,20 @@ export class UserSettingsAccounts /*extends AbstractViewSettings*/ {
 	 * @returns {void}
 	 */
 	deleteAccount(accountToRemove) {
-		if (accountToRemove && accountToRemove.askDelete()) {
+		if (accountToRemove?.askDelete()) {
 			this.accountForDeletion(null);
-			if (accountToRemove) {
-				this.accounts.remove((account) => accountToRemove === account);
+			this.accounts.remove(account => accountToRemove === account);
 
-				Remote.request('AccountDelete', (iError, data) => {
-					if (!iError && data.Reload) {
-						rl.route.root();
-						setTimeout(() => location.reload(), 1);
-					} else {
-						rl.app.accountsAndIdentities();
-					}
-				}, {
-					EmailToDelete: accountToRemove.email
-				});
-			}
+			Remote.request('AccountDelete', (iError, data) => {
+				if (!iError && data.Reload) {
+					rl.route.root();
+					setTimeout(() => location.reload(), 1);
+				} else {
+					loadAccountsAndIdentities();
+				}
+			}, {
+				emailToDelete: accountToRemove.email
+			});
 		}
 	}
 
@@ -72,22 +78,19 @@ export class UserSettingsAccounts /*extends AbstractViewSettings*/ {
 	 * @returns {void}
 	 */
 	deleteIdentity(identityToRemove) {
-		if (identityToRemove && identityToRemove.askDelete()) {
+		if (identityToRemove?.askDelete()) {
 			this.identityForDeletion(null);
-
-			if (identityToRemove) {
-				IdentityUserStore.remove(oIdentity => identityToRemove === oIdentity);
-				Remote.request('IdentityDelete', () => rl.app.accountsAndIdentities(), {
-					IdToDelete: identityToRemove.id()
-				});
-			}
+			IdentityUserStore.remove(oIdentity => identityToRemove === oIdentity);
+			Remote.request('IdentityDelete', () => rl.app.accountsAndIdentities(), {
+				idToDelete: identityToRemove.id()
+			});
 		}
 	}
 
 	accountsAndIdentitiesAfterMove() {
 		Remote.request('AccountsAndIdentitiesSortOrder', null, {
-			Accounts: AccountUserStore.getEmailAddresses().filter(v => v != SettingsGet('MainEmail')),
-			Identities: IdentityUserStore.getIDS()
+			Accounts: AccountUserStore.filter(item => item.isAdditional()).map(item => item.email),
+			Identities: IdentityUserStore.map(item => (item ? item.id() : ""))
 		});
 	}
 

@@ -5,12 +5,11 @@ export const
 /**
  * @enum {string}
  */
-Scope = {
-	MessageList: 'MessageList',
-	FolderList: 'FolderList',
-	MessageView: 'MessageView',
-	Settings: 'Settings'
-},
+ScopeMessageList = 'MessageList',
+ScopeFolderList = 'FolderList',
+ScopeMessageView = 'MessageView',
+ScopeSettings = 'Settings',
+ScopeContacts = 'Contacts',
 
 /**
  * @enum {number}
@@ -29,19 +28,20 @@ UploadErrorCode = {
 /**
  * @enum {number}
  */
-SaveSettingsStep = {
-	Animate: -2,
+SaveSettingStatus = {
+	Saving: -2,
 	Idle: -1,
-	TrueResult: 1,
-	FalseResult: 0
+	Success: 1,
+	Failed: 0
 },
 
 /**
  * @enum {number}
  */
-Notification = {
+Notifications = {
 	RequestError: 1,
 	RequestAborted: 2,
+	RequestTimeout: 3,
 
 	// Global
 	InvalidToken: 101,
@@ -51,6 +51,7 @@ Notification = {
 	ConnectionError: 104,
 	DomainNotAllowed: 109,
 	AccountNotAllowed: 110,
+	CryptKeyError: 111,
 
 	ContactsSyncError: 140,
 
@@ -96,7 +97,6 @@ Notification = {
 	JsonParse: 952,
 //	JsonTimeout: 953,
 
-	UnknownNotification: 998,
 	UnknownError: 999,
 
 	// Admin

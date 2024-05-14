@@ -12,7 +12,7 @@ export const
 		data = ko.observableArray(data);
 		data.subscribe(changes =>
 			changes.forEach(item =>
-				'deleted' === item.status && null == item.moved && item.value.onDestroy && item.value.onDestroy()
+				'deleted' === item.status && null == item.moved && item.value.onDestroy?.()
 			)
 		, data, 'arrayChange');
 		return data;
@@ -22,16 +22,16 @@ export const
 	koComputable = fn => ko.computed(fn, {'pure':true}),
 
 	arrayToString = (arr, separator) =>
-		arr.map(item => item.toString ? item.toString() : item).join(separator),
+		arr.map(item => item.toString?.() || item).join(separator),
 /*
 	getNotificationMessage = code => {
-		let key = getKeyByValue(Notification, code);
+		let key = getKeyByValue(Notifications, code);
 		return key ? I18N_DATA.NOTIFICATIONS[i18nKey(key).replace('_NOTIFICATION', '_ERROR')] : '';
 		rl.i18n('NOTIFICATIONS/')
 	},
 	getNotification = (code, message = '', defCode = 0) => {
 		code = parseInt(code, 10) || 0;
-		if (Notification.ClientViewError === code && message) {
+		if (Notifications.ClientViewError === code && message) {
 			return message;
 		}
 
@@ -56,4 +56,13 @@ export const
 	setError = text => {
 		serverError(true);
 		serverErrorDesc(text);
+	},
+
+	getMatchTypes = (validOnly = 1) => {
+		let result = [':is',':contains',':matches'];
+		// https://datatracker.ietf.org/doc/html/rfc6134#section-2.3
+		if (capa.includes('extlists') || !validOnly) {
+			result.push(':list');
+		}
+		return result;
 	};

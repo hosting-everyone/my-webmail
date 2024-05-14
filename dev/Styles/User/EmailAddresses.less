@@ -1,19 +1,21 @@
 .emailaddresses {
-	background-color: #fff;
-	border: 1px solid #ccc;
-	border-radius: 3px;
+	background-color: var(--input-bg-clr, #fff);
+	border: 1px solid var(--input-border-clr, #ccc);
+	border-radius: var(--input-border-radius, 3px);
 	box-shadow: inset 0 1px 1px rgba(0,0,0,.075);
-	box-sizing: border-box;
+	color: var(--input-clr, #555);
 	cursor: text;
 	font-size: 90%;
 	list-style: none;
 	margin: 0;
 	padding: 0;
 	transition: border linear .2s, box-shadow linear .2s;
+	max-height: 5em;
+	overflow: auto;
 }
 
 .emailaddresses.emailaddresses-focused {
-	border: 1px solid darken(@inputBorder, 20%);
+	border-color: var(--input-focus-border-clr, #999);
 	box-shadow: none;
 }
 
@@ -23,7 +25,7 @@
 .emailaddresses li[draggable] {
 	background-color: #eee;
 	border: 1px solid #aaa;
-	border-radius: 2px;
+	border-radius: calc(var(--input-border-radius, 3px) - 1px);
 	box-shadow: 0 1px 0 rgba(255,255,255,0.75) inset;
 	color: #555;
 	cursor: default;
@@ -46,7 +48,7 @@
 }
 
 .emailaddresses li a {
-	font-size: 12px;
+	font-size: 85%;
 	color: #999;
 	padding: 1px;
 	position: absolute;
@@ -71,6 +73,8 @@
 	height: auto;
 	line-height: inherit;
 	margin: 0;
+	min-width: 18em;
+	max-width: 500px;
 	padding: 4px;
 	vertical-align: baseline;
 }

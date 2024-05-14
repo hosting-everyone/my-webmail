@@ -1,8 +1,6 @@
 import { pString, pInt, b64EncodeJSONSafe } from 'Common/Utils';
 
 import {
-	getFolderHash,
-	getFolderUidNext,
 	getFolderFromCacheList
 } from 'Common/Cache';
 
@@ -11,55 +9,10 @@ import { SUB_QUERY_PREFIX } from 'Common/Links';
 
 import { AppUserStore } from 'Stores/User/App';
 import { SettingsUserStore } from 'Stores/User/Settings';
-import { FolderUserStore } from 'Stores/User/Folder';
 
 import { AbstractFetchRemote } from 'Remote/AbstractFetch';
 
 class RemoteUserFetch extends AbstractFetchRemote {
-
-	/**
-	 * @param {Function} fCallback
-	 * @param {object} params
-	 * @param {boolean=} bSilent = false
-	 */
-	messageList(fCallback, params, bSilent = false) {
-		const
-			sFolderFullName = pString(params.Folder),
-			folderHash = getFolderHash(sFolderFullName);
-
-		params = Object.assign({
-			Offset: 0,
-			Limit: SettingsUserStore.messagesPerPage(),
-			Search: '',
-			UidNext: getFolderUidNext(sFolderFullName), // Used to check for new messages
-			Sort: FolderUserStore.sortMode(),
-			Hash: folderHash + SettingsGet('AccountHash')
-		}, params);
-		params.Folder = sFolderFullName;
-		if (AppUserStore.threadsAllowed() && SettingsUserStore.useThreads()) {
-			params.UseThreads = 1;
-		} else {
-			params.ThreadUid = 0;
-		}
-
-		let sGetAdd = '';
-
-		if (folderHash && (!params.Search || !params.Search.includes('is:'))) {
-			sGetAdd = 'MessageList/' +
-				SUB_QUERY_PREFIX +
-				'/' +
-				b64EncodeJSONSafe(params);
-			params = {};
-		}
-
-		this.request('MessageList',
-			fCallback,
-			params,
-			30000,
-			sGetAdd,
-			bSilent ? [] : ['MessageList']
-		);
-	}
 
 	/**
 	 * @param {?Function} fCallback
@@ -72,7 +25,7 @@ class RemoteUserFetch extends AbstractFetchRemote {
 		iUid = pInt(iUid);
 
 		if (getFolderFromCacheList(sFolderFullName) && 0 < iUid) {
-			this.request('Message',
+			this.abort('Message').request('Message',
 				fCallback,
 				{},
 				null,
@@ -83,9 +36,8 @@ class RemoteUserFetch extends AbstractFetchRemote {
 						sFolderFullName,
 						iUid,
 						AppUserStore.threadsAllowed() && SettingsUserStore.useThreads() ? 1 : 0,
-						SettingsGet('AccountHash')
-					]),
-				['Message']
+						SettingsGet('accountHash')
+					])
 			);
 
 			return true;
@@ -112,16 +64,6 @@ class RemoteUserFetch extends AbstractFetchRemote {
 			[key]: value
 		});
 	}
-
-/*
-	folderMove(sPrevFolderFullName, sNewFolderFullName, bSubscribe) {
-		return this.post('FolderMove', FolderUserStore.foldersRenaming, {
-			Folder: sPrevFolderFullName,
-			NewFolder: sNewFolderFullName,
-			Subscribe: bSubscribe ? 1 : 0
-		});
-	}
-*/
 }
 
 export default new RemoteUserFetch();

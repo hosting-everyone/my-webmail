@@ -1,4 +1,5 @@
 import ko from 'ko';
+import { addObservablesTo, addComputablesTo } from 'External/ko';
 
 import { getNotification, i18n } from 'Common/Translator';
 import { arrayLength } from 'Common/Utils';
@@ -13,7 +14,7 @@ export class PluginPopupView extends AbstractViewPopup {
 	constructor() {
 		super('Plugin');
 
-		this.addObservables({
+		addObservablesTo(this, {
 			saveError: '',
 			id: '',
 			name: '',
@@ -22,7 +23,7 @@ export class PluginPopupView extends AbstractViewPopup {
 
 		this.config = ko.observableArray();
 
-		this.addComputables({
+		addComputablesTo(this, {
 			hasReadme: () => !!this.readme(),
 			hasConfiguration: () => 0 < this.config().length
 		});
@@ -34,21 +35,25 @@ export class PluginPopupView extends AbstractViewPopup {
 		});
 	}
 
+	hideError() {
+		this.saveError('');
+	}
+
 	saveCommand() {
 		const oConfig = {
-			Id: this.id(),
-			Settings: {}
+			id: this.id,
+			settings: {}
 		},
 		setItem = item => {
 			let value = item.value();
 			if (false === value || true === value) {
 				value = value ? 1 : 0;
 			}
-			oConfig.Settings[item.Name] = value;
+			oConfig.settings[item.name] = value;
 		};
 
 		this.config.forEach(oItem => {
-			if (7 == oItem.Type) {
+			if (7 == oItem.type) {
 				// Group
 				oItem.config.forEach(oSubItem => setItem(oSubItem));
 			} else {
@@ -71,15 +76,15 @@ export class PluginPopupView extends AbstractViewPopup {
 		this.config([]);
 
 		if (oPlugin) {
-			this.id(oPlugin.Id);
-			this.name(oPlugin.Name);
-			this.readme(oPlugin.Readme);
+			this.id(oPlugin.id);
+			this.name(oPlugin.name);
+			this.readme(oPlugin.readme);
 
-			const config = oPlugin.Config;
+			const config = oPlugin.config;
 			if (arrayLength(config)) {
 				this.config(
 					config.map(item => {
-						if (7 == item.Type) {
+						if (7 == item.type) {
 							// Group
 							item.config.forEach(subItem => {
 								subItem.value = ko.observable(subItem.value);

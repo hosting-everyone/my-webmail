@@ -2,340 +2,208 @@
 
 namespace OCA\SnappyMail\Util;
 
-use OCP\App\IAppManager;
-use OCP\IConfig;
-use OCP\ISession;
-use OCP\IUserSession;
-
-class SnappyMailHelper {
-
-	private $appManager;
-	private $config;
-	private $session;
-	private $userSession;
-
-	public function __construct(IConfig $config, IUserSession $userSession, IAppManager $appManager, ISession $session) {
-		$this->appManager = $appManager;
-		$this->config = $config;
-		$this->userSession = $userSession;
-		$this->session = $session;
-	}
-
-	public function registerHooks() {
-		$this->userSession->listen('\OC\User', 'postLogin', function($user, $loginName, $password, $isTokenLogin) {
-			$this->login($user, $loginName, $password, $isTokenLogin, $this->config, $this->session);
-		});
-
-		$this->userSession->listen('\OC\User', 'logout', function() {
-			$this->logout($this->appManager, $this->config, $this->session);
-		});
-	}
-
-	/**
-	 * @return string
-	 */
-	public static function getAppUrl()
+class SnappyMailResponse extends \OCP\AppFramework\Http\Response
+{
+	public function render(): string
 	{
-		$sRequestUri = \OC::$server->getURLGenerator()->linkToRoute('snappymail.page.appGet');
-		if ($sRequestUri)
-		{
-			return $sRequestUri;
+		$data = '';
+		$i = \ob_get_level();
+		while ($i--) {
+			$data .= \ob_get_clean();
+		}
+		return $data;
+	}
+}
+
+class SnappyMailHelper
+{
+
+	public static function loadApp() : void
+	{
+		if (\class_exists('RainLoop\\Api')) {
+			return;
 		}
 
-		$sRequestUri = empty($_SERVER['REQUEST_URI']) ? '': trim($_SERVER['REQUEST_URI']);
-		$sRequestUri = preg_replace('/index.php\/.+$/', 'index.php/', $sRequestUri);
-		$sRequestUri = $sRequestUri.'apps/snappymail/app/';
+		// Nextcloud the default spl_autoload_register() not working
+		\spl_autoload_register(function($sClassName){
+			$file = SNAPPYMAIL_LIBRARIES_PATH . \strtolower(\strtr($sClassName, '\\', DIRECTORY_SEPARATOR)) . '.php';
+			if (\is_file($file)) {
+				include_once $file;
+			}
+		});
 
-		return '/'.ltrim($sRequestUri, '/\\');
+		$_ENV['SNAPPYMAIL_INCLUDE_AS_API'] = true;
+
+//		define('APP_VERSION', '0.0.0');
+//		define('APP_INDEX_ROOT_PATH', __DIR__ . DIRECTORY_SEPARATOR);
+//		include APP_INDEX_ROOT_PATH.'snappymail/v/'.APP_VERSION.'/include.php';
+//		define('APP_DATA_FOLDER_PATH', \rtrim(\trim(\OC::$server->getSystemConfig()->getValue('datadirectory', '')), '\\/').'/appdata_snappymail/');
+
+		$app_dir = \dirname(\dirname(__DIR__)) . '/app';
+		require_once $app_dir . '/index.php';
 	}
 
-	/**
-	 * @param string $sPath
-	 * @param string $sEmail
-	 * @param string $sPassword
-	 *
-	 * @return string
-	 */
-	public static function getSsoHash($sPath, $sEmail, $sPassword)
+	public static function startApp(bool $handle = false)
 	{
-		$SsoHash = '';
+		static::loadApp();
 
-		$sPath = rtrim(trim($sPath), '\\/').'/index.php';
-		if (file_exists($sPath))
-		{
-			self::regSnappyMailDataFunction();
+		$oConfig = \RainLoop\Api::Config();
 
-			$_ENV['SNAPPYMAIL_INCLUDE_AS_API'] = true;
-			include $sPath;
+		if (false !== \stripos(\php_sapi_name(), 'cli')) {
+			return;
+		}
 
-			if (class_exists('\\RainLoop\\Api'))
-			{
-				$SsoHash = \RainLoop\Api::GetUserSsoHash($sEmail, $sPassword);
+		try {
+			$oActions = \RainLoop\Api::Actions();
+			if (isset($_GET[$oConfig->Get('security', 'admin_panel_key', 'admin')])) {
+				if ($oConfig->Get('security', 'allow_admin_panel', true)
+				&& \OC_User::isAdminUser(\OC::$server->getUserSession()->getUser()->getUID())
+				&& !$oActions->IsAdminLoggined(false)
+				) {
+					$sRand = \MailSo\Base\Utils::Sha1Rand();
+					if ($oActions->Cacher(null, true)->Set(\RainLoop\KeyPathHelper::SessionAdminKey($sRand), \time())) {
+						$sToken = \RainLoop\Utils::EncodeKeyValuesQ(array('token', $sRand));
+//						$oActions->setAdminAuthToken($sToken);
+						\SnappyMail\Cookies::set('smadmin', $sToken);
+					}
+				}
+			} else {
+				$doLogin = !$oActions->getMainAccountFromToken(false);
+				$aCredentials = static::getLoginCredentials();
+/*
+				// NC25+ workaround for Impersonate plugin
+				// https://github.com/the-djmaze/snappymail/issues/561#issuecomment-1301317723
+				// https://github.com/nextcloud/server/issues/34935#issuecomment-1302145157
+				require \OC::$SERVERROOT . '/version.php';
+//				\OC\SystemConfig
+//				file_get_contents(\OC::$SERVERROOT . 'config/config.php');
+//				$CONFIG['version']
+				if (24 < $OC_Version[0]) {
+					$ocSession = \OC::$server->getSession();
+					$ocSession->reopen();
+					if (!$doLogin && $ocSession['snappymail-uid'] && $ocSession['snappymail-uid'] != $aCredentials[0]) {
+						// UID changed, Impersonate plugin probably active
+						$oActions->Logout(true);
+						$doLogin = true;
+					}
+					$ocSession->set('snappymail-uid', $aCredentials[0]);
+				}
+*/
+				if ($doLogin && $aCredentials[1] && $aCredentials[2]) {
+					try {
+						$oAccount = $oActions->LoginProcess($aCredentials[1], $aCredentials[2]);
+						if ($oAccount && $oConfig->Get('login', 'sign_me_auto', \RainLoop\Enumerations\SignMeType::DefaultOff) === \RainLoop\Enumerations\SignMeType::DefaultOn) {
+							$oActions->SetSignMeToken($oAccount);
+						}
+					} catch (\Throwable $e) {
+						// Login failure, reset password to prevent more attempts
+						$sUID = \OC::$server->getUserSession()->getUser()->getUID();
+						\OC::$server->getSession()['snappymail-passphrase'] = '';
+						\OC::$server->getConfig()->setUserValue($sUID, 'snappymail', 'passphrase', '');
+						\SnappyMail\Log::error('Nextcloud', $e->getMessage());
+					}
+				}
+			}
+
+			if ($handle) {
+				\header_remove('Content-Security-Policy');
+				\RainLoop\Service::Handle();
+				// https://github.com/the-djmaze/snappymail/issues/1069
+				exit;
+//				return new SnappyMailResponse();
+			}
+		} catch (\Throwable $e) {
+			// Ignore login failure
+		}
+	}
+
+	private static function getLoginCredentials() : array
+	{
+		$sUID = \OC::$server->getUserSession()->getUser()->getUID();
+		$config = \OC::$server->getConfig();
+		$ocSession = \OC::$server->getSession();
+
+		// If the user has set credentials for SnappyMail in their personal settings,
+		// this has the first priority.
+		$sEmail = $config->getUserValue($sUID, 'snappymail', 'snappymail-email');
+		$sPassword = $config->getUserValue($sUID, 'snappymail', 'passphrase')
+			?: $config->getUserValue($sUID, 'snappymail', 'snappymail-password');
+		if ($sEmail && $sPassword) {
+			$sPassword = static::decodePassword($sPassword, \md5($sEmail));
+			if ($sPassword) {
+				return [$sUID, $sEmail, $sPassword];
+			} else {
+				\SnappyMail\Log::debug('Nextcloud', 'decodePassword failed for getUserValue');
 			}
 		}
 
-		return $SsoHash;
+		// If the current user ID is identical to login ID (not valid when using account switching),
+		// this has the second priority.
+		if ($ocSession['snappymail-nc-uid'] == $sUID) {
+/*
+			// If OpenID Connect (OIDC) is enabled and used for login, use this.
+			// https://apps.nextcloud.com/apps/oidc_login
+			// DISABLED https://github.com/the-djmaze/snappymail/issues/1420#issuecomment-1933045917
+			if ($config->getAppValue('snappymail', 'snappymail-autologin-oidc', false)) {
+				if ($ocSession->get('is_oidc')) {
+					// IToken->getPassword() ???
+					if ($sAccessToken = $ocSession->get('oidc_access_token')) {
+						return [$sUID, 'oidc@nextcloud', $sAccessToken];
+					}
+					\SnappyMail\Log::debug('Nextcloud', 'OIDC access_token missing');
+				} else {
+					\SnappyMail\Log::debug('Nextcloud', 'No OIDC login');
+				}
+			}
+*/
+			// Only use the user's password in the current session if they have
+			// enabled auto-login using Nextcloud username or email address.
+			$sEmail = '';
+			$sPassword = '';
+			if ($config->getAppValue('snappymail', 'snappymail-autologin', false)) {
+				$sEmail = $sUID;
+				$sPassword = $ocSession['snappymail-passphrase'];
+			} else if ($config->getAppValue('snappymail', 'snappymail-autologin-with-email', false)) {
+				$sEmail = $config->getUserValue($sUID, 'settings', 'email');
+				$sPassword = $ocSession['snappymail-passphrase'];
+			} else {
+				\SnappyMail\Log::debug('Nextcloud', 'snappymail-autologin is off');
+			}
+			if ($sPassword) {
+				return [$sUID, $sEmail, static::decodePassword($sPassword, $sUID)];
+			}
+		} else {
+			\SnappyMail\Log::debug('Nextcloud', "snappymail-nc-uid mismatch '{$ocSession['snappymail-nc-uid']}' != '{$sUID}'");
+		}
+
+		return [$sUID, '', ''];
 	}
 
-	/**
-	 * @param string $sUrl
-	 *
-	 * @return string
-	 */
-	public static function normalizeUrl($sUrl)
+	public static function getAppUrl() : string
 	{
-		$sUrl = rtrim(trim($sUrl), '/\\');
-		if ('.php' !== strtolower(substr($sUrl, -4)))
-		{
+		return \OC::$server->getURLGenerator()->linkToRoute('snappymail.page.appGet');
+	}
+
+	public static function normalizeUrl(string $sUrl) : string
+	{
+		$sUrl = \rtrim(\trim($sUrl), '/\\');
+		if ('.php' !== \strtolower(\substr($sUrl, -4))) {
 			$sUrl .= '/';
 		}
 
 		return $sUrl;
 	}
 
-	/**
-	 * @return boolean
-	 */
-	public static function mcryptSupported()
+	public static function encodePassword(string $sPassword, string $sSalt) : string
 	{
-		return function_exists('mcrypt_encrypt') &&
-			function_exists('mcrypt_decrypt') &&
-			defined('MCRYPT_RIJNDAEL_256') &&
-			defined('MCRYPT_MODE_ECB');
+		static::loadApp();
+		return \SnappyMail\Crypt::EncryptUrlSafe($sPassword, $sSalt);
 	}
 
-	/**
-	 * @return string
-	 */
-	public static function openSslSupportedMethod()
+	public static function decodePassword(string $sPassword, string $sSalt) : ?\SnappyMail\SensitiveString
 	{
-		$method = 'AES-256-CBC';
-		return function_exists('openssl_encrypt') &&
-			function_exists('openssl_decrypt') &&
-			function_exists('openssl_random_pseudo_bytes') &&
-			function_exists('openssl_cipher_iv_length') &&
-			function_exists('openssl_get_cipher_methods') &&
-			defined('OPENSSL_RAW_DATA') && defined('OPENSSL_ZERO_PADDING') &&
-			in_array($method, openssl_get_cipher_methods()) ? $method : '';
+		static::loadApp();
+		$result = \SnappyMail\Crypt::DecryptUrlSafe($sPassword, $sSalt);
+		return $result ? new \SnappyMail\SensitiveString($result) : null;
 	}
-
-	/**
-	 * @param string $sMethod
-	 * @param string $sPassword
-	 * @param string $sSalt
-	 *
-	 * @return string
-	 */
-	public static function encodePasswordSsl($sMethod, $sPassword, $sSalt)
-	{
-		$sData = base64_encode($sPassword);
-
-		$iv = @openssl_random_pseudo_bytes(openssl_cipher_iv_length($sMethod));
-		$r = @openssl_encrypt($sData, $sMethod, md5($sSalt), OPENSSL_RAW_DATA, $iv);
-
-		return @base64_encode(base64_encode($r).'|'.base64_encode($iv));
-	}
-
-	/**
-	 * @param string $sMethod
-	 * @param string $sPassword
-	 * @param string $sSalt
-	 *
-	 * @return string
-	 */
-	public static function decodePasswordSsl($sMethod, $sPassword, $sSalt)
-	{
-		$sLine = base64_decode(trim($sPassword));
-		$aParts = explode('|', $sLine, 2);
-
-		if (is_array($aParts) && !empty($aParts[0]) && !empty($aParts[1])) {
-
-			$sData = @base64_decode($aParts[0]);
-			$iv = @base64_decode($aParts[1]);
-
-			return @base64_decode(trim(
-				@openssl_decrypt($sData, $sMethod, md5($sSalt), OPENSSL_RAW_DATA, $iv)
-			));
-		}
-
-		return '';
-	}
-
-	/**
-	 * @param string $sPassword
-	 * @param string $sSalt
-	 *
-	 * @return string
-	 */
-	public static function encodePassword($sPassword, $sSalt)
-	{
-		$method = self::openSslSupportedMethod();
-		if ($method)
-		{
-			return self::encodePasswordSsl($method, $sPassword, $sSalt);
-		}
-		else if (self::mcryptSupported())
-		{
-			return @trim(base64_encode(
-				@mcrypt_encrypt(MCRYPT_RIJNDAEL_256, md5($sSalt), base64_encode($sPassword), MCRYPT_MODE_ECB)
-			));
-		}
-
-		return @trim(base64_encode($sPassword));
-	}
-
-	/**
-	 * @param string $sPassword
-	 * @param string $sSalt
-	 *
-	 * @return string
-	 */
-	public static function decodePassword($sPassword, $sSalt)
-	{
-		$method = self::openSslSupportedMethod();
-		if ($method)
-		{
-			return self::decodePasswordSsl($method, $sPassword, $sSalt);
-		}
-		else if (self::mcryptSupported())
-		{
-			return @base64_decode(trim(
-				@mcrypt_decrypt(MCRYPT_RIJNDAEL_256, md5($sSalt), base64_decode(trim($sPassword)), MCRYPT_MODE_ECB)
-			));
-		}
-
-		return @base64_decode(trim($sPassword));
-	}
-
-	/**
-	 * @param array $aParams
-	 * @return boolean
-	 * @UseSession
-	 */
-	public static function login($user, $loginName, $password, $isTokenLogin, $config, &$session)
-	{
-		$sUser = $user->getUID();
-
-		$sEmail = $sUser;
-		$sPassword = $password;
-		$sEncodedPassword = self::encodePassword($sPassword, md5($sEmail));
-
-		// Only store the user's password in the current session if they have
-		// enabled auto-login using Nextcloud username or email address.
-		if ($config->getAppValue('snappymail', 'snappymail-autologin') || $config->getAppValue('snappymail', 'snappymail-autologin-with-email')) {
-			$session['snappymail-autologin-password'] = $sEncodedPassword;
-		}
-	}
-
-	/**
-	 * @UseSession
-	 */
-	public static function logout($appManager, $config, &$session)
-	{
-		$session['snappymail-autologin-password'] = '';
-
-		$sApiPath = $appManager->getAppPath('snappymail') . '/app/index.php';
-
-		self::regSnappyMailDataFunction();
-
-		$_ENV['SNAPPYMAIL_INCLUDE_AS_API'] = true;
-		include $sApiPath;
-
-		\RainLoop\Api::LogoutCurrentLogginedUser();
-
-		return true;
-	}
-
-	public static function regSnappyMailDataFunction()
-	{
-		if (!@function_exists('__get_custom_data_full_path'))
-		{
-			$_ENV['SNAPPYMAIL_NEXTCLOUD'] = true;
-
-			function __get_custom_data_full_path()
-			{
-				$sData = rtrim(trim(OC::$server->getSystemConfig()->getValue('datadirectory', '')), '\\/').'/';
-				return @is_dir($sData) ? $sData.'snappymail-storage' : '';
-			}
-		}
-	}
-
-	public static function mimeContentType($filename) {
-
-        $mime_types = array(
-
-            'woff' => 'application/font-woff',
-
-            'txt' => 'text/plain',
-            'htm' => 'text/html',
-            'html' => 'text/html',
-            'php' => 'text/html',
-            'css' => 'text/css',
-            'js' => 'application/javascript',
-            'json' => 'application/json',
-            'xml' => 'application/xml',
-            'swf' => 'application/x-shockwave-flash',
-            'flv' => 'video/x-flv',
-
-            // images
-            'png' => 'image/png',
-            'jpe' => 'image/jpeg',
-            'jpeg' => 'image/jpeg',
-            'jpg' => 'image/jpeg',
-            'gif' => 'image/gif',
-            'bmp' => 'image/bmp',
-            'ico' => 'image/vnd.microsoft.icon',
-            'tiff' => 'image/tiff',
-            'tif' => 'image/tiff',
-            'svg' => 'image/svg+xml',
-            'svgz' => 'image/svg+xml',
-
-            // archives
-            'zip' => 'application/zip',
-            'rar' => 'application/x-rar-compressed',
-            'exe' => 'application/x-msdownload',
-            'msi' => 'application/x-msdownload',
-            'cab' => 'application/vnd.ms-cab-compressed',
-
-            // audio/video
-            'mp3' => 'audio/mpeg',
-            'qt' => 'video/quicktime',
-            'mov' => 'video/quicktime',
-
-            // adobe
-            'pdf' => 'application/pdf',
-            'psd' => 'image/vnd.adobe.photoshop',
-            'ai' => 'application/postscript',
-            'eps' => 'application/postscript',
-            'ps' => 'application/postscript',
-
-            // ms office
-            'doc' => 'application/msword',
-            'rtf' => 'application/rtf',
-            'xls' => 'application/vnd.ms-excel',
-            'ppt' => 'application/vnd.ms-powerpoint',
-
-            // open office
-            'odt' => 'application/vnd.oasis.opendocument.text',
-            'ods' => 'application/vnd.oasis.opendocument.spreadsheet',
-        );
-
-		if (0 < strpos($filename, '.'))
-		{
-			$ext = strtolower(array_pop(explode('.',$filename)));
-			if (array_key_exists($ext, $mime_types))
-			{
-				return $mime_types[$ext];
-			}
-			else if (function_exists('finfo_open'))
-			{
-				$finfo = finfo_open(FILEINFO_MIME);
-				$mimetype = finfo_file($finfo, $filename);
-				finfo_close($finfo);
-				return $mimetype;
-			}
-		}
-
-		return 'application/octet-stream';
-    }
 }

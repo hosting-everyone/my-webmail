@@ -20,35 +20,39 @@ namespace MailSo\Imap\Requests;
  */
 class THREAD extends Request
 {
-	public
-		$sAlgorithm = '', // ORDEREDSUBJECT or REFERENCES or REFS
-		$sCriterias = 'ALL',
-		$bUid = true;
+	// ORDEREDSUBJECT or REFERENCES or REFS
+	private string $sAlgorithm = '';
+
+	// a parenthesized list of sort criteria
+	public string $sCriterias = 'ALL';
+
+	public bool $bUid = true;
 
 	function __construct(\MailSo\Imap\ImapClient $oImapClient)
 	{
-		if ($oImapClient->IsSupported('THREAD=REFS')) {
+		if ($oImapClient->hasCapability('THREAD=REFS')) {
 			$this->sAlgorithm = 'REFS';
-		} else if ($oImapClient->IsSupported('THREAD=REFERENCES')) {
+		} else if ($oImapClient->hasCapability('THREAD=REFERENCES')) {
 			$this->sAlgorithm = 'REFERENCES';
-		} else if ($oImapClient->IsSupported('THREAD=ORDEREDSUBJECT')) {
+		} else if ($oImapClient->hasCapability('THREAD=ORDEREDSUBJECT')) {
 			$this->sAlgorithm = 'ORDEREDSUBJECT';
 		} else {
-			$oImapClient->writeLogException(
-				new \MailSo\Imap\Exceptions\RuntimeException('THREAD is not supported'),
-				\MailSo\Log\Enumerations\Type::ERROR, true);
+			$oImapClient->writeLogException(new \MailSo\RuntimeException('THREAD is not supported'), \LOG_ERR);
 		}
 		parent::__construct($oImapClient);
 	}
 
-	public function SendRequestGetResponse() : array
+	public function setAlgorithm(string $sAlgorithm) : void
 	{
-		if (!$this->oImapClient->IsSupported(\strtoupper("THREAD={$this->sAlgorithm}"))) {
-			$this->oImapClient->writeLogException(
-				new \MailSo\Imap\Exceptions\RuntimeException("THREAD={$this->sAlgorithm} is not supported"),
-				\MailSo\Log\Enumerations\Type::ERROR, true);
+		$sAlgorithm = \strtoupper($sAlgorithm);
+		if (!$this->oImapClient->hasCapability("THREAD={$sAlgorithm}")) {
+			$this->oImapClient->writeLogException(new \MailSo\RuntimeException("THREAD={$sAlgorithm} is not supported"), \LOG_ERR);
 		}
+		$this->sAlgorithm = $sAlgorithm;
+	}
 
+	public function SendRequestIterateResponse() : iterable
+	{
 		$this->oImapClient->SendRequest(
 			($this->bUid ? 'UID THREAD' : 'THREAD'),
 			array(
@@ -58,7 +62,6 @@ class THREAD extends Request
 			)
 		);
 
-		$aReturn = array();
 		foreach ($this->oImapClient->yieldUntaggedResponses() as $oResponse) {
 			$iOffset = ($this->bUid && 'UID' === $oResponse->StatusOrIndex && !empty($oResponse->ResponseList[2]) && 'THREAD' === $oResponse->ResponseList[2]) ? 1 : 0;
 			if (('THREAD' === $oResponse->StatusOrIndex || $iOffset)
@@ -69,44 +72,43 @@ class THREAD extends Request
 				for ($iIndex = 2 + $iOffset; $iIndex < $iLen; ++$iIndex) {
 					$aNewValue = $this->validateThreadItem($oResponse->ResponseList[$iIndex]);
 					if (\is_array($aNewValue)) {
-						$aReturn[] = $aNewValue;
+						yield $aNewValue;
 					}
 				}
 			}
 		}
-		return $aReturn;
 	}
 
 	/**
 	 * @param mixed $mValue
 	 *
-	 * @return mixed
+	 * @return int | array | false
 	 */
 	private function validateThreadItem($mValue)
 	{
-		$mResult = false;
 		if (\is_numeric($mValue)) {
-			$mResult = (int) $mValue;
-			if (0 >= $mResult) {
-				$mResult = false;
+			$mValue = (int) $mValue;
+			if (0 < $mValue) {
+				return $mValue;
 			}
 		} else if (\is_array($mValue)) {
 			if (1 === \count($mValue) && \is_numeric($mValue[0])) {
-				$mResult = (int) $mValue[0];
-				if (0 >= $mResult) {
-					$mResult = false;
+				$mValue = (int) $mValue[0];
+				if (0 < $mValue) {
+					return $mValue;
 				}
 			} else {
-				$mResult = array();
+				$aResult = array();
 				foreach ($mValue as $mValueItem) {
-					$mTemp = $this->validateThreadItem($mValueItem);
-					if (false !== $mTemp) {
-						$mResult[] = $mTemp;
+					$mValueItem = $this->validateThreadItem($mValueItem);
+					if ($mValueItem) {
+						$aResult[] = $mValueItem;
 					}
 				}
+				return $aResult;
 			}
 		}
 
-		return $mResult;
+		return false;
 	}
 }

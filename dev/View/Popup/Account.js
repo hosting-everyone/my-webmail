@@ -1,4 +1,6 @@
+import { addObservablesTo } from 'External/ko';
 import { getNotification } from 'Common/Translator';
+import { loadAccountsAndIdentities } from 'Common/UtilsUser';
 
 import Remote from 'Remote/User/Fetch';
 
@@ -8,66 +10,53 @@ export class AccountPopupView extends AbstractViewPopup {
 	constructor() {
 		super('Account');
 
-		this.addObservables({
+		addObservablesTo(this, {
 			isNew: true,
 
+			name: '',
 			email: '',
 			password: '',
-
-			emailError: false,
-			passwordError: false,
 
 			submitRequest: false,
 			submitError: '',
 			submitErrorAdditional: ''
 		});
-
-		this.email.subscribe(() => this.emailError(false));
-
-		this.password.subscribe(() => this.passwordError(false));
 	}
 
-	submitForm() {
-		if (!this.submitRequest()) {
-			const email = this.email().trim(), pass = this.password();
-			this.emailError(!email);
-			this.passwordError(!pass);
-			if (!this.emailError() && pass) {
-				this.submitRequest(true);
-				Remote.request('AccountSetup', (iError, data) => {
-						this.submitRequest(false);
-						if (iError) {
-							this.submitError(getNotification(iError));
-							this.submitErrorAdditional((data && data.ErrorMessageAdditional) || '');
-						} else {
-							rl.app.accountsAndIdentities();
-							this.close();
-						}
-					}, {
-						Email: email,
-						Password: pass,
-						New: this.isNew() ? 1 : 0
+	hideError() {
+		this.submitError('');
+	}
+
+	submitForm(form) {
+		if (!this.submitRequest() && form.reportValidity()) {
+			const data = new FormData(form);
+			data.set('new', this.isNew() ? 1 : 0);
+			this.submitRequest(true);
+			Remote.request('AccountSetup', (iError, data) => {
+					this.submitRequest(false);
+					if (iError) {
+						this.submitError(getNotification(iError));
+						this.submitErrorAdditional(data?.ErrorMessageAdditional);
+					} else {
+						loadAccountsAndIdentities();
+						this.close();
 					}
-				);
-			}
+				}, data
+			);
 		}
 	}
 
-	onShow(account) {
-		if (account && account.isAdditional()) {
-			this.isNew(false);
-			this.email(account.email);
-		} else {
-			this.isNew(true);
-			this.email('');
-		}
+	onHide() {
 		this.password('');
-
-		this.emailError(false);
-		this.passwordError(false);
-
 		this.submitRequest(false);
 		this.submitError('');
 		this.submitErrorAdditional('');
+	}
+
+	onShow(account) {
+		let edit = account?.isAdditional();
+		this.isNew(!edit);
+		this.name(edit ? account.name : '');
+		this.email(edit ? account.email : '');
 	}
 }

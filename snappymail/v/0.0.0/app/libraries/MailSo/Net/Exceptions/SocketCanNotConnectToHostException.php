@@ -16,17 +16,11 @@ namespace MailSo\Net\Exceptions;
  * @package Net
  * @subpackage Exceptions
  */
-class SocketCanNotConnectToHostException extends \MailSo\Net\Exceptions\ConnectionException
+class SocketCanNotConnectToHostException extends ConnectionException
 {
-	/**
-	 * @var string
-	 */
-	private $sSocketMessage;
+	private string $sSocketMessage;
 
-	/**
-	 * @var int
-	 */
-	private $iSocketCode;
+	private int $iSocketCode;
 
 	public function __construct(string $sSocketMessage = '', int $iSocketCode = 0, string $sMessage = '', int $iCode = 0, ?\Throwable $oPrevious = null)
 	{

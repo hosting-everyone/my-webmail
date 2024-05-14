@@ -1,62 +1,53 @@
 
-@contacts-popup-left-width: 25%;
-
 #V-PopupsContacts {
-
-	bottom: 0;
-	width: auto;
-	min-width: 550px;
+	height: 100vh;
+	height: 100dvh;
 	max-width: 900px;
 	min-height: 300px;
-	max-height: 700px;
 
 	.control-group {
-		label {
+		label.iconsize24 {
 			padding-top: 0;
 			width: 50px;
 		}
 	}
 
 	.modal-body {
-		height: calc(100vh - 49px);
+		display: flex;
+		height: 100%;
 		padding: 0;
-		position: relative;
+	}
+
+	/* Left */
+
+	.left {
+		max-width: 30%;
 	}
 
 	.b-list-toolbar {
 		padding: 0;
 		height: 44px;
 		text-align: center;
-		width: @contacts-popup-left-width;
-		border-bottom: 1px solid rgba(128,128,128,0.4);
+		border-bottom: 1px solid var(--border-color, #ddd);
 
 		.e-search {
 			margin: 7px 0 0;
-			width: calc(100% - 20px);
+			width: calc(100% - 10px);
 		}
 	}
 
 	.b-list-footer-toolbar {
-		position: absolute;
-		left: 0;
-		bottom: 0;
 		height: 46px;
-		width: @contacts-popup-left-width;
-		background-color: var(--message-list-toolbar-bg-color,#eee);
-		box-shadow: inset 0 1px 0 #ccc;
+		border-top: 1px solid var(--border-color, #ddd);
 
 		.footer-pager {
 			padding: 8px 10px 0 0;
-			text-align: right;
+			text-align: var(--right, right);
 		}
 	}
 
 	.b-list-content {
-		position: absolute;
-		top: 45px;
-		bottom: 46px;
-		left: 0;
-		width: @contacts-popup-left-width;
+		height: calc(100% - 44px - 46px);
 		overflow: hidden;
 		overflow-y: auto;
 		scroll-behavior: smooth;
@@ -72,7 +63,7 @@
 			color: #999;
 			text-align: center;
 			padding: 60px 10px;
-			font-size: 24px;
+			font-size: 171%;
 			line-height: 30px;
 		}
 	}
@@ -87,12 +78,11 @@
 		position: relative;
 
 		margin: 0;
-		border: 0;
 		border-left: 6px solid #eee;
-		border-bottom: 1px solid rgba(128,128,128,0.25);
+		border-bottom: 1px solid var(--border-color, #ddd) !important;
 
 		&.focused {
-			border-left-color: #bbb;
+			border-color: #bbb;
 		}
 
 		&.deleted {
@@ -106,7 +96,7 @@
 		}
 
 		.nameParent {
-			font-size: 16px;
+			font-size: 114%;
 			overflow: hidden;
 			text-overflow: ellipsis;
 			white-space: nowrap;
@@ -114,153 +104,107 @@
 		}
 
 		&.checked {
-			border-left-color: #69A8F5;
+			border-color: #69A8F5;
 
 			&.focused {
-				border-left-color: darken(#69A8F5, 5%);
+				border-color: darken(#69A8F5, 5%);
 			}
 		}
 
 		&.selected {
 
 			background-color: rgba(140, 200, 255, 0.3);
-			border-left-color: #398CF2;
+			border-color: #398CF2;
 
 			&.focused {
-				border-left-color: darken(#398CF2, 5%);
+				border-color: darken(#398CF2, 5%);
 			}
 		}
 	}
 
+	/* Right */
+
+	.right {
+		width: 100%;
+		border-left: 1px solid var(--border-color, #ddd);
+	}
+
 	.b-view-content-toolbar {
+		border-top: 1px solid var(--border-color, #ddd);
 		padding: 7px;
-		position: absolute;
-		top: 0;
-		right: 0;
-		left: @contacts-popup-left-width;
-		height: 30px;
-		text-align: right;
-		border-bottom: 1px solid rgba(128,128,128,0.4);
+		text-align: var(--right, right);
 
-		.button-save-contact {
-			&.dirty:enabled {
-				color: #51a351;
-				font-weight: bold;
-			}
-		}
-
-		&.read-only .button-save-contact {
-			display: none;
+		.dropdown-menu.right-edge {
+			top: auto;
+			bottom: 100%;
 		}
 	}
 
 	.b-view-content {
-		position: absolute;
-		top: 45px;
-		bottom: 0;
-		left: @contacts-popup-left-width;
-		right: 0;
+		height: calc(100% - 46px);
+		margin: 0;
 		overflow: auto;
-		border-left: 1px solid rgba(128,128,128,0.25);
 
-		span {
+		:not(.e-checkbox) > span {
 			height: 20px;
 			line-height: 20px;
 			display: none;
 			padding: 5px 7px;
-			font-size: 18px;
+			font-size: 128%;
 			display: none;
 		}
 
 		.b-contact-view-desc {
 			text-align: center;
-			font-size: 24px;
+			font-size: 171%;
 			line-height: 30px;
 			padding-top: 120px;
 			color: #999;
-		}
-
-		.top-part {
-			padding-top: 20px;
 		}
 
 		.property-line {
 			margin-bottom: 5px;
 		}
 
-		.top-row {
-			padding: 10px 0;
-			height: 30px;
+		input:not([type='checkbox']), textarea {
+			width: 70vw;
+			max-width: 400px;
 		}
+	}
 
-		.add-link {
-			margin-left: 2px;
-			padding: 5px;
-			font-size: 12px;
-			color: #aaa;
+	.read-only-sign {
+		display: none;
+		position: absolute;
+		top: 20px;
+		right: 40px;
+	}
+
+	.read-only {
+		span, .e-read-only-sign {
+			display: inline-block;
 		}
 
 		input, textarea {
-			box-shadow: none;
-			border-color: #fff;
-			font-size: 18px;
-			width: 70vw;
-			max-width: 400px;
-
-			&:hover {
-				box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075);
-				border-color: #ccc;
-			}
-
-			&:focus {
-				box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075);
-				border-color: #999;
-			}
-		}
-
-		.hasError {
-			input {
-				color: #ee5f5b;
-				border-color: #ee5f5b;
-			}
-		}
-
-		.e-save-trigger {
-			position: absolute;
-			top: 25px;
-			left: 10px;
-		}
-
-		.e-read-only-sign {
 			display: none;
-			position: absolute;
-			top: 20px;
-			right: 40px;
 		}
+	}
 
-		.e-share-sign {
-			position: absolute;
-			top: 20px;
-			right: 20px;
-			cursor: pointer;
-		}
-
-		&.read-only {
-			span, .e-read-only-sign {
-				display: inline-block;
-			}
-
-			input, textarea, .e-share-sign {
-				display: none;
-			}
-		}
+	.tab-content {
+		grid-column-end: 4;
+		padding-top: 20px;
 	}
 }
 
-html:not(rl-mobile) {
+@media screen and (min-width: @maxMobileWidth + 1px) {
 	.hideContactListCheckbox {
 		.checkboxItem {
 			visibility: hidden;
 		}
+	}
+}
+
+@media screen and (max-width: @maxMobileWidth) {
+	#V-PopupsContacts {
+		width: 100%;
 	}
 }

@@ -1,39 +1,19 @@
 import ko from 'ko';
-import { Notification, UploadErrorCode } from 'Common/Enums';
+import { Notifications, UploadErrorCode } from 'Common/Enums';
 import { langLink } from 'Common/Links';
 import { doc, createElement } from 'Common/Globals';
 import { getKeyByValue, forEachObjectEntry } from 'Common/Utils';
+import { pInt } from 'Common/Utils';
+import { LanguageStore } from 'Stores/Language';
 
 let I18N_DATA = {};
 
 const
-	i18nToNode = element => {
-		const key = element.dataset.i18n;
-		if (key) {
-			if ('[' === key.slice(0, 1)) {
-				switch (key.slice(0, 6)) {
-					case '[html]':
-						element.innerHTML = i18n(key.slice(6));
-						break;
-					case '[place':
-						element.placeholder = i18n(key.slice(13));
-						break;
-					case '[title':
-						element.title = i18n(key.slice(7));
-						break;
-					// no default
-				}
-			} else {
-				element.textContent = i18n(key);
-			}
-		}
-	},
-
 	init = () => {
 		if (rl.I18N) {
 			I18N_DATA = rl.I18N;
-			Date.defineRelativeTimeFormat(rl.relativeTime || {});
 			rl.I18N = null;
+			doc.documentElement.dir = I18N_DATA.LANG_DIR;
 			return 1;
 		}
 	},
@@ -41,12 +21,38 @@ const
 	i18nKey = key => key.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase(),
 
 	getNotificationMessage = code => {
-		let key = getKeyByValue(Notification, code);
-		return key ? I18N_DATA.NOTIFICATIONS[i18nKey(key).replace('_NOTIFICATION', '_ERROR')] : '';
-	};
+		let key = getKeyByValue(Notifications, code);
+		return key ? I18N_DATA.NOTIFICATIONS[key] : '';
+	},
+
+	fromNow = date => relativeTime(Math.round((date.getTime() - Date.now()) / 1000));
 
 export const
-	trigger = ko.observable(false),
+	translateTrigger = ko.observable(false),
+
+	// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/RelativeTimeFormat
+	// see /snappymail/v/0.0.0/app/localization/relativetimeformat/
+	relativeTime = seconds => {
+		let unit = 'second',
+			t = [[60,'minute'],[3600,'hour'],[86400,'day'],[2628000,'month'],[31536000,'year']],
+			i = 5,
+			abs = Math.abs(seconds);
+		while (i--) {
+			if (t[i][0] <= abs) {
+				seconds = Math.round(seconds / t[i][0]);
+				unit = t[i][1];
+				break;
+			}
+		}
+		if (Intl.RelativeTimeFormat) {
+			return (new Intl.RelativeTimeFormat(doc.documentElement.lang)).format(seconds, unit);
+		}
+		// Safari < 14
+		abs = Math.abs(seconds);
+		let rtf = rl.relativeTime.long[unit][0 > seconds ? 'past' : 'future'],
+			plural = rl.relativeTime.plural(abs);
+		return (rtf[plural] || rtf).replace('{0}', abs);
+	},
 
 	/**
 	 * @param {string} key
@@ -55,18 +61,14 @@ export const
 	 * @returns {string}
 	 */
 	i18n = (key, valueList, defaulValue) => {
-		let result = defaulValue || key;
-		if (key) {
-			let path = key.split('/');
-			if (I18N_DATA[path[0]] && path[1]) {
-				result = I18N_DATA[path[0]][path[1]] || result;
-			}
+		let result = defaulValue ?? key;
+		let path = key.split('/');
+		if (I18N_DATA[path[0]] && path[1]) {
+			result = I18N_DATA[path[0]][path[1]] || result;
 		}
-		if (valueList) {
-			forEachObjectEntry(valueList, (key, value) => {
-				result = result.replace('%' + key + '%', value);
-			});
-		}
+		valueList && forEachObjectEntry(valueList, (key, value) => {
+			result = result.replace('%' + key + '%', value);
+		});
 		return result;
 	},
 
@@ -76,35 +78,56 @@ export const
 	 */
 	i18nToNodes = element =>
 		setTimeout(() =>
-			element.querySelectorAll('[data-i18n]').forEach(item => i18nToNode(item))
+			element.querySelectorAll('[data-i18n]').forEach(element => {
+				const key = element.dataset.i18n;
+				if ('[' === key[0]) {
+					switch (key.slice(1, 6)) {
+						case 'html]':
+							element.innerHTML = i18n(key.slice(6));
+							break;
+						case 'place':
+							element.placeholder = i18n(key.slice(13));
+							break;
+						case 'title':
+							element.title = i18n(key.slice(7));
+							break;
+						// no default
+					}
+				} else {
+					element.textContent = i18n(key);
+				}
+			})
 		, 1),
 
 	timestampToString = (timeStampInUTC, formatStr) => {
 		const now = Date.now(),
-			time = 0 < timeStampInUTC ? Math.min(now, timeStampInUTC * 1000) : (0 === timeStampInUTC ? now : 0);
-
+			time = 0 < timeStampInUTC ? timeStampInUTC * 1000 : (0 === timeStampInUTC ? now : 0);
 		if (31536000000 < time) {
-			const m = new Date(time);
+			const m = new Date(time), h = LanguageStore.hourCycle();
 			switch (formatStr) {
 				case 'FROMNOW':
-					return m.fromNow();
-				case 'SHORT': {
-					if (4 >= (now - time) / 3600000)
-						return m.fromNow();
-					const mt = m.getTime(), date = new Date,
+					return fromNow(m);
+				case 'AUTO': {
+					// 4 hours
+					if (14400000 >= now - time)
+						return fromNow(m);
+					const date = new Date,
 						dt = date.setHours(0,0,0,0);
-					if (mt > dt)
-						return i18n('MESSAGE_LIST/TODAY_AT', {TIME: m.format('LT')});
-					if (mt > dt - 86400000)
-						return i18n('MESSAGE_LIST/YESTERDAY_AT', {TIME: m.format('LT')});
-					if (date.getFullYear() === m.getFullYear())
-						return m.format('d M');
-					return m.format('LL');
+					return (time > dt - 86400000)
+						? i18n(
+							time > dt ? 'MESSAGE_LIST/TODAY_AT' : 'MESSAGE_LIST/YESTERDAY_AT',
+							{TIME: m.format('LT',0,h)}
+						)
+						: m.format(
+							date.getFullYear() === m.getFullYear()
+								? {day: '2-digit', month: 'short', hour: 'numeric', minute: 'numeric'}
+								: {dateStyle: 'medium', timeStyle: 'short'}
+							, 0, h);
 				}
 				case 'FULL':
-					return m.format('LLL');
+					return m.format('LLL',0,h);
 				default:
-					return m.format(formatStr);
+					return m.format(formatStr,0,h);
 			}
 		}
 
@@ -114,18 +137,17 @@ export const
 	timeToNode = (element, time) => {
 		try {
 			if (time) {
-				element.dateTime = (new Date(time * 1000)).format('Y-m-d\\TH:i:s');
+				element.dateTime = new Date(time * 1000).toISOString();
 			} else {
 				time = Date.parse(element.dateTime) / 1000;
 			}
 
-			let key = element.dataset.momentFormat;
+			let key = element.dataset.timeFormat;
 			if (key) {
 				element.textContent = timestampToString(time, key);
-			}
-
-			if ((key = element.dataset.momentFormatTitle)) {
-				element.title = timestampToString(time, key);
+				if ('FULL' !== key && 'FROMNOW' !== key) {
+					element.title = timestampToString(time, 'FULL');
+				}
 			}
 		} catch (e) {
 			// prevent knockout crashes
@@ -133,18 +155,16 @@ export const
 		}
 	},
 
-	reloadTime = () => setTimeout(() =>
-			doc.querySelectorAll('time').forEach(element => timeToNode(element))
-			, 1),
+	reloadTime = () => doc.querySelectorAll('time').forEach(element => timeToNode(element)),
 
 	/**
 	 * @param {Function} startCallback
 	 * @param {Function=} langCallback = null
 	 */
-	initOnStartOrLangChange = (startCallback, langCallback = null) => {
-		startCallback && startCallback();
-		startCallback && trigger.subscribe(startCallback);
-		langCallback && trigger.subscribe(langCallback);
+	initOnStartOrLangChange = (startCallback, langCallback) => {
+		startCallback?.();
+		startCallback && translateTrigger.subscribe(startCallback);
+		langCallback && translateTrigger.subscribe(langCallback);
 	},
 
 	/**
@@ -154,13 +174,13 @@ export const
 	 * @returns {string}
 	 */
 	getNotification = (code, message = '', defCode = 0) => {
-		code = parseInt(code, 10) || 0;
-		if (Notification.ClientViewError === code && message) {
+		code = pInt(code);
+		if (Notifications.ClientViewError === code && message) {
 			return message;
 		}
 
 		return getNotificationMessage(code)
-			|| getNotificationMessage(parseInt(defCode, 10))
+			|| getNotificationMessage(pInt(defCode))
 			|| '';
 	},
 
@@ -177,27 +197,26 @@ export const
 	 * @param {boolean} admin
 	 * @param {string} language
 	 */
-	translatorReload = (admin, language) =>
+	translatorReload = (language, admin) =>
 		new Promise((resolve, reject) => {
 			const script = createElement('script');
 			script.onload = () => {
 				// reload the data
 				if (init()) {
 					i18nToNodes(doc);
-					admin || reloadTime();
-					trigger(!trigger());
+					translateTrigger(!translateTrigger());
+//					admin || reloadTime();
 				}
 				script.remove();
 				resolve();
 			};
-			script.onerror = () => reject(new Error('Language '+language+' failed'));
+			script.onerror = () => reject(Error('Language '+language+' failed'));
 			script.src = langLink(language, admin);
 	//		script.async = true;
 			doc.head.append(script);
 		}),
 
 	/**
-	 *
 	 * @param {string} language
 	 * @param {boolean=} isEng = false
 	 * @returns {string}
@@ -207,6 +226,8 @@ export const
 			'LANGS_NAMES' + (true === isEng ? '_EN' : '') + '/' + language,
 			null,
 			language
-		);
+		),
+
+	baseCollator = numeric => new Intl.Collator(doc.documentElement.lang, {numeric: !!numeric, sensitivity: 'base'});
 
 init();

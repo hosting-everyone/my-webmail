@@ -44,6 +44,7 @@ abstract class Header
 		CONTENT_DISPOSITION = 'Content-Disposition',
 		CONTENT_DESCRIPTION = 'Content-Description',
 		CONTENT_ID = 'Content-ID',
+//		CONTENT_BASE = 'Content-Base', // rfc2110
 		CONTENT_LOCATION = 'Content-Location',
 
 		RECEIVED_SPF = 'Received-SPF',
@@ -59,6 +60,7 @@ abstract class Header
 		X_SPAM_STATUS   = 'X-Spam-Status',   // Yes|No
 		X_SPAM_BAR      = 'X-Spam-Bar',      // ++ | --
 		X_SPAM_REPORT   = 'X-Spam-Report',
+		X_SPAM_INFO     = 'X-Spam-Info',     // v4.0.0
 	// Rspamd
 		X_SPAMD_RESULT  = 'X-Spamd-Result',  // default: False [7.13 / 9.00],
 		X_SPAMD_BAR     = 'X-Spamd-Bar',     // +++++++
@@ -87,6 +89,15 @@ abstract class Header
 		X_MSMAIL_PRIORITY = 'X-MSMail-Priority',
 		IMPORTANCE = 'Importance',
 		X_PRIORITY = 'X-Priority',
+
+		// https://autocrypt.org/level1.html#the-autocrypt-header
+		AUTOCRYPT = 'Autocrypt',
+		// Deprecated https://datatracker.ietf.org/doc/html/draft-josefsson-openpgp-mailnews-header-07
+//		X_PGP_KEY = 'X-PGP-Key',
+//		OPENPGP = 'OpenPGP', // url="https://www.irf.se/pgp/robert.labudda" id=11FA93ABE6892CA7D58CB0BE6392A597DE44B055
+
+		// https://www.ietf.org/archive/id/draft-brand-indicators-for-message-identification-04.html#bimi-selector
+		BIMI_SELECTOR = 'BIMI-Selector',
 
 		LIST_UNSUBSCRIBE = 'List-Unsubscribe';
 }

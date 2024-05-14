@@ -5,15 +5,23 @@ ko.bindingHandlers['value'] = {
 
         // If the value binding is placed on a radio/checkbox, then just pass through to checkedValue and quit
         if (isInputElement && (element.type == "checkbox" || element.type == "radio")) {
-            ko.applyBindingAccessorsToNode(element, { 'checkedValue': valueAccessor });
+            ko['applyBindingAccessorsToNode'](element, { 'checkedValue': valueAccessor });
             return;
         }
 
-        var eventsToCatch = new Set;
-        var requestedEventsToCatch = allBindings.get("valueUpdate");
-        var elementValueBeforeEvent = null;
-        var registerEventHandler = (event, handler) =>
-            element.addEventListener(event, handler);
+        var eventsToCatch = new Set,
+            requestedEventsToCatch = allBindings.get("valueUpdate"),
+            elementValueBeforeEvent = null,
+            updateFromModel,
+            registerEventHandler = (event, handler) =>
+                element.addEventListener(event, handler),
+
+            valueUpdateHandler = () => {
+                elementValueBeforeEvent = null;
+                var modelValue = valueAccessor();
+                var elementValue = ko.selectExtensions.readValue(element);
+                ko.expressionRewriting.writeValueToProperty(modelValue, allBindings, 'value', elementValue);
+            };
 
         if (requestedEventsToCatch) {
             // Allow both individual event names, and arrays of event names
@@ -23,13 +31,6 @@ ko.bindingHandlers['value'] = {
                 requestedEventsToCatch.forEach(item => eventsToCatch.add(item));
             }
             eventsToCatch.delete("change");  // We'll subscribe to "change" events later
-        }
-
-        var valueUpdateHandler = () => {
-            elementValueBeforeEvent = null;
-            var modelValue = valueAccessor();
-            var elementValue = ko.selectExtensions.readValue(element);
-            ko.expressionRewriting.writeValueToProperty(modelValue, allBindings, 'value', elementValue);
         }
 
         eventsToCatch.forEach(eventName => {
@@ -53,8 +54,6 @@ ko.bindingHandlers['value'] = {
             }
             registerEventHandler(eventName, handler);
         });
-
-        var updateFromModel;
 
         if (isInputElement && element.type == "file") {
             // For file input elements, can only write the empty string
@@ -80,9 +79,8 @@ ko.bindingHandlers['value'] = {
 
                 if (valueHasChanged || elementValue === undefined) {
                     if (isSelectElement) {
-                        var allowUnset = allBindings.get('valueAllowUnset');
-                        ko.selectExtensions.writeValue(element, newValue, allowUnset);
-                        if (!allowUnset && newValue !== ko.selectExtensions.readValue(element)) {
+                        ko.selectExtensions.writeValue(element, newValue);
+                        if (newValue !== ko.selectExtensions.readValue(element)) {
                             // If you try to set a model value that can't be represented in an already-populated dropdown, reject that change,
                             // because you're not allowed to have a model value that disagrees with a visible UI selection.
                             ko.dependencyDetection.ignore(valueUpdateHandler);
@@ -96,7 +94,7 @@ ko.bindingHandlers['value'] = {
 
         if (isSelectElement) {
             var updateFromModelComputed;
-            ko.bindingEvent.subscribe(element, ko.bindingEvent.childrenComplete, () => {
+            ko.bindingEvent['subscribe'](element, ko.bindingEvent.childrenComplete, () => {
                 if (!updateFromModelComputed) {
                     registerEventHandler("change", valueUpdateHandler);
                     updateFromModelComputed = ko.computed(updateFromModel, { disposeWhenNodeIsRemoved: element });
@@ -113,4 +111,3 @@ ko.bindingHandlers['value'] = {
     },
     'update': () => {} // Keep for backwards compatibility with code that may have wrapped value binding
 };
-ko.expressionRewriting.twoWayBindings.add('value');

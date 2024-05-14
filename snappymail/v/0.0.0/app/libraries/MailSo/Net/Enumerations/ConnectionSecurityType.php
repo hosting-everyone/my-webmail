@@ -20,6 +20,7 @@ abstract class ConnectionSecurityType
 {
 	const NONE = 0;
 	const SSL = 1;
+	const TLS = 1;
 	const STARTTLS = 2;
 	const AUTO_DETECT = 9;
 
@@ -27,8 +28,7 @@ abstract class ConnectionSecurityType
 	{
 		$iPort = (int) $iPort;
 		$iResult = (int) $iSecurityType;
-		if (self::AUTO_DETECT === $iSecurityType)
-		{
+		if (self::AUTO_DETECT === $iSecurityType) {
 			switch (true)
 			{
 				case 993 === $iPort:
@@ -39,19 +39,10 @@ abstract class ConnectionSecurityType
 			}
 		}
 
-		if (self::SSL === $iResult && !\in_array('ssl', \stream_get_transports()))
-		{
+		if (self::SSL === $iResult && !\in_array('ssl', \stream_get_transports())) {
 			$iResult = self::NONE;
 		}
 
 		return self::SSL === $iResult;
-	}
-
-	public static function UseStartTLS(int $iSecurityType, bool $bHasSupportedAuth = true) : bool
-	{
-		return
-			(self::STARTTLS === $iSecurityType
-			 || (self::AUTO_DETECT === $iSecurityType && (!$bHasSupportedAuth || \MailSo\Config::$PreferStartTlsIfAutoDetect)))
-		 && \defined('STREAM_CRYPTO_METHOD_TLS_CLIENT') && \MailSo\Base\Utils::FunctionExistsAndEnabled('stream_socket_enable_crypto');
 	}
 }

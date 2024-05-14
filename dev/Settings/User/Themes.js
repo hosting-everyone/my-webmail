@@ -1,12 +1,12 @@
 import { addObservablesTo } from 'External/ko';
 
-import { SaveSettingsStep, UploadErrorCode } from 'Common/Enums';
-import { changeTheme, convertThemeName } from 'Common/Utils';
+import { SaveSettingStatus, UploadErrorCode } from 'Common/Enums';
 import { themePreviewLink, serverRequest } from 'Common/Links';
 import { i18n } from 'Common/Translator';
 import { SettingsCapa } from 'Common/Globals';
 
-import { ThemeStore } from 'Stores/Theme';
+import { ThemeStore, convertThemeName, changeTheme } from 'Stores/Theme';
+import { addSubscribablesTo } from 'External/ko';
 
 import Remote from 'Remote/User/Fetch';
 
@@ -22,6 +22,27 @@ addObservablesTo(themeBackground, {
 
 export class UserSettingsThemes /*extends AbstractViewSettings*/ {
 	constructor() {
+		this.fontSansSerif = ThemeStore.fontSansSerif;
+		this.fontSerif = ThemeStore.fontSerif;
+		this.fontMono = ThemeStore.fontMono;
+		addSubscribablesTo(ThemeStore, {
+			fontSansSerif: value => {
+				Remote.saveSettings(null, {
+					fontSansSerif: value
+				});
+			},
+			fontSerif: value => {
+				Remote.saveSettings(null, {
+					fontSerif: value
+				});
+			},
+			fontMono: value => {
+				Remote.saveSettings(null, {
+					fontMono: value
+				});
+			}
+		});
+
 		this.theme = ThemeStore.theme;
 		this.themes = ThemeStore.themes;
 		this.themesObjects = ko.observableArray();
@@ -29,12 +50,10 @@ export class UserSettingsThemes /*extends AbstractViewSettings*/ {
 		themeBackground.enabled = SettingsCapa('UserBackground');
 		this.background = themeBackground;
 
-		this.themeTrigger = ko.observable(SaveSettingsStep.Idle).extend({ debounce: 100 });
+		this.themeTrigger = ko.observable(SaveSettingStatus.Idle).extend({ debounce: 100 });
 
 		ThemeStore.theme.subscribe(value => {
-			this.themesObjects.forEach(theme => {
-				theme.selected(value === theme.name);
-			});
+			this.themesObjects.forEach(theme => theme.selected(value === theme.name));
 
 			changeTheme(value, this.themeTrigger);
 
@@ -42,6 +61,10 @@ export class UserSettingsThemes /*extends AbstractViewSettings*/ {
 				Theme: value
 			});
 		});
+	}
+
+	setTheme(theme) {
+		ThemeStore.theme(theme.name);
 	}
 
 	onBuild() {
@@ -69,18 +92,12 @@ export class UserSettingsThemes /*extends AbstractViewSettings*/ {
 				.on('onStart', () => {
 					themeBackground.loading(true);
 					themeBackground.error('');
-					return true;
 				})
 				.on('onComplete', (id, result, data) => {
 					themeBackground.loading(false);
-
-					if (result && id && data && data.Result && data.Result.Name && data.Result.Hash) {
-						themeBackground.name(data.Result.Name);
-						themeBackground.hash(data.Result.Hash);
-					} else {
-						themeBackground.name('');
-						themeBackground.hash('');
-
+					themeBackground.name(data?.Result?.name || '');
+					themeBackground.hash(data?.Result?.hash || '');
+					if (!themeBackground.name() || !themeBackground.hash()) {
 						let errorMsg = '';
 						if (data.ErrorCode) {
 							switch (data.ErrorCode) {
@@ -94,14 +111,8 @@ export class UserSettingsThemes /*extends AbstractViewSettings*/ {
 							}
 						}
 
-						if (!errorMsg && data.ErrorMessage) {
-							errorMsg = data.ErrorMessage;
-						}
-
-						themeBackground.error(errorMsg || i18n('SETTINGS_THEMES/ERROR_UNKNOWN'));
+						themeBackground.error(errorMsg || data.ErrorMessage || i18n('SETTINGS_THEMES/ERROR_UNKNOWN'));
 					}
-
-					return true;
 				});
 		}
 	}

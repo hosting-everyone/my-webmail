@@ -1,20 +1,22 @@
 import 'External/ko';
 import ko from 'ko';
-import { HtmlEditor } from 'Common/Html';
+import { RFC822 } from 'Common/File';
+import { HtmlEditor } from 'Common/HtmlEditor';
 import { timeToNode } from 'Common/Translator';
-import { elementById, addEventsListeners, dropdowns } from 'Common/Globals';
-import { isArray } from 'Common/Utils';
-import { dropdownsDetectVisibility } from 'Common/UtilsUser';
+import { doc, elementById, addEventsListeners, dropdowns, leftPanelDisabled } from 'Common/Globals';
 import { EmailAddressesComponent } from 'Component/EmailAddresses';
 import { ThemeStore } from 'Stores/Theme';
-import { moveMessagesToFolder } from 'Common/Folders';
+import { dropFilesInFolder } from 'Common/Folders';
 import { setExpandedFolder } from 'Model/FolderCollection';
+import { FolderUserStore } from 'Stores/User/Folder';
+import { MessagelistUserStore } from 'Stores/User/Messagelist';
 
 const rlContentType = 'snappymail/action',
 
 	// In Chrome we have no access to dataTransfer.getData unless it's the 'drop' event
 	// In Chrome Mobile dataTransfer.types.includes(rlContentType) fails, only text/plain is set
-	getDragAction = () => dragData ? dragData.action : false,
+	dragMessages = () => 'messages' === dragData?.action,
+	dragSortable = () => 'sortable' === dragData?.action,
 	setDragAction = (e, action, effect, data, img) => {
 		dragData = {
 			action: action,
@@ -27,9 +29,46 @@ const rlContentType = 'snappymail/action',
 	},
 
 	dragTimer = {
-		id: 0,
-		stop: () => clearTimeout(dragTimer.id),
-		start: fn => dragTimer.id = setTimeout(fn, 500)
+		id: 0
+	},
+
+	dragStop = (e, element) => {
+		e.preventDefault();
+		element?.classList.remove('droppableHover');
+		if (dragTimer.node == element) {
+			dragTimer.node = null;
+			clearTimeout(dragTimer.id);
+		}
+	},
+	dragEnter = (e, element, folder) => {
+		let files = false;
+//		if (e.dataTransfer.types.includes('Files'))
+		for (const item of e.dataTransfer.items) {
+			files |= 'file' === item.kind && RFC822 === item.type;
+		}
+		if (files || dragMessages()) {
+			e.stopPropagation();
+			dragStop(e, dragTimer.node);
+			e.dataTransfer.dropEffect = files ? 'copy' : (e.ctrlKey ? 'copy' : 'move');
+			element.classList.add('droppableHover');
+			if (folder.collapsed()) {
+				dragTimer.node = element;
+				dragTimer.id = setTimeout(() => {
+					folder.collapsed(false);
+					setExpandedFolder(folder.fullName, true);
+				}, 500);
+			}
+		}
+	},
+	dragDrop = (e, element, folder, dragData) => {
+		dragStop(e, element);
+		if (dragMessages() && 'copyMove' == e.dataTransfer.effectAllowed) {
+			MessagelistUserStore.moveMessages(
+				FolderUserStore.currentFolderFullName(), dragData.data, folder.fullName, e.ctrlKey
+			);
+		} else if (e.dataTransfer.types.includes('Files')) {
+			dropFilesInFolder(folder.fullName, e.dataTransfer.files);
+		}
 	},
 
 	ttn = (element, fValueAccessor) => timeToNode(element, ko.unwrap(fValueAccessor()));
@@ -44,15 +83,15 @@ Object.assign(ko.bindingHandlers, {
 			let editor = null;
 
 			const fValue = fValueAccessor(),
-				fUpdateEditorValue = () => fValue && fValue.__editor && fValue.__editor.setHtmlOrPlain(fValue()),
-				fUpdateKoValue = () => fValue && fValue.__editor && fValue(fValue.__editor.getDataWithHtmlMark()),
+				fUpdateEditorValue = () => fValue.__editor?.setHtmlOrPlain(fValue()),
+				fUpdateKoValue = () => fValue.__editor && fValue(fValue.__editor.getDataWithHtmlMark()),
 				fOnReady = () => {
 					fValue.__editor = editor;
 					fUpdateEditorValue();
 				};
 
-			if (ko.isObservable(fValue) && HtmlEditor) {
-				editor = new HtmlEditor(element, fUpdateKoValue, fOnReady, fUpdateKoValue);
+			if (ko.isObservable(fValue)) {
+				editor = new HtmlEditor(element, fOnReady, fUpdateKoValue, fUpdateKoValue);
 
 				fValue.__fetchEditorValue = fUpdateKoValue;
 
@@ -64,98 +103,71 @@ Object.assign(ko.bindingHandlers, {
 		}
 	},
 
-	moment: {
+	time: {
 		init: ttn,
 		update: ttn
 	},
 
 	emailsTags: {
 		init: (element, fValueAccessor, fAllBindings) => {
-			const fValue = fValueAccessor();
+			const fValue = fValueAccessor(),
+				focused = fValue.focused;
 
 			element.addresses = new EmailAddressesComponent(element, {
-				focusCallback: value => fValue.focused && fValue.focused(!!value),
+				focusCallback: value => focused?.(!!value),
 				autoCompleteSource: fAllBindings.get('autoCompleteSource'),
 				onChange: value => fValue(value)
 			});
 
-			if (fValue.focused && fValue.focused.subscribe) {
-				fValue.focused.subscribe(value =>
-					element.addresses[value ? 'focus' : 'blur']()
-				);
-			}
+			focused?.subscribe(value =>
+				element.addresses[value ? 'focus' : 'blur']()
+			);
 		},
 		update: (element, fValueAccessor) => {
 			element.addresses.value = ko.unwrap(fValueAccessor());
 		}
 	},
 
-	// Start dragging selected messages
+	// Start dragging checked messages
 	dragmessages: {
-		init: (element, fValueAccessor) => {
+		init: element => {
 			element.addEventListener("dragstart", e => {
-				let data = fValueAccessor()(e);
 				dragImage || (dragImage = elementById('messagesDragImage'));
-				if (data && dragImage && !ThemeStore.isMobile()) {
-					dragImage.querySelector('.text').textContent = data.uids.length;
-					let img = dragImage.querySelector('i');
-					img.classList.toggle('icon-copy', e.ctrlKey);
-					img.classList.toggle('icon-mail', !e.ctrlKey);
+				if (dragImage && !ThemeStore.isMobile()) {
+					ko.dataFor(doc.elementFromPoint(e.clientX, e.clientY))?.checked?.(true);
 
-					// Else Chrome doesn't show it
+					const uids = MessagelistUserStore.listCheckedOrSelectedUidsWithSubMails();
+					dragImage.querySelector('.text').textContent = uids.size;
+
+					// Make sure Chrome shows it
 					dragImage.style.left = e.clientX + 'px';
 					dragImage.style.top = e.clientY + 'px';
 					dragImage.style.right = 'auto';
 
-					setDragAction(e, 'messages', e.ctrlKey ? 'copy' : 'move', data, dragImage);
+					setDragAction(e, 'messages', 'copyMove', uids, dragImage);
 
 					// Remove the Chrome visibility
 					dragImage.style.cssText = '';
+
+					leftPanelDisabled(false);
 				} else {
 					e.preventDefault();
 				}
 
 			}, false);
 			element.addEventListener("dragend", () => dragData = null);
-			element.setAttribute('draggable', true);
 		}
 	},
 
 	// Drop selected messages on folder
 	dropmessages: {
 		init: (element, fValueAccessor) => {
-			const folder = fValueAccessor(),
-	//			folder = ko.dataFor(element),
-				fnStop = e => {
-					e.preventDefault();
-					element.classList.remove('droppableHover');
-					dragTimer.stop();
-				},
-				fnHover = e => {
-					if ('messages' === getDragAction(e)) {
-						fnStop(e);
-						element.classList.add('droppableHover');
-						if (folder && folder.collapsed()) {
-							dragTimer.start(() => {
-								folder.collapsed(false);
-								setExpandedFolder(folder.fullName, true);
-							}, 500);
-						}
-					}
-				};
-			addEventsListeners(element, {
-				dragenter: fnHover,
-				dragover: fnHover,
-				dragleave: fnStop,
-				drop: e => {
-					fnStop(e);
-					if ('messages' === getDragAction(e) && ['move','copy'].includes(e.dataTransfer.effectAllowed)) {
-						let data = dragData.data;
-						if (folder && data && data.folder && isArray(data.uids)) {
-							moveMessagesToFolder(data.folder, data.uids, folder.fullName, data.copy && e.ctrlKey);
-						}
-					}
-				}
+			const folder = fValueAccessor(); // ko.dataFor(element)
+			folder && addEventsListeners(element, {
+				dragenter: e => dragEnter(e, element, folder),
+				dragover: e => e.preventDefault(),
+				dragleave: e => dragStop(e, element),
+				drop: e => dragDrop(e, element, folder, dragData)
 			});
 		}
 	},
@@ -165,7 +177,7 @@ Object.assign(ko.bindingHandlers, {
 			let options = ko.unwrap(fValueAccessor()) || {},
 				parent = element.parentNode,
 				fnHover = e => {
-					if ('sortable' === getDragAction(e)) {
+					if (dragSortable()) {
 						e.preventDefault();
 						let node = (e.target.closest ? e.target : e.target.parentNode).closest('[draggable]');
 						if (node && node !== dragData.data && parent.contains(node)) {
@@ -182,16 +194,12 @@ Object.assign(ko.bindingHandlers, {
 				};
 			addEventsListeners(element, {
 				dragstart: e => {
-					dragData = {
-						action: 'sortable',
-						element: element
-					};
 					setDragAction(e, 'sortable', 'move', element, element);
 					element.style.opacity = 0.25;
 				},
-				dragend: e => {
+				dragend: () => {
 					element.style.opacity = null;
-					if ('sortable' === getDragAction(e)) {
+					if (dragSortable()) {
 						dragData.data.style.cssText = '';
 						let row = parent.rows[options.list.indexOf(ko.dataFor(element))];
 						if (row != dragData.data) {
@@ -207,7 +215,7 @@ Object.assign(ko.bindingHandlers, {
 					dragenter: fnHover,
 					dragover: fnHover,
 					drop: e => {
-						if ('sortable' === getDragAction(e)) {
+						if (dragSortable()) {
 							e.preventDefault();
 							let data = ko.dataFor(dragData.data),
 								from = options.list.indexOf(data),
@@ -218,7 +226,7 @@ Object.assign(ko.bindingHandlers, {
 								options.list(arr);
 							}
 							dragData = null;
-							options.afterMove && options.afterMove();
+							options.afterMove?.();
 						}
 					}
 				});
@@ -234,19 +242,6 @@ Object.assign(ko.bindingHandlers, {
 		init: element => {
 			dropdowns.push(element);
 			element.ddBtn = new BSN.Dropdown(element.querySelector('.dropdown-toggle'));
-		}
-	},
-
-	openDropdownTrigger: {
-		update: (element, fValueAccessor) => {
-			if (ko.unwrap(fValueAccessor())) {
-				const el = element.ddBtn;
-				el.open || el.toggle();
-	//			el.focus();
-
-				dropdownsDetectVisibility();
-				fValueAccessor()(false);
-			}
 		}
 	}
 });

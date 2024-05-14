@@ -1,18 +1,14 @@
 import ko from 'ko';
 
-import { Settings, SettingsGet } from 'Common/Globals';
-import { changeTheme } from 'Common/Utils';
-
 import { logoutLink } from 'Common/Links';
 import { i18nToNodes, initOnStartOrLangChange } from 'Common/Translator';
 
-import { LanguageStore } from 'Stores/Language';
-import { ThemeStore } from 'Stores/Theme';
+import { arePopupsVisible } from 'Knoin/Knoin';
 
-import { InputComponent } from 'Component/Input';
+import { LanguageStore } from 'Stores/Language';
+import { initThemes } from 'Stores/Theme';
+
 import { SelectComponent } from 'Component/Select';
-import { TextAreaComponent } from 'Component/TextArea';
-import { CheckboxMaterialDesignComponent } from 'Component/MaterialDesign/Checkbox';
 import { CheckboxComponent } from 'Component/Checkbox';
 
 export class AbstractApp {
@@ -23,52 +19,37 @@ export class AbstractApp {
 		this.Remote = Remote;
 	}
 
-	logoutReload() {
-		const url = logoutLink();
-
+	logoutReload(url) {
+		arePopupsVisible(false);
+		url = url || logoutLink();
 		if (location.href !== url) {
-			setTimeout(() => (Settings.app('inIframe') ? parent : window).location.href = url, 100);
+			setTimeout(() => location.href = url, 100);
 		} else {
 			rl.route.reload();
 		}
-	}
-
-	refresh() {
-//		rl.adminArea() || !translatorReload(false, );
-		rl.adminArea() || (
-			LanguageStore.language(SettingsGet('Language'))
-			& ThemeStore.populate()
-			& changeTheme(SettingsGet('Theme'))
-		);
-
-		this.start();
+		// this does not work due to ViewModelClass.__builded = true;
+//		rl.settings.set('Auth', false);
+//		rl.app.start();
 	}
 
 	bootstart() {
-		const register = (key, ClassObject, templateID) => ko.components.register(key, {
-				template: { element: templateID || (key + 'Component') },
+		const register = (name, ClassObject) => ko.components.register(name, {
+				template: { element: ClassObject.name },
 				viewModel: {
 					createViewModel: (params, componentInfo) => {
 						params = params || {};
 						i18nToNodes(componentInfo.element);
-						if (params.inline) {
-							componentInfo.element.style.display = 'inline-block';
-						}
 						return new ClassObject(params);
 					}
 				}
 			});
-
-		register('Input', InputComponent);
 		register('Select', SelectComponent);
-		register('TextArea', TextAreaComponent);
-		register('Checkbox', CheckboxMaterialDesignComponent, 'CheckboxMaterialDesignComponent');
-		register('CheckboxSimple', CheckboxComponent, 'CheckboxComponent');
+		register('Checkbox', CheckboxComponent);
 
 		initOnStartOrLangChange();
 
 		LanguageStore.populate();
-		ThemeStore.populate();
+		initThemes();
 
 		this.start();
 	}

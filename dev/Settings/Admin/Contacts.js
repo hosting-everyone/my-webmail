@@ -13,16 +13,22 @@ export class AdminSettingsContacts extends AbstractViewSettings {
 		super();
 		this.defaultOptionsAfterRender = defaultOptionsAfterRender;
 
-		this.addSetting('ContactsPdoDsn');
-		this.addSetting('ContactsPdoUser');
-		this.addSetting('ContactsPdoPassword');
-		this.addSetting('ContactsPdoType', () => {
+		this.addSetting('contactsPdoDsn');
+		this.addSetting('contactsPdoUser');
+		this.addSetting('contactsPdoPassword');
+		this.addSetting('contactsPdoType', () => {
 			this.testContactsSuccess(false);
 			this.testContactsError(false);
 			this.testContactsErrorMessage('');
 		});
 
-		this.addSettings(['ContactsEnable','ContactsSync']);
+		this.addSettings(['contactsEnable','contactsSync']);
+
+		this.addSetting('contactsMySQLSSLCA');
+		this.addSetting('contactsMySQLSSLVerify');
+		this.addSetting('contactsMySQLSSLCiphers');
+
+		this.addSetting('contactsSQLiteGlobal');
 
 		addObservablesTo(this, {
 			testing: false,
@@ -30,6 +36,8 @@ export class AdminSettingsContacts extends AbstractViewSettings {
 			testContactsError: false,
 			testContactsErrorMessage: ''
 		});
+
+		this.addSetting('contactsSuggestionsLimit');
 
 		const supportedTypes = SettingsGet('supportedPdoDrivers') || [],
 			types = [{
@@ -85,19 +93,19 @@ export class AdminSettingsContacts extends AbstractViewSettings {
 					this.testContactsSuccess(true);
 				} else {
 					this.testContactsError(true);
-					if (data && data.Result) {
-						this.testContactsErrorMessage(data.Result.Message || '');
-					} else {
-						this.testContactsErrorMessage('');
-					}
+					this.testContactsErrorMessage(data?.Result?.Message || '');
 				}
 
 				this.testing(false);
 			}, {
-				ContactsPdoType: this.contactsPdoType(),
-				ContactsPdoDsn: this.contactsPdoDsn(),
-				ContactsPdoUser: this.contactsPdoUser(),
-				ContactsPdoPassword: this.contactsPdoPassword()
+				PdoType: this.contactsPdoType(),
+				PdoDsn: this.contactsPdoDsn(),
+				PdoUser: this.contactsPdoUser(),
+				PdoPassword: this.contactsPdoPassword(),
+				MySQLSSLCA: this.contactsMySQLSSLCA(),
+				MySQLSSLVerify: this.contactsMySQLSSLVerify(),
+				MySQLSSLCiphers: this.contactsMySQLSSLCiphers(),
+				SQLiteGlobal: this.contactsSQLiteGlobal()
 			}
 		);
 	}

@@ -10,52 +10,84 @@ export class AdminSettingsSecurity extends AbstractViewSettings {
 	constructor() {
 		super();
 
-		this.addSettings(['UseLocalProxyForExternalImages','VerifySslCertificate','AllowSelfSigned']);
+		this.addSettings(['proxyExternalImages', 'autoVerifySignatures']);
 
 		this.weakPassword = rl.app.weakPassword;
 
 		addObservablesTo(this, {
-			adminLogin: SettingsGet('AdminLogin'),
+			adminLogin: SettingsGet('adminLogin'),
 			adminLoginError: false,
 			adminPassword: '',
 			adminPasswordNew: '',
 			adminPasswordNew2: '',
 			adminPasswordNewError: false,
-			adminTOTP: SettingsGet('AdminTOTP'),
+			adminTOTP: '',
 
-			adminPasswordUpdateError: false,
-			adminPasswordUpdateSuccess: false,
+			saveError: false,
+			saveSuccess: false,
 
+			viewQRCode: '',
+
+			capaGnuPG: SettingsCapa('GnuPG'),
 			capaOpenPGP: SettingsCapa('OpenPGP')
 		});
 
 		const reset = () => {
-			this.adminPasswordUpdateError(false);
-			this.adminPasswordUpdateSuccess(false);
+			this.saveError(false);
+			this.saveSuccess(false);
 			this.adminPasswordNewError(false);
 		};
 
 		addSubscribablesTo(this, {
 			adminPassword: () => {
-				this.adminPasswordUpdateError(false);
-				this.adminPasswordUpdateSuccess(false);
+				this.saveError(false);
+				this.saveSuccess(false);
 			},
 
 			adminLogin: () => this.adminLoginError(false),
+
+			adminTOTP: value => {
+				if (/[A-Z2-7]{16,}/.test(value) && 0 == value.length * 5 % 8) {
+					Remote.request('AdminQRCode', (iError, data) => {
+						if (!iError) {
+							console.dir({data:data});
+							this.viewQRCode(data.Result);
+						}
+					}, {
+						'username': this.adminLogin(),
+						'TOTP': this.adminTOTP()
+					});
+				} else {
+					this.viewQRCode('');
+				}
+			},
 
 			adminPasswordNew: reset,
 
 			adminPasswordNew2: reset,
 
-			capaOpenPGP: value => Remote.saveSetting('CapaOpenPGP', value)
+			capaGnuPG: value => Remote.saveSetting('capaGnuPG', value),
+			capaOpenPGP: value => Remote.saveSetting('capaOpenPGP', value)
 		});
 
+		this.adminTOTP(SettingsGet('adminTOTP'));
+
 		decorateKoCommands(this, {
-			saveNewAdminPasswordCommand: self => self.adminLogin().trim() && self.adminPassword()
+			saveAdminUserCommand: self => self.adminLogin().trim() && self.adminPassword()
 		});
 	}
 
-	saveNewAdminPasswordCommand() {
+	generateTOTP() {
+		let CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567',
+			length = 16,
+			secret = '';
+		while (0 < length--) {
+			secret += CHARS[Math.floor(Math.random() * 32)];
+		}
+		this.adminTOTP(secret);
+	}
+
+	saveAdminUserCommand() {
 		if (!this.adminLogin().trim()) {
 			this.adminLoginError(true);
 			return false;
@@ -66,26 +98,26 @@ export class AdminSettingsSecurity extends AbstractViewSettings {
 			return false;
 		}
 
-		this.adminPasswordUpdateError(false);
-		this.adminPasswordUpdateSuccess(false);
+		this.saveError(false);
+		this.saveSuccess(false);
 
 		Remote.request('AdminPasswordUpdate', (iError, data) => {
 			if (iError) {
-				this.adminPasswordUpdateError(true);
+				this.saveError(true);
 			} else {
 				this.adminPassword('');
 				this.adminPasswordNew('');
 				this.adminPasswordNew2('');
 
-				this.adminPasswordUpdateSuccess(true);
+				this.saveSuccess(true);
 
 				this.weakPassword(!!data.Result.Weak);
 			}
 		}, {
-			'Login': this.adminLogin(),
-			'Password': this.adminPassword(),
-			'NewPassword': this.adminPasswordNew(),
-			'TOTP': this.adminTOTP()
+			Login: this.adminLogin(),
+			Password: this.adminPassword(),
+			newPassword: this.adminPasswordNew(),
+			TOTP: this.adminTOTP()
 		});
 
 		return true;

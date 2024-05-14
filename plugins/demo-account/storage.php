@@ -9,7 +9,7 @@ class DemoStorage extends \RainLoop\Providers\Storage\FileStorage
 	/**
 	 * @param \RainLoop\Model\Account|string|null $mAccount
 	 */
-	public function GenerateFilePath($mAccount, int $iStorageType, bool $bMkDir = false, bool $bForDeleteAction = false) : string
+	public function GenerateFilePath($mAccount, int $iStorageType, bool $bMkDir = false) : string
 	{
 		$sEmail = '';
 		if ($mAccount instanceof \RainLoop\Model\MainAccount) {
@@ -18,7 +18,7 @@ class DemoStorage extends \RainLoop\Providers\Storage\FileStorage
 			$sEmail = $mAccount;
 		}
 		if ($sEmail != $this->sDemoEmail) {
-			return parent::GenerateFilePath($mAccount, $iStorageType, $bMkDir, $bForDeleteAction);
+			return parent::GenerateFilePath($mAccount, $iStorageType, $bMkDir);
 		}
 
 		$sDataPath = "{$this->sDataPath}/demo";
@@ -31,7 +31,27 @@ class DemoStorage extends \RainLoop\Providers\Storage\FileStorage
 			}
 		}
 
-		$sDataPath .= '/' . \RainLoop\Utils::fixName(\RainLoop\Utils::GetConnectionToken());
+		// $_COOKIE['smtoken']
+		if (empty($_COOKIE['smctoken'])) {
+			\SnappyMail\Cookies::set('smctoken', \base64_encode(\random_bytes(16)), 0, false);
+		}
+		$sDataPath .= '/' . \MailSo\Base\Utils::SecureFileName($_COOKIE['smctoken']);
+		if (!\is_dir($sDataPath) && \mkdir($sDataPath, 0700, true)) {
+			\file_put_contents("{$sDataPath}/settings",'{"RemoveColors":true,"ListInlineAttachments":true,"listGrouped":true}');
+			\file_put_contents("{$sDataPath}/settings_local",'{"UseThreads":true}');
+			if (\mkdir($sDataPath.'/.gnupg/private-keys-v1.d', 0700, true)) {
+				// AES
+				\file_put_contents("{$sDataPath}/.gnupg/private-keys-v1.d/3106F4281F98D820114228FEF16B5BA0D78AA005.key",file_get_contents("{$this->sDataPath}/demo.pgp/.gnupg/private-keys-v1.d/3106F4281F98D820114228FEF16B5BA0D78AA005.key"));
+				\file_put_contents("{$sDataPath}/.gnupg/private-keys-v1.d/82CA239C482423D364BFD6DFC3E400B3B98AD66F.key",file_get_contents("{$this->sDataPath}/demo.pgp/.gnupg/private-keys-v1.d/82CA239C482423D364BFD6DFC3E400B3B98AD66F.key"));
+				// ECC
+				\file_put_contents("{$sDataPath}/.gnupg/private-keys-v1.d/5A1A6C7310D0508C68E8E74F15068301E83FD1AE.key",file_get_contents("{$this->sDataPath}/demo.pgp/.gnupg/private-keys-v1.d/5A1A6C7310D0508C68E8E74F15068301E83FD1AE.key"));
+				\file_put_contents("{$sDataPath}/.gnupg/private-keys-v1.d/886921A7E06BE56F8E8C51797BB476BB26DF21BF.key",file_get_contents("{$this->sDataPath}/demo.pgp/.gnupg/private-keys-v1.d/886921A7E06BE56F8E8C51797BB476BB26DF21BF.key"));
+
+				\file_put_contents("{$sDataPath}/.gnupg/pubring.kbx",file_get_contents("{$this->sDataPath}/demo.pgp/.gnupg/pubring.kbx"));
+				\file_put_contents("{$sDataPath}/.gnupg/trustdb.gpg",file_get_contents("{$this->sDataPath}/demo.pgp/.gnupg/trustdb.gpg"));
+			}
+		}
+
 		if (StorageType::SIGN_ME === $iStorageType) {
 			$sDataPath .= '/.sign_me';
 		} else if (StorageType::SESSION === $iStorageType) {

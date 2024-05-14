@@ -1,6 +1,6 @@
-import { addObservablesTo } from 'External/ko';
+import { koComputable, addObservablesTo } from 'External/ko';
 import { FolderUserStore } from 'Stores/User/Folder';
-import { SettingsGet } from 'Common/Globals';
+import { SettingsGet/*, SettingsCapa*/ } from 'Common/Globals';
 
 //export class UserSettingsFilters /*extends AbstractViewSettings*/ {
 export class UserSettingsFilters /*extends AbstractViewSettings*/ {
@@ -22,8 +22,18 @@ export class UserSettingsFilters /*extends AbstractViewSettings*/ {
 			Sieve.updateList();
 		}).catch(e => console.error(e));
 
+		this.hasActive = koComputable(() => this.scripts().filter(script=>script.active()).length);
+
 		this.scriptForDeletion = ko.observable(null).askDeleteHelper();
 	}
+
+/*
+	// TODO: issue on account switch
+	// When current domain has sieve but the new has not, or current has not and the new has
+	disabled() {
+		return !SettingsCapa('Sieve');
+	}
+*/
 
 	addScript() {
 		this.editScript();
@@ -37,19 +47,23 @@ export class UserSettingsFilters /*extends AbstractViewSettings*/ {
 		window.Sieve.deleteScript(script);
 	}
 
-	toggleScript(script) {
-		window.Sieve.toggleScript(script);
+	disableScripts() {
+		window.Sieve.setActiveScript('');
+	}
+
+	enableScript(script) {
+		window.Sieve.setActiveScript(script.name());
 	}
 
 	onBuild(oDom) {
 		oDom.addEventListener('click', event => {
-			const el = event.target.closestWithin('.script-item .e-action', oDom),
+			const el = event.target.closestWithin('.script-item .script-name', oDom),
 				script = el && ko.dataFor(el);
 			script && this.editScript(script);
 		});
 	}
 
 	onShow() {
-		window.Sieve && window.Sieve.updateList();
+		window.Sieve?.updateList();
 	}
 }

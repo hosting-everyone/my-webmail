@@ -5,10 +5,10 @@
 import {
 	GrammarQuotedString,
 	GrammarStringList,
-	GrammarTest
+	TestCommand
 } from 'Sieve/Grammar';
 
-export class EnvironmentTest extends GrammarTest
+export class EnvironmentTest extends TestCommand
 {
 	constructor()
 	{
@@ -25,7 +25,7 @@ export class EnvironmentTest extends GrammarTest
 			+ (this.comparator ? ' :comparator ' + this.comparator : '')
 			+ ' ' + this.match_type
 			+ ' ' + this.name
-			+ ' ' + this.key_list.toString();
+			+ ' ' + this.key_list;
 	}
 
 	pushArguments(args)

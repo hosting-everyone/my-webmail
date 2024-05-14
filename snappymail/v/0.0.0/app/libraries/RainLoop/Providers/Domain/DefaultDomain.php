@@ -1,303 +1,246 @@
 <?php
+/**
+ * Domain names are handled in lowercase punycode.
+ * Because internationalized domain names can have uppercase or titlecase characters.
+ */
 
 namespace RainLoop\Providers\Domain;
 
+use MailSo\Cache\CacheClient;
+
 class DefaultDomain implements DomainInterface
 {
-	/**
-	 * @var string
-	 */
-	protected $sDomainPath;
+	const CACHE_KEY = '/WildCardDomainsCache/';
 
-	/**
-	 * @var \MailSo\Cache\CacheClient
-	 */
-	protected $oCacher;
+	protected string $sDomainPath;
 
-	public function __construct(string $sDomainPath, ?\MailSo\Cache\CacheClient $oCacher = null)
+	protected ?CacheClient $oCacher;
+
+	public function __construct(string $sDomainPath, ?CacheClient $oCacher = null)
 	{
 		$this->sDomainPath = \rtrim(\trim($sDomainPath), '\\/');
 		$this->oCacher = $oCacher;
 	}
 
-	public function codeFileName(string $sName, bool $bBack = false) : string
+	private static function decodeFileName(string $sName) : string
 	{
-		if ($bBack && 'default' === $sName) {
-			return '*';
-		}
-
-		if (!$bBack && '*' === $sName) {
-			return 'default';
-		}
-
-		return $bBack
-			? \str_replace('_wildcard_', '*', \MailSo\Base\Utils::IdnToUtf8($sName, true))
-			: \str_replace('*', '_wildcard_', \MailSo\Base\Utils::IdnToAscii($sName, true));
+		return ('default' === $sName) ? '*' : \str_replace('_wildcard_', '*', $sName);
 	}
 
-	private function wildcardDomainsCacheKey() : string
+	private static function encodeFileName(string $sName) : string
 	{
-		return '/WildCard/DomainCache/'.\md5(APP_VERSION.APP_PRIVATE_DATA_NAME).'/';
+//		return ('*' === $sName) ? 'default' : \str_replace('*', '_wildcard_', \SnappyMail\IDN::toAscii($sName));
+		return ('*' === $sName) ? 'default' : \str_replace('*', '_wildcard_', \strtolower(\idn_to_ascii($sName)));
 	}
 
 	private function getWildcardDomainsLine() : string
 	{
-		if ($this->oCacher)
-		{
-			$sResult = $this->oCacher->Get($this->wildcardDomainsCacheKey());
-			if (\strlen($sResult))
-			{
+		if ($this->oCacher) {
+			$sResult = $this->oCacher->Get(static::CACHE_KEY);
+			if (\is_string($sResult)) {
 				return $sResult;
 			}
 		}
 
-		$sResult = '';
 		$aNames = array();
 
+//		$aList = \glob($this->sDomainPath.'/*.{ini,json,alias}', GLOB_BRACE);
+		$aList = \glob($this->sDomainPath.'/*.json');
+		foreach ($aList as $sFile) {
+			$sName = \substr(\basename($sFile), 0, -5);
+			if ('default' === $sName || false !== \strpos($sName, '_wildcard_')) {
+				$aNames[] = static::decodeFileName($sName);
+			}
+		}
 		$aList = \glob($this->sDomainPath.'/*.ini');
-		foreach ($aList as $sFile)
-		{
+		foreach ($aList as $sFile) {
 			$sName = \substr(\basename($sFile), 0, -4);
-			if ('default' === $sName || false !== \strpos($sName, '_wildcard_'))
-			{
-				$aNames[] = $this->codeFileName($sName, true);
+			if ('default' === $sName || false !== \strpos($sName, '_wildcard_')) {
+				$aNames[] = static::decodeFileName($sName);
+			}
+		}
+		$aList = \glob($this->sDomainPath.'/*.alias');
+		foreach ($aList as $sFile) {
+			$sName = \substr(\basename($sFile), 0, -6);
+			if ('default' === $sName || false !== \strpos($sName, '_wildcard_')) {
+				$aNames[] = static::decodeFileName($sName);
 			}
 		}
 
-		if (\count($aNames))
-		{
+		$sResult = '';
+		if ($aNames) {
 			\rsort($aNames, SORT_STRING);
-			$sResult = \implode(' ', $aNames);
+			$sResult = \implode(' ', \array_unique($aNames));
 		}
 
-		if ($this->oCacher)
-		{
-			$this->oCacher->Set($this->wildcardDomainsCacheKey(), $sResult);
-		}
+		$this->oCacher && $this->oCacher->Set(static::CACHE_KEY, $sResult);
 
 		return $sResult;
 	}
 
 	public function Load(string $sName, bool $bFindWithWildCard = false, bool $bCheckDisabled = true, bool $bCheckAliases = true) : ?\RainLoop\Model\Domain
 	{
-		$mResult = null;
-
-		$sDisabled = '';
-		$sFoundValue = '';
-
-		$sRealFileName = $this->codeFileName($sName);
-
-		if (\file_exists($this->sDomainPath.'/disabled'))
-		{
-			$sDisabled = \file_get_contents($this->sDomainPath.'/disabled');
+//		$sName = \SnappyMail\IDN::toAscii($sName);
+		$sName = \strtolower(\idn_to_ascii($sName));
+		if ($bCheckDisabled && \in_array($sName, $this->getDisabled())) {
+			return null;
 		}
 
-		if (\file_exists($this->sDomainPath.'/'.$sRealFileName.'.ini') &&
-			(!$bCheckDisabled || 0 === \strlen($sDisabled) || false === \strpos(','.$sDisabled.',', ','.\MailSo\Base\Utils::IdnToAscii($sName, true).',')))
-		{
-			$aDomain = \RainLoop\Utils::CustomParseIniFile($this->sDomainPath.'/'.$sRealFileName.'.ini');
-//			if ($bCheckAliases && !empty($aDomain['alias']))
-//			{
-//				$oDomain = $this->Load($aDomain['alias'], false, false, false);
-//				if ($oDomain && $oDomain instanceof \RainLoop\Model\Domain)
-//				{
-//					$oDomain->SetAliasName($sName);
-//				}
-//
-//				return $oDomain;
-//			}
-			$mResult = \RainLoop\Model\Domain::NewInstanceFromDomainConfigArray($sName, $aDomain);
-		}
-		else if ($bCheckAliases && \file_exists($this->sDomainPath.'/'.$sRealFileName.'.alias') &&
-			(!$bCheckDisabled || 0 === \strlen($sDisabled) || false === \strpos(','.$sDisabled.',', ','.\MailSo\Base\Utils::IdnToAscii($sName, true).',')))
-		{
-			$sAlias = \trim(\file_get_contents($this->sDomainPath.'/'.$sRealFileName.'.alias'));
-			if (!empty($sAlias))
-			{
-				$oDomain = $this->Load($sAlias, false, false, false);
-				if ($oDomain && $oDomain instanceof \RainLoop\Model\Domain)
-				{
-					$oDomain->SetAliasName($sName);
-				}
+		$sRealFileBase = $this->sDomainPath . '/' . static::encodeFileName($sName);
 
+		if (\file_exists($sRealFileBase.'.json')) {
+			$aDomain = \json_decode(\file_get_contents($sRealFileBase.'.json'), true) ?: array();
+			return \RainLoop\Model\Domain::fromArray($sName, $aDomain);
+		}
+
+		if (\file_exists($sRealFileBase.'.ini')) {
+			$aDomain = \parse_ini_file($sRealFileBase.'.ini') ?: array();
+			return \RainLoop\Model\Domain::fromIniArray($sName, $aDomain);
+		}
+
+		if ($bCheckAliases && \file_exists($sRealFileBase.'.alias')) {
+			$sTarget = \trim(\file_get_contents($sRealFileBase.'.alias'));
+			if (!empty($sTarget)) {
+				$oDomain = $this->Load($sTarget, false, false, false);
+				$oDomain && $oDomain->SetAliasName($sName);
 				return $oDomain;
 			}
 		}
-		else if ($bFindWithWildCard)
-		{
+
+		if ($bFindWithWildCard) {
 			$sNames = $this->getWildcardDomainsLine();
-			if (\strlen($sNames))
-			{
-				if (\RainLoop\Plugins\Helper::ValidateWildcardValues(
-					\MailSo\Base\Utils::IdnToUtf8($sName, true), $sNames, $sFoundValue) && \strlen($sFoundValue))
-				{
-					if (!$bCheckDisabled || 0 === \strlen($sDisabled) || false === \strpos(','.$sDisabled.',', ','.$sFoundValue.','))
-					{
-						$mResult = $this->Load($sFoundValue, false);
-					}
-				}
+			$sFoundValue = '';
+			if (\strlen($sNames)
+			 && \RainLoop\Plugins\Helper::ValidateWildcardValues($sName, $sNames, $sFoundValue)
+			 && \strlen($sFoundValue)
+			) {
+				return $this->Load($sFoundValue);
 			}
 		}
 
-		return $mResult;
+		return null;
 	}
 
 	public function Save(\RainLoop\Model\Domain $oDomain) : bool
 	{
-		$sRealFileName = $this->codeFileName($oDomain->Name());
-
-		if ($this->oCacher)
-		{
-			$this->oCacher->Delete($this->wildcardDomainsCacheKey());
+		$sRealFileName = static::encodeFileName($oDomain->Name());
+		if (!$sRealFileName) {
+			return false;
 		}
-
-		\RainLoop\Utils::saveFile($this->sDomainPath.'/'.$sRealFileName.'.ini', $oDomain->ToIniString());
-
+		$this->Delete($oDomain->Name());
+		\RainLoop\Utils::saveFile("{$this->sDomainPath}/{$sRealFileName}.json", \json_encode($oDomain, \JSON_PRETTY_PRINT));
+		$this->oCacher && $this->oCacher->Delete(static::CACHE_KEY);
 		return true;
 	}
 
-	public function SaveAlias(string $sName, string $sAlias) : bool
+	public function SaveAlias(string $sName, string $sTarget) : bool
 	{
-		$sRealFileName = $this->codeFileName($sName);
-
-		if ($this->oCacher)
-		{
-			$this->oCacher->Delete($this->wildcardDomainsCacheKey());
+//		$sTarget = \SnappyMail\IDN::toAscii($sTarget);
+//		$sTarget = static::encodeFileName($sTarget);
+		$sTarget = \strtolower(\idn_to_ascii($sTarget));
+		$sRealFileName = static::encodeFileName($sName);
+		if (!$sRealFileName || !$sTarget/* || !\is_readable("{$this->sDomainPath}/{$sTarget}.json")*/) {
+			return false;
 		}
-
-		\RainLoop\Utils::saveFile($this->sDomainPath.'/'.$sRealFileName.'.alias', $sAlias);
+//		$this->Delete($sName);
+		\RainLoop\Utils::saveFile("{$this->sDomainPath}/{$sRealFileName}.alias", $sTarget);
+		$this->oCacher && $this->oCacher->Delete(static::CACHE_KEY);
 		return true;
+	}
+
+	protected function getDisabled() : array
+	{
+		$sFile = '';
+		if (\file_exists($this->sDomainPath.'/disabled')) {
+			$sFile = \file_get_contents($this->sDomainPath.'/disabled');
+		}
+		$aDisabled = array();
+		// RainLoop use comma, we use newline
+		$sItem = \strtok($sFile, ",\n");
+		while (false !== $sItem) {
+//			$aDisabled[] = \SnappyMail\IDN::toAscii($sItem);
+			$aDisabled[] = \strtolower(\idn_to_ascii($sItem));
+			$sItem = \strtok(",\n");
+		}
+		return $aDisabled;
+//		return \array_unique($aDisabled);
 	}
 
 	public function Disable(string $sName, bool $bDisable) : bool
 	{
-		$sName = \MailSo\Base\Utils::IdnToAscii($sName, true);
-
-		$sFile = '';
-		if (\file_exists($this->sDomainPath.'/disabled'))
-		{
-			$sFile = \file_get_contents($this->sDomainPath.'/disabled');
-		}
-
-		$aResult = array();
-		$aNames = \explode(',', $sFile);
-		if ($bDisable)
-		{
-			\array_push($aNames, $sName);
-			$aResult = $aNames;
-		}
-		else
-		{
-			foreach ($aNames as $sItem)
-			{
-				if ($sName !== $sItem)
-				{
-					$aResult[] = $sItem;
-				}
+//		$sName = \SnappyMail\IDN::toAscii($sName);
+		$sName = \strtolower(\idn_to_ascii($sName));
+		if ($sName) {
+			$aResult = $this->getDisabled();
+			if ($bDisable) {
+				$aResult[] = $sName;
+			} else {
+				$aResult = \array_filter($aResult, fn($v) => $v !== $sName);
 			}
+			$aResult = \array_unique($aResult);
+			\RainLoop\Utils::saveFile($this->sDomainPath.'/disabled', \implode("\n", $aResult));
+			return $this->getDisabled() === $aResult;
 		}
-
-		\RainLoop\Utils::saveFile($this->sDomainPath.'/disabled', \trim(\implode(',', \array_unique($aResult)), ', '));
-		return true;
+		return false;
 	}
 
 	public function Delete(string $sName) : bool
 	{
 		$bResult = true;
-		$sRealFileName = $this->codeFileName($sName);
-
-		if (\strlen($sName))
-		{
-			if (\file_exists($this->sDomainPath.'/'.$sRealFileName.'.ini'))
-			{
-				$bResult = \unlink($this->sDomainPath.'/'.$sRealFileName.'.ini');
-			}
-			else if (\file_exists($this->sDomainPath.'/'.$sRealFileName.'.alias'))
-			{
-				$bResult = \unlink($this->sDomainPath.'/'.$sRealFileName.'.alias');
+		if (\strlen($sName)) {
+			$sRealFileName = $this->sDomainPath . '/' . static::encodeFileName($sName);
+			$bResult =
+				(!\file_exists($sRealFileName.'.json') || \unlink($sRealFileName.'.json'))
+				&& (!\file_exists($sRealFileName.'.ini') || \unlink($sRealFileName.'.ini'))
+				&& (!\file_exists($sRealFileName.'.alias') || \unlink($sRealFileName.'.alias'));
+			$this->Disable($sName, !$bResult);
+			if ($this->oCacher) {
+				$this->oCacher->Delete(static::CACHE_KEY);
 			}
 		}
-
-		if ($bResult)
-		{
-			$this->Disable($sName, false);
-		}
-
-		if ($this->oCacher)
-		{
-			$this->oCacher->Delete($this->wildcardDomainsCacheKey());
-		}
-
 		return $bResult;
 	}
 
 	public function GetList(bool $bIncludeAliases = true) : array
 	{
+		$aDisabledNames = $this->getDisabled();
 		$aResult = array();
 		$aWildCards = array();
 		$aAliases = array();
 
-//		$aList = \glob($this->sDomainPath.'/*.{ini,alias}', GLOB_BRACE);
+//		$aList = \glob($this->sDomainPath.'/*.{ini,json,alias}', GLOB_BRACE);
 		$aList = \array_diff(\scandir($this->sDomainPath), array('.', '..'));
-		foreach ($aList as $sFile)
-		{
-			$sName = $sFile;
-			if ('.ini' === \substr($sName, -4) || '.alias' === \substr($sName, -6))
-			{
-				$bAlias = '.alias' === \substr($sName, -6);
-
-				$sName = \preg_replace('/\.(ini|alias)$/', '', $sName);
-				$sName = $this->codeFileName($sName, true);
-
-				if ($bAlias)
-				{
-					if ($bIncludeAliases)
-					{
-						$aAliases[] = $sName;
+		foreach ($aList as $sFile) {
+			$bAlias = '.alias' === \substr($sFile, -6);
+			if ($bAlias || '.json' === \substr($sFile, -5) || '.ini' === \substr($sFile, -4)) {
+				$sName = static::decodeFileName(\preg_replace('/\.(ini|json|alias)$/', '', $sFile));
+				if ($bAlias) {
+					if ($bIncludeAliases) {
+						$aAliases[$sName] = array(
+							'name' => $sName,
+							'disabled' => \in_array($sName, $aDisabledNames),
+							'alias' => true
+						);
 					}
-				}
-				else if (false !== \strpos($sName, '*'))
-				{
-					$aWildCards[] = $sName;
-				}
-				else
-				{
-					$aResult[] = $sName;
-				}
-			}
-		}
-
-		\sort($aResult, SORT_STRING);
-		\sort($aAliases, SORT_STRING);
-		\rsort($aWildCards, SORT_STRING);
-
-		$aResult = \array_merge($aResult, $aAliases, $aWildCards);
-
-		$aDisabledNames = array();
-		if (\count($aResult) && \file_exists($this->sDomainPath.'/disabled'))
-		{
-			$sDisabled = \file_get_contents($this->sDomainPath.'/disabled');
-			if (false !== $sDisabled && \strlen($sDisabled))
-			{
-				$aDisabledNames = \explode(',', $sDisabled);
-				$aDisabledNames = \array_unique($aDisabledNames);
-				foreach ($aDisabledNames as $iIndex => $sValue)
-				{
-					$aDisabledNames[$iIndex] = \MailSo\Base\Utils::IdnToUtf8($sValue, true);
+				} else if (false !== \strpos($sName, '*')) {
+					$aWildCards[$sName] = array(
+						'name' => $sName,
+						'disabled' => \in_array($sName, $aDisabledNames),
+						'alias' => false
+					);
+				} else {
+					$aResult[$sName] = array(
+						'name' => $sName,
+						'disabled' => \in_array($sName, $aDisabledNames),
+						'alias' => false
+					);
 				}
 			}
 		}
 
-		$aReturn = array();
-		foreach ($aResult as $sName)
-		{
-			$aReturn[] = array(
-				'name' => $sName,
-				'disabled' => \in_array($sName, $aDisabledNames),
-				'alias' => \in_array($sName, $aAliases)
-			);
-		}
-
-		return $aReturn;
+		\ksort($aResult, SORT_STRING);
+		\ksort($aAliases, SORT_STRING);
+		\krsort($aWildCards, SORT_STRING);
+		return \array_values(\array_merge($aResult, $aAliases, $aWildCards));
 	}
 }

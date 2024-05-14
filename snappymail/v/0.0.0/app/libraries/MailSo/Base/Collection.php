@@ -39,6 +39,11 @@ abstract class Collection extends \ArrayObject implements \JsonSerializable
 		}
 	}
 
+	public function keys() : array
+	{
+		return \array_keys($this->getArrayCopy());
+	}
+
 	public function Add($mItem, bool $bToTop = false) : self
 	{
 		$this->append($mItem, $bToTop);
@@ -74,6 +79,7 @@ abstract class Collection extends \ArrayObject implements \JsonSerializable
 		return $this;
 	}
 
+	#[\ReturnTypeWillChange]
 	public function jsonSerialize()
 	{
 		$aNames = \explode('\\', \get_class($this));

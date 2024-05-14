@@ -3,8 +3,8 @@
  */
 
 import {
-	GrammarCommand,
-	GrammarTest,
+	ControlCommand,
+	TestCommand,
 	GrammarQuotedString,
 	GrammarStringList
 } from 'Sieve/Grammar';
@@ -12,7 +12,7 @@ import {
 /**
  * https://datatracker.ietf.org/doc/html/rfc5463#section-4
  */
-export class IHaveTest extends GrammarTest
+export class IHaveTest extends TestCommand
 {
 	constructor()
 	{
@@ -36,7 +36,7 @@ export class IHaveTest extends GrammarTest
 /**
  * https://datatracker.ietf.org/doc/html/rfc5463#section-5
  */
-export class ErrorCommand extends GrammarCommand
+export class ErrorCommand extends ControlCommand
 {
 	constructor()
 	{

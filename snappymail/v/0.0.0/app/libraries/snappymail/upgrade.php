@@ -15,8 +15,8 @@ abstract class Upgrade
 				$aEmail = \explode('@', \basename($sDomainDir));
 				$sDomain = \trim(1 < \count($aEmail) ? \array_pop($aEmail) : '');
 				$sNewDir = $sDataPath
-					.'/'.\RainLoop\Utils::fixName($sDomain ?: 'unknown.tld')
-					.'/'.\RainLoop\Utils::fixName(\implode('@', $aEmail) ?: '.unknown');
+					.'/'.\MailSo\Base\Utils::SecureFileName($sDomain ?: 'unknown.tld')
+					.'/'.\MailSo\Base\Utils::SecureFileName(\implode('@', $aEmail) ?: '.unknown');
 				if (\is_dir($sNewDir) || \mkdir($sNewDir, 0700, true)) {
 					foreach (\glob("{$sDomainDir}/*") as $sItem) {
 						$sName = \basename($sItem);
@@ -70,14 +70,10 @@ abstract class Upgrade
 				}
 				try {
 					$aNewAccounts[$sEmail] = [
-						'account',
-						$sEmail,
-						$sEmail, // sLogin
-						'',      // sPassword
-						'',      // sClientCert
-						'',      // sProxyAuthUser
-						'',      // sProxyAuthPassword
-						\hash_hmac('sha1', '', $sHash)
+						'email' => $sEmail,
+						'login' => $sEmail,
+						'pass' => '',
+						'hmac' => \hash_hmac('sha1', '', $sHash)
 					];
 					if (!$sToken) {
 						\SnappyMail\Log::warning('UPGRADE', "ConvertInsecureAccount {$sEmail} no token");
@@ -92,15 +88,10 @@ abstract class Upgrade
 					}
 					$aAccountHash[3] = Crypt::EncryptUrlSafe($aAccountHash[3], $sHash);
 					$aNewAccounts[$sEmail] = [
-						'account',
-						$aAccountHash[1],
-						$aAccountHash[2],
-						$aAccountHash[3],
-						$aAccountHash[11],
-						$aAccountHash[8],
-						$aAccountHash[9],
-						$oMainAccount->Email(),
-						\hash_hmac('sha1', $aAccountHash[3], $sHash)
+						'email' => $aAccountHash[1],
+						'login' => $aAccountHash[2],
+						'pass' => $aAccountHash[3],
+						'hmac' => \hash_hmac('sha1', $aAccountHash[3], $sHash)
 					];
 				} catch (\Throwable $e) {
 					\SnappyMail\Log::warning('UPGRADE', "ConvertInsecureAccount {$sEmail} failed");
@@ -130,13 +121,14 @@ abstract class Upgrade
 			if (!$aData) {
 				$aData = static::DecodeKeyValues($sData);
 				if ($aData) {
-					$oActions->setContactsSyncData($oAccount, $aData);
-					return array(
-						'Enable' => isset($aData['Enable']) ? !!$aData['Enable'] : false,
+					$aData = array(
+						'Mode' => empty($aData['Enable']) ? 0 : 1,
 						'Url' => isset($aData['Url']) ? \trim($aData['Url']) : '',
 						'User' => isset($aData['User']) ? \trim($aData['User']) : '',
 						'Password' => isset($aData['Password']) ? $aData['Password'] : ''
 					);
+					$oActions->setContactsSyncData($oAccount, $aData);
+					return $aData;
 				}
 			}
 		}
@@ -162,4 +154,103 @@ abstract class Upgrade
 			return \unserialize($sData) ?: array();
 		}
 	}
+
+	public static function backup() : string
+	{
+//		$tar_destination = APP_DATA_FOLDER_PATH . APP_VERSION . '.tar';
+		$tar_destination = APP_DATA_FOLDER_PATH . 'backup-' . \date('YmdHis');
+		if (\class_exists('PharData')) {
+			$tar_destination .= '.tar';
+			$tar = new \PharData($tar_destination);
+		} else {
+			$tar_destination .= '.tgz';
+			$tar = new \SnappyMail\Stream\TAR($tar_destination);
+		}
+		$files = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator(APP_DATA_FOLDER_PATH . '_data_'),
+			\RecursiveIteratorIterator::SELF_FIRST
+		);
+		$l = \strlen(APP_DATA_FOLDER_PATH);
+		foreach ($files as $file) {
+			$file = \str_replace('\\', '/', $file);
+			if (\is_file($file) && !\strpos($file, '/cache/')) {
+				$tar->addFile($file, \substr($file, $l));
+			}
+		}
+		if ($tar instanceof \SnappyMail\Stream\TAR) {
+			return $tar_destination;
+		}
+		$tar->compress(\Phar::GZ);
+		\unlink($tar_destination);
+		return $tar_destination . '.gz';
+	}
+
+	public static function core() : bool
+	{
+		$bResult = false;
+		if (Repository::canUpdateCore()) {
+			$sTmp = null;
+			try {
+				static::backup();
+
+				$sTmp = Repository::downloadCore();
+				if (!$sTmp) {
+					throw new \Exception('Failed to download latest SnappyMail');
+				}
+
+				if (\class_exists('PharData')) {
+					$oArchive = new \PharData($sTmp, 0, null, \Phar::GZ);
+				} else {
+					$oArchive = new \SnappyMail\TAR($sTmp);
+				}
+
+				$target = \rtrim(APP_INDEX_ROOT_PATH, '\\/');
+				\umask(0022);
+				\error_log('Extract to ' . $target);
+//				$bResult = $oArchive->extractTo($target, null, true);
+				$bResult = $oArchive->extractTo($target, 'snappymail/')
+					&& $oArchive->extractTo($target, 'index.php', true);
+				if (!$bResult) {
+					throw new \Exception('Extract core files failed');
+				}
+
+				static::fixPermissions();
+
+				\error_log('Update success');
+				// opcache_reset is a terrible solution
+//				\is_callable('opcache_reset') && \opcache_reset();
+				\is_callable('opcache_invalidate') && \opcache_invalidate($target.'/index.php', true);
+			} finally {
+				$sTmp && \unlink($sTmp);
+			}
+		}
+		return $bResult;
+	}
+
+	// Prevents Apache access error due to directories being 0700
+	public static function fixPermissions($mode = 0755) : void
+	{
+		\clearstatcache(true);
+		\umask(0022);
+		$target = \rtrim(APP_INDEX_ROOT_PATH, '\\/');
+		// Prevent Apache access error due to directories being 0700
+		foreach (\glob("{$target}/snappymail/v/*", \GLOB_ONLYDIR) as $dir) {
+			\chmod($dir, 0755);
+			foreach (['static','themes'] as $folder) {
+				\chmod("{$dir}/{$folder}", 0755);
+				$iterator = new \RecursiveIteratorIterator(
+					new \RecursiveDirectoryIterator("{$dir}/{$folder}", \FilesystemIterator::SKIP_DOTS),
+					\RecursiveIteratorIterator::SELF_FIRST
+				);
+				foreach ($iterator as $item) {
+					if ($item->isDir()) {
+						\chmod($item, 0755);
+					} else if ($item->isFile()) {
+						\chmod($item, 0644);
+					}
+				}
+			}
+		}
+	}
+
 }

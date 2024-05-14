@@ -1,5 +1,5 @@
+import { addObservablesTo, addComputablesTo } from 'External/ko';
 import { i18n, getNotification } from 'Common/Translator';
-import { setFolderHash } from 'Common/Cache';
 
 import { MessageUserStore } from 'Stores/User/Message';
 import { MessagelistUserStore } from 'Stores/User/Messagelist';
@@ -13,57 +13,43 @@ export class FolderClearPopupView extends AbstractViewPopup {
 	constructor() {
 		super('FolderClear');
 
-		this.addObservables({
-			selectedFolder: null,
-			clearingProcess: false,
-			clearingError: ''
+		addObservablesTo(this, {
+			folder: null,
+			clearing: false
 		});
 
-		this.addComputables({
+		addComputablesTo(this, {
 			dangerDescHtml: () => {
-				const folder = this.selectedFolder();
-//				return i18n('POPUPS_CLEAR_FOLDER/DANGER_DESC_HTML_1', { FOLDER: folder ? folder.fullName.replace(folder.delimiter, ' / ') : '' });
-				return i18n('POPUPS_CLEAR_FOLDER/DANGER_DESC_HTML_1', { FOLDER: folder ? folder.localName() : '' });
+//				const folder = this.folder();
+//				return i18n('POPUPS_CLEAR_FOLDER/DANGER_DESC_HTML_1', { FOLDER: folder.fullName.replace(folder.delimiter, ' / ') });
+				return i18n('POPUPS_CLEAR_FOLDER/DANGER_DESC_HTML_1', { FOLDER: this.folder()?.localName() });
 			}
 		});
 
 		decorateKoCommands(this, {
-			clearCommand: self => {
-					const folder = self.selectedFolder();
-					return !self.clearingProcess() && null !== folder;
-				}
+			clearCommand: self => !self.clearing()
 		});
 	}
 
 	clearCommand() {
-		const folderToClear = this.selectedFolder();
-		if (folderToClear) {
-			MessageUserStore.message(null);
-			MessagelistUserStore([]);
-
-			this.clearingProcess(true);
-
-			folderToClear.messageCountAll(0);
-			folderToClear.messageCountUnread(0);
-
-			setFolderHash(folderToClear.fullName, '');
-
+		const folder = this.folder();
+		if (folder) {
+			this.clearing(true);
 			Remote.request('FolderClear', iError => {
-				this.clearingProcess(false);
-				if (iError) {
-					this.clearingError(getNotification(iError));
-				} else {
-					MessagelistUserStore.reload(true);
-					this.close();
-				}
+				folder.totalEmails(0);
+				folder.unreadEmails(0);
+				MessageUserStore.message(null);
+				MessagelistUserStore.reload(true, true);
+				this.clearing(false);
+				iError ? alert(getNotification(iError)) : this.close();
 			}, {
-				Folder: folderToClear.fullName
+				folder: folder.fullName
 			});
 		}
 	}
 
 	onShow(folder) {
-		this.clearingProcess(false);
-		this.selectedFolder(folder || null);
+		this.clearing(false);
+		this.folder(folder);
 	}
 }

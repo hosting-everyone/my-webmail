@@ -1,10 +1,11 @@
-import { createElement, SettingsGet } from 'Common/Globals';
-import { forEachObjectEntry, pInt } from 'Common/Utils';
-import { proxy } from 'Common/Links';
+import { createElement } from 'Common/Globals';
+import { forEachObjectEntry, isArray, pInt } from 'Common/Utils';
+import { SettingsUserStore } from 'Stores/User/Settings';
 
 const
-	tpl = createElement('template'),
+	tmpl = createElement('template'),
 	htmlre = /[&<>"']/g,
+	httpre = /^(https?:)?\/\//i,
 	htmlmap = {
 		'&': '&amp;',
 		'<': '&lt;',
@@ -13,10 +14,176 @@ const
 		"'": '&#x27;'
 	},
 
+	disallowedTags = [
+		'svg','script','title','link','base','meta',
+		'input','output','select','button','textarea',
+		'bgsound','keygen','source','object','embed','applet','iframe','frame','frameset','video','audio','area','map'
+		// not supported by <template> element
+//		,'html','head','body'
+	].join(','),
+
+	blockquoteSwitcher = () => {
+		SettingsUserStore.collapseBlockquotes() &&
+//		tmpl.content.querySelectorAll('blockquote').forEach(node => {
+		[...tmpl.content.querySelectorAll('blockquote')].reverse().forEach(node => {
+			const el = createElement('details', {class:'sm-bq-switcher'});
+			el.innerHTML = '<summary>•••</summary>';
+			node.replaceWith(el);
+			el.append(node);
+		});
+	},
+
 	replaceWithChildren = node => node.replaceWith(...[...node.childNodes]),
 
-	// Strip utm_* tracking
-	stripTracking = text => text.replace(/([?&])utm_[a-z]+=[^&?#]*/gsi, '$1').replace(/&&+/, '');
+	urlRegExp = /https?:\/\/[^\p{C}\p{Z}]+[^\p{C}\p{Z}.]/gu,
+	// eslint-disable-next-line max-len
+	email = /(^|\r|\n|\p{C}\p{Z})((?:[^"(),.:;<>@[\]\\\p{C}\p{Z}]+(?:\.[^"(),.:;<>@[\]\\\p{C}\p{Z}]+)*|"(?:\\?[^"\\\p{C}\p{Z}])*")@[^@\p{C}\p{Z}]+[^@\p{C}\p{Z}.])/gui,
+	// rfc3966
+	tel = /(tel:(\+[0-9().-]+|[0-9*#().-]+(;phone-context=\+[0-9+().-]+)?))/g,
+
+	// Strip tracking
+	/** TODO: implement other url strippers like from
+	 * https://www.bleepingcomputer.com/news/security/new-firefox-privacy-feature-strips-urls-of-tracking-parameters/
+	 * https://github.com/newhouse/url-tracking-stripper
+	 * https://github.com/svenjacobs/leon
+	 * https://maxchadwick.xyz/tracking-query-params-registry/
+	 * https://github.com/M66B/FairEmail/blob/master/app/src/main/java/eu/faircode/email/UriHelper.java
+	 */
+	// eslint-disable-next-line max-len
+	stripParams = /^(utm_|ec_|fbclid|mc_eid|mkt_tok|_hsenc|vero_id|oly_enc_id|oly_anon_id|__s|Referrer|mailing|elq|bch|trc|ref|correlation_id|pd_|pf_|email_hash)$/i,
+	urlGetParam = (url, name) => new URL(url).searchParams.get(name) || url,
+	base64Url = data => atob(data.replace(/_/g,'/').replace(/-/g,'+')),
+	decode = decodeURIComponent,
+	stripTracking = url => {
+		try {
+			let nurl = url
+				// Copernica
+				.replace(/^.+\/(https%253A[^/?&]+).*$/i, (...m) => decode(decode(m[1])))
+				.replace(/tracking\.(printabout\.nl[^?]+)\?.*/i, (...m) => m[1])
+				.replace(/(zalando\.nl[^?]+)\?.*/i, (...m) => m[1])
+				.replace(/^.+(awstrack\.me|redditmail\.com)\/.+(https:%2F%2F[^/]+).*/i, (...m) => decode(m[2]))
+				.replace(/^.+(www\.google|safelinks\.protection\.outlook\.com|mailchimp\.com).+url=.+$/i,
+					() => urlGetParam(url, 'url'))
+				.replace(/^.+click\.godaddy\.com.+$/i, () => urlGetParam(url, 'redir'))
+				.replace(/^.+delivery-status\.com.+$/i, () => urlGetParam(url, 'fb'))
+				.replace(/^.+go\.dhlparcel\.nl.+\/([A-Za-z0-9_-]+)$/i, (...m) => base64Url(m[1]))
+				.replace(/^(.+mopinion\.com.+)\?.*$/i, (...m) => m[1])
+				.replace(/^.+sellercentral\.amazon\.com\/nms\/redirect.+$/i, () => base64Url(urlGetParam(url, 'u')))
+				.replace(/^.+amazon\.com\/gp\/r\.html.+$/i, () => urlGetParam(url, 'U'))
+				// Mandrill
+				.replace(/^.+\/track\/click\/.+\?p=.+$/i, () => {
+					let d = urlGetParam(url, 'p');
+					try {
+						d = JSON.parse(base64Url(d));
+						if (d?.p) {
+							d = JSON.parse(d.p);
+						}
+					} catch (e) {
+						console.error(e);
+					}
+					return d?.url || url;
+				})
+				// Remove invalid URL characters
+				.replace(/[\s<>]+/gi, '');
+			nurl = new URL(nurl);
+			let s = nurl.searchParams;
+			[...s.keys()].forEach(key => stripParams.test(key) && s.delete(key));
+			return nurl.toString();
+		} catch (e) {
+			console.dir({
+				error:e,
+				url:url
+			});
+		}
+		return url;
+	},
+
+	cleanCSS = source =>
+		source.trim().replace(/(^|;)\s*-(ms|webkit)-[^;]+(;|$)/g, '')
+			.replace(/white-space[^;]+(;|$)/g, '')
+			// Drop Microsoft Office style properties
+//			.replace(/mso-[^:;]+:[^;]+/gi, '')
+	,
+
+	/*
+		Parses given css string, and returns css object
+		keys as selectors and values are css rules
+		eliminates all css comments before parsing
+
+		@param source css string to be parsed
+
+		@return object css
+	*/
+	parseCSS = source => {
+		const css = [];
+		css.toString = () => css.reduce(
+			(ret, tmp) =>
+				ret + tmp.selector + ' {\n'
+					+ (tmp.type === 'media' ? tmp.subStyles.toString() : tmp.rules)
+					+ '}\n'
+			,
+			''
+		);
+		/**
+		 * Given css array, parses it and then for every selector,
+		 * prepends namespace to prevent css collision issues
+		 */
+		css.applyNamespace = namespace => css.forEach(obj => {
+			if (obj.type === 'media') {
+				obj.subStyles.applyNamespace(namespace);
+			} else {
+				obj.selector = obj.selector.split(',').map(selector =>
+					(namespace + ' .mail-body ' + selector.replace(/\./g, '.msg-'))
+					.replace(/\sbody/gi, '')
+				).join(',');
+			}
+		});
+
+		if (source) {
+			source = source
+				// strip comments
+				.replace(/\/\*[\s\S]*?\*\/|<!--|-->/gi, '')
+				// strip import statements
+				.replace(/@import .*?;/gi , '')
+				// strip keyframe statements
+				.replace(/((@.*?keyframes [\s\S]*?){([\s\S]*?}\s*?)})/gi, '');
+
+			// unified regex to match css & media queries together
+			let unified = /((\s*?(?:\/\*[\s\S]*?\*\/)?\s*?@media[\s\S]*?){([\s\S]*?)}\s*?})|(([\s\S]*?){([\s\S]*?)})/gi,
+				arr;
+
+			while (true) {
+				arr = unified.exec(source);
+				if (arr === null) {
+					break;
+				}
+
+				let selector = arr[arr[2] === undefined ? 5 : 2].split('\r\n').join('\n').trim()
+					// Never have more than a single line break in a row
+					.replace(/\n+/, "\n")
+					// Remove :root and html
+					.split(/\s+/g).map(item => item.replace(/^(:root|html)$/, '')).join(' ').trim();
+
+				// determine the type
+				if (selector.includes('@media')) {
+					// we have a media query
+					css.push({
+						selector: selector,
+						type: 'media',
+						subStyles: parseCSS(arr[3] + '\n}') //recursively parse media query inner css
+					});
+				} else if (selector && !selector.includes('@')) {
+					// we have standard css
+					css.push({
+						selector: selector,
+						rules: cleanCSS(arr[6])
+					});
+				}
+			}
+		}
+
+		return css;
+	};
 
 export const
 
@@ -24,32 +191,36 @@ export const
 	 * @param {string} text
 	 * @returns {string}
 	 */
-	encodeHtml = text => (text && text.toString ? text.toString() : '' + text).replace(htmlre, m => htmlmap[m]),
+	encodeHtml = text => (text?.toString?.() || '' + text).replace(htmlre, m => htmlmap[m]),
 
 	/**
 	 * Clears the Message Html for viewing
 	 * @param {string} text
 	 * @returns {string}
 	 */
-	cleanHtml = (html, contentLocationUrls, removeColors) => {
+	cleanHtml = (html, oAttachments, msgId) => {
+		let aColor;
 		const
 			debug = false, // Config()->Get('debug', 'enable', false);
-			useProxy = !!SettingsGet('UseLocalProxyForExternalImages'),
 			detectHiddenImages = true, // !!SettingsGet('try_to_detect_hidden_images'),
+
+			bqLevel = parseInt(SettingsUserStore.maxBlockquotesLevel()),
 
 			result = {
 				hasExternals: false,
-				foundCIDs: [],
-				foundContentLocationUrls: []
+				tracking: false,
+				linkedData: []
+			},
+
+			findAttachmentByCid = cId => oAttachments.findByCid(cId),
+			findLocationByCid = cId => {
+				const attachment = findAttachmentByCid(cId);
+				return attachment?.contentLocation ? attachment : 0;
 			},
 
 			// convert body attributes to CSS
 			tasks = {
-				link: value => {
-					if (/^#[a-fA-Z0-9]{3,6}$/.test(value)) {
-						tpl.content.querySelectorAll('a').forEach(node => node.style.color = value)
-					}
-				},
+				link: value => aColor = value,
 				text: (value, node) => node.style.color = value,
 				topmargin: (value, node) => node.style.marginTop = pInt(value) + 'px',
 				leftmargin: (value, node) => node.style.marginLeft = pInt(value) + 'px',
@@ -85,84 +256,117 @@ export const
 				// td
 				'colspan', 'rowspan', 'headers'
 			],
-			disallowedTags = [
-				'HEAD','STYLE','SVG','SCRIPT','TITLE','LINK','BASE','META',
-				'INPUT','OUTPUT','SELECT','BUTTON','TEXTAREA',
-				'BGSOUND','KEYGEN','SOURCE','OBJECT','EMBED','APPLET','IFRAME','FRAME','FRAMESET','VIDEO','AUDIO','AREA','MAP'
-			],
 			nonEmptyTags = [
-				'A','B','EM','I','SPAN','STRONG','O:P','TABLE'
+				'A','B','EM','I','SPAN','STRONG'
 			];
 
-		tpl.innerHTML = html
+		if (SettingsUserStore.allowStyles()) {
+			allowedAttributes.push('class');
+		} else {
+			msgId = 0;
+		}
+
+		tmpl.innerHTML = html
 //			.replace(/<pre[^>]*>[\s\S]*?<\/pre>/gi, pre => pre.replace(/\n/g, '\n<br>'))
-			.replace(/<!doctype[^>]*>/gi, '')
-			.replace(/<\?xml[^>]*\?>/gi, '')
 			// Not supported by <template> element
+//			.replace(/<!doctype[^>]*>/gi, '')
+//			.replace(/<\?xml[^>]*\?>/gi, '')
+			.replace(/<(\/?)head(\s[^>]*)?>/gi, '')
 			.replace(/<(\/?)body(\s[^>]*)?>/gi, '<$1div class="mail-body"$2>')
-			.replace(/<\/?(html|head)[^>]*>/gi, '')
+//			.replace(/<\/?(html|head)[^>]*>/gi, '')
+			// Fix Reddit https://github.com/the-djmaze/snappymail/issues/540
+			.replace(/<span class="preview-text"[\s\S]+?<\/span>/, '')
+			// https://github.com/the-djmaze/snappymail/issues/900
+			.replace(/\u2028/g,' ')
+			// https://github.com/the-djmaze/snappymail/issues/1415
+			.replace(/<br>\s*<\/p>/gi,'</p>')
 			.trim();
 		html = '';
 
-		// \MailSo\Base\HtmlUtils::ClearComments()
-		// https://github.com/the-djmaze/snappymail/issues/187
-		const nodeIterator = document.createNodeIterator(tpl.content, NodeFilter.SHOW_COMMENT);
+		// Strip all comments
+		const nodeIterator = document.createNodeIterator(tmpl.content, NodeFilter.SHOW_COMMENT);
 		while (nodeIterator.nextNode()) {
 			nodeIterator.referenceNode.remove();
 		}
 
-		tpl.content.querySelectorAll('*').forEach(oElement => {
+		/**
+		 * Basic support for Linked Data (Structured Email)
+		 * https://json-ld.org/
+		 * https://structured.email/
+		 **/
+		tmpl.content.querySelectorAll('script[type="application/ld+json"]').forEach(oElement => {
+			// Could be array of objects or single object
+			try {
+				const data = JSON.parse(oElement.textContent);
+				(isArray(data) ? data : [data]).forEach(entry => result.linkedData.push(entry));
+			} catch (e) {
+				console.error(e, oElement.textContent);
+			}
+		});
+
+		tmpl.content.querySelectorAll(
+			disallowedTags
+			+ (0 < bqLevel ? ',' + (new Array(1 + bqLevel).fill('blockquote').join(' ')) : '')
+		).forEach(oElement => oElement.remove());
+
+		// https://github.com/the-djmaze/snappymail/issues/1125
+		tmpl.content.querySelectorAll('form,button').forEach(oElement => replaceWithChildren(oElement));
+
+		[...tmpl.content.querySelectorAll('*')].forEach(oElement => {
 			const name = oElement.tagName,
 				oStyle = oElement.style;
 
+			if ('STYLE' === name) {
+				let css = msgId ? parseCSS(oElement.textContent) : [];
+				if (css.length) {
+					css.applyNamespace(msgId);
+					css = css.toString();
+					if (SettingsUserStore.removeColors()) {
+						css = css.replace(/(background-)?color:[^};]+;?/g, '');
+					}
+					oElement.textContent = css;
+				} else {
+					oElement.remove();
+				}
+				return;
+			}
+
 			// \MailSo\Base\HtmlUtils::ClearTags()
-			if (disallowedTags.includes(name)
-			 || 'none' == oStyle.display
+			if ('none' == oStyle.display
 			 || 'hidden' == oStyle.visibility
 //			 || (oStyle.lineHeight && 1 > parseFloat(oStyle.lineHeight)
 //			 || (oStyle.maxHeight && 1 > parseFloat(oStyle.maxHeight)
 //			 || (oStyle.maxWidth && 1 > parseFloat(oStyle.maxWidth)
 //			 || ('0' === oStyle.opacity
-			 || (nonEmptyTags.includes(name) && ('' == oElement.textContent.trim() && !oElement.querySelector('img')))
 			) {
 				oElement.remove();
 				return;
 			}
-//			if (['CENTER','FORM'].includes(name)) {
-			if ('FORM' === name || 'O:P' === name) {
-				replaceWithChildren(oElement);
-				return;
-			}
-/*
-			// Idea to allow CSS
-			if ('STYLE' === name) {
-				msgId = '#rl-msg-061eb4d647771be4185943ce91f0039d';
-				oElement.textContent = oElement.textContent
-					.replace(/[^{}]+{/g, m => msgId + ' ' + m.replace(',', ', '+msgId+' '))
-					.replace(/(background-)color:[^};]+/g, '');
-				return;
-			}
-*/
+
 			const aAttrsForRemove = [],
+				className = oElement.className,
 				hasAttribute = name => oElement.hasAttribute(name),
 				getAttribute = name => hasAttribute(name) ? oElement.getAttribute(name).trim() : '',
 				setAttribute = (name, value) => oElement.setAttribute(name, value),
-				delAttribute = name => oElement.removeAttribute(name);
+				delAttribute = name => {
+					let value = getAttribute(name);
+					oElement.removeAttribute(name);
+					return value;
+				};
 
-			if ('mail-body' === oElement.className) {
-				forEachObjectEntry(tasks, (name, cb) => {
-					if (hasAttribute(name)) {
-						cb(getAttribute(name), oElement);
-						delAttribute(name);
-					}
-				});
+			if ('mail-body' === className) {
+				forEachObjectEntry(tasks, (name, cb) =>
+					hasAttribute(name) && cb(delAttribute(name), oElement)
+				);
+			} else if (msgId && className) {
+				oElement.className = className.replace(/(^|\s+)/g, '$1msg-');
 			}
 
 			if (oElement.hasAttributes()) {
 				let i = oElement.attributes.length;
 				while (i--) {
 					let sAttrName = oElement.attributes[i].name.toLowerCase();
-					if (!allowedAttributes.includes(sAttrName)) {
+					if (!allowedAttributes.includes(sAttrName) && ('class' !== sAttrName || 'mail-body' !== className)) {
 						delAttribute(sAttrName);
 						aAttrsForRemove.push(sAttrName);
 					}
@@ -171,29 +375,51 @@ export const
 
 			let value;
 
-			if ('TABLE' === name) {
-				if (hasAttribute('width')) {
-					oStyle.width = getAttribute('width');
-					delAttribute('width');
-				}
-				value = oStyle.width;
-				if (value && !value.includes('%')) {
-					oStyle.maxWidth = value;
-					oStyle.width = '100%';
+//			if ('TABLE' === name || 'TD' === name || 'TH' === name) {
+			if (!oStyle.backgroundImage) {
+				if ('TD' !== name && 'TH' !== name) {
+					['width','height'].forEach(key => {
+						if (hasAttribute(key)) {
+							value = delAttribute(key);
+							oStyle[key] || (oStyle[key] = value.includes('%') ? value : value + 'px');
+						}
+					});
+					// Make width responsive
+					value = oStyle.width;
+					if (100 < parseInt(value,10) && !oStyle.maxWidth) {
+						oStyle.maxWidth = value;
+						oStyle.width = '100%';
+					}
+					// Make height responsive
+					value = oStyle.removeProperty('height');
+					if (value && !oStyle.maxHeight) {
+						oStyle.maxHeight = value;
+					}
 				}
 			}
-
-			else if ('A' === name) {
+//			} else
+			if ('A' === name) {
 				value = oElement.href;
 				if (!/^([a-z]+):/i.test(value)) {
-					setAttribute('data-x-broken-href', value);
+					setAttribute('data-x-href-broken', value);
 					delAttribute('href');
 				} else {
 					oElement.href = stripTracking(value);
+					if (oElement.href != value) {
+						result.tracking = true;
+						setAttribute('data-x-href-tracking', value);
+					}
 					setAttribute('target', '_blank');
-					setAttribute('rel', 'external nofollow noopener noreferrer');
+//					setAttribute('rel', 'external nofollow noopener noreferrer');
 				}
 				setAttribute('tabindex', '-1');
+				aColor && !oElement.style.color && (oElement.style.color = aColor);
+			}
+
+//			if (['CENTER','FORM'].includes(name)) {
+			if ('O:P' === name || (nonEmptyTags.includes(name) && ('' == oElement.textContent.trim()))) {
+				('A' !== name || !oElement.querySelector('IMG')) && replaceWithChildren(oElement);
+				return;
 			}
 
 			// SVG xlink:href
@@ -204,63 +430,82 @@ export const
 			*/
 
 			let skipStyle = false;
-			if (hasAttribute('src')) {
-				value = getAttribute('src');
-				delAttribute('src');
-
-				if (detectHiddenImages
-					&& 'IMG' === name
-					&& (('' != getAttribute('height') && 3 > pInt(getAttribute('height')))
-						|| ('' != getAttribute('width') && 3 > pInt(getAttribute('width')))
-						|| [
-							'email.microsoftemail.com/open',
-							'github.com/notifications/beacon/',
-							'mandrillapp.com/track/open',
-							'list-manage.com/track/open'
-						].filter(uri => value.toLowerCase().includes(uri)).length
-				)) {
-					skipStyle = true;
-					setAttribute('style', 'display:none');
-					setAttribute('data-x-hidden-src', value);
-				}
-				else if (contentLocationUrls[value])
-				{
-					setAttribute('data-x-src-location', value);
-					result.foundContentLocationUrls.push(value);
-				}
-				else if ('cid:' === value.slice(0, 4))
-				{
-					setAttribute('data-x-src-cid', value.slice(4));
-					result.foundCIDs.push(value.slice(4));
-				}
-				else if (/^https?:\/\//i.test(value) || '//' === value.slice(0, 2))
-				{
-					setAttribute('data-x-src', useProxy ? proxy(value) : value);
-					result.hasExternals = true;
-				}
-				else if ('data:image/' === value.slice(0, 11))
-				{
-					setAttribute('src', value);
+			value = delAttribute('src');
+			if (value) {
+				if ('IMG' === name) {
+					oElement.loading = 'lazy';
+					let attachment;
+					if (value.startsWith('cid:'))
+					{
+						value = value.slice(4);
+						setAttribute('data-x-src-cid', value);
+						attachment = findAttachmentByCid(value);
+						if (attachment?.download) {
+							oElement.src = attachment.linkPreview();
+							oElement.title += ' ('+attachment.fileName+')';
+							attachment.isInline(true);
+							attachment.isLinked(true);
+						}
+					}
+					else if ((attachment = findLocationByCid(value)))
+					{
+						if (attachment.download) {
+							oElement.src = attachment.linkPreview();
+							attachment.isLinked(true);
+						}
+					}
+					else if (detectHiddenImages
+						&& ((oStyle.maxHeight && 3 > pInt(oStyle.maxHeight)) // TODO: issue with 'in'
+							|| (oStyle.maxWidth && 3 > pInt(oStyle.maxWidth)) // TODO: issue with 'in'
+							|| [
+								'email.microsoftemail.com/open',
+								'github.com/notifications/beacon/',
+								'/track/open', // mandrillapp.com list-manage.com
+								'google-analytics.com'
+							].filter(uri => value.toLowerCase().includes(uri)).length
+					)) {
+						skipStyle = true;
+						oStyle.display = 'none';
+//						setAttribute('style', 'display:none');
+						setAttribute('data-x-src-hidden', value);
+//						result.tracking = true;
+					}
+					else if (httpre.test(value))
+					{
+						let src = stripTracking(value);
+						if (src != value) {
+							result.tracking = true;
+							setAttribute('data-x-src-tracking', value);
+						}
+						setAttribute('data-x-src', src);
+						result.hasExternals = true;
+						oElement.alt || (oElement.alt = src.replace(/^.+\/([^/?]+).*$/, '$1').slice(-20));
+					}
+					else if (value.startsWith('data:image/'))
+					{
+						oElement.src = value;
+					}
+					else
+					{
+						setAttribute('data-x-src-broken', value);
+					}
 				}
 				else
 				{
-					setAttribute('data-x-broken-src', value);
+					setAttribute('data-x-src-broken', value);
 				}
 			}
 
 			if (hasAttribute('background')) {
-				oStyle.backgroundImage = 'url("' + getAttribute('background') + '")';
-				delAttribute('background');
+				oStyle.backgroundImage = 'url("' + delAttribute('background') + '")';
 			}
 
 			if (hasAttribute('bgcolor')) {
-				oStyle.backgroundColor = getAttribute('bgcolor');
-				delAttribute('bgcolor');
+				oStyle.backgroundColor = delAttribute('bgcolor');
 			}
 
 			if (hasAttribute('color')) {
-				oStyle.color = getAttribute('color');
-				delAttribute('color');
+				oStyle.color = delAttribute('color');
 			}
 
 			if (!skipStyle) {
@@ -273,30 +518,31 @@ export const
 				oStyle.removeProperty('cursor');
 				oStyle.removeProperty('min-width');
 
-				const urls = {
-					cid: [],    // 'data-x-style-cid'
-					remote: [], // 'data-x-style-url'
-					broken: []  // 'data-x-broken-style-src'
-				};
+				const
+					urls_remote = [], // 'data-x-style-url'
+					urls_broken = []; // 'data-x-broken-style-src'
 				['backgroundImage', 'listStyleImage', 'content'].forEach(property => {
 					if (oStyle[property]) {
 						let value = oStyle[property],
-							found = value.match(/url\s*\(([^)]+)\)/gi);
+							found = value.match(/url\s*\(([^)]+)\)/i);
 						if (found) {
 							oStyle[property] = null;
-							found = found[0].replace(/^["'\s]+|["'\s]+$/g, '');
+							found = found[1].replace(/^["'\s]+|["'\s]+$/g, '');
 							let lowerUrl = found.toLowerCase();
-							if ('cid:' === lowerUrl.slice(0, 4)) {
-								found = found.slice(4);
-								urls.cid[property] = found
-								result.foundCIDs.push(found);
-							} else if (/http[s]?:\/\//.test(lowerUrl) || '//' === found.slice(0, 2)) {
+							if (lowerUrl.startsWith('cid:')) {
+								const attachment = findAttachmentByCid(found);
+								if (attachment?.linkPreview && name) {
+									oStyle[property] = "url('" + attachment.linkPreview() + "')";
+									attachment.isInline(true);
+									attachment.isLinked(true);
+								}
+							} else if (httpre.test(lowerUrl)) {
 								result.hasExternals = true;
-								urls.remote[property] = useProxy ? proxy(found) : found;
-							} else if ('data:image/' === lowerUrl.slice(0, 11)) {
+								urls_remote.push([property, found]);
+							} else if (lowerUrl.startsWith('data:image/')) {
 								oStyle[property] = value;
 							} else {
-								urls.broken[property] = found;
+								urls_broken.push([property, found]);
 							}
 						}
 					}
@@ -304,31 +550,28 @@ export const
 //				oStyle.removeProperty('background-image');
 //				oStyle.removeProperty('list-style-image');
 
-				if (urls.cid.length) {
-					setAttribute('data-x-style-cid', JSON.stringify(urls.cid));
+				if (urls_remote.length) {
+					setAttribute('data-x-style-url', JSON.stringify(urls_remote));
 				}
-				if (urls.remote.length) {
-					setAttribute('data-x-style-url', JSON.stringify(urls.remote));
+				if (urls_broken.length) {
+					setAttribute('data-x-style-broken-urls', JSON.stringify(urls_broken));
 				}
-				if (urls.broken.length) {
-					setAttribute('data-x-style-broken-urls', JSON.stringify(urls.broken));
-				}
-
+/*
+				// https://github.com/the-djmaze/snappymail/issues/1082
 				if (11 > pInt(oStyle.fontSize)) {
 					oStyle.removeProperty('font-size');
 				}
-
+*/
 				// Removes background and color
 				// Many e-mails incorrectly only define one, not both
 				// And in dark theme mode this kills the readability
-				if (removeColors) {
+				if (SettingsUserStore.removeColors()) {
 					oStyle.removeProperty('background-color');
 					oStyle.removeProperty('background-image');
 					oStyle.removeProperty('color');
 				}
 
-				// Drop Microsoft Office style properties
-//				oStyle.cssText = oStyle.cssText.replace(/mso-[^:;]+:[^;]+/gi, '');
+				oStyle.cssText && (oStyle.cssText = cleanCSS(oStyle.cssText));
 			}
 
 			if (debug && aAttrsForRemove.length) {
@@ -336,8 +579,10 @@ export const
 			}
 		});
 
-//		return tpl.content.firstChild;
-		result.html = tpl.innerHTML.trim();
+		blockquoteSwitcher();
+
+//		return tmpl.content.firstChild;
+		result.html = tmpl.innerHTML.trim();
 		return result;
 	},
 
@@ -348,7 +593,7 @@ export const
 	htmlToPlain = html => {
 		const
 			hr = '⎯'.repeat(64),
-			forEach = (selector, fn) => tpl.content.querySelectorAll(selector).forEach(fn),
+			forEach = (selector, fn) => tmpl.content.querySelectorAll(selector).forEach(fn),
 			blockquotes = node => {
 				let bq;
 				while ((bq = node.querySelector('blockquote'))) {
@@ -376,12 +621,9 @@ export const
 			html = html.replace(/\n*<\/(div|tr)(\s[\s\S]*?)?>\n*/gi, '\n');
 		}
 
-		tpl.innerHTML = html
+		tmpl.innerHTML = html
 			.replace(/<t[dh](\s[\s\S]*?)?>/gi, '\t')
 			.replace(/<\/tr(\s[\s\S]*?)?>/gi, '\n');
-
-		// Convert line-breaks
-		forEach('br', br => br.replaceWith('\n'));
 
 		// lines
 		forEach('hr', node => node.replaceWith(`\n\n${hr}\n\n`));
@@ -405,9 +647,8 @@ export const
 				parent = node,
 				ordered = 'OL' == node.tagName,
 				i = 0;
-			while (parent && parent.parentNode && parent.parentNode.closest) {
-				parent = parent.parentNode.closest('ol,ul');
-				parent && (prefix = '    ' + prefix);
+			while ((parent = parent?.parentNode?.closest?.('ol,ul'))) {
+				prefix = '    ' + prefix;
 			}
 			node.querySelectorAll(':scope > li').forEach(li => {
 				li.prepend('\n' + prefix + (ordered ? `${++i}. ` : ' * '));
@@ -419,7 +660,9 @@ export const
 		// Convert anchors
 		forEach('a', a => {
 			let txt = a.textContent, href = a.href;
-			return a.replaceWith((txt.trim() == href ? txt : txt + ' ' + href + ' '));
+			return a.replaceWith(
+				txt.trim() == href || href.includes('mailto:') ? txt : txt + ' ' + href + ' '
+			);
 		});
 
 		// Bold
@@ -427,10 +670,17 @@ export const
 		// Italic
 		forEach('i,em', i => i.replaceWith(`*${i.textContent}*`));
 
-		// Blockquotes must be last
-		blockquotes(tpl.content);
+		// Convert line-breaks
+		tmpl.innerHTML = tmpl.innerHTML
+			.replace(/\n{3,}/gm, '\n\n')
+			.replace(/\n<br[^>]*>/g, '\n')
+			.replace(/<br[^>]*>\n/g, '\n');
+		forEach('br', br => br.replaceWith('\n'));
 
-		return (tpl.content.textContent || '').replace(/\n{3,}/gm, '\n\n').trim();
+		// Blockquotes must be last
+		blockquotes(tmpl.content);
+
+		return (tmpl.content.textContent || '').trim();
 	},
 
 	/**
@@ -439,10 +689,11 @@ export const
 	 * @returns {string}
 	 */
 	plainToHtml = plain => {
-		plain = stripTracking(plain)
-			.toString()
+		plain = plain.toString()
 			.replace(/\r/g, '')
-			.replace(/^>[> ]>+/gm, ([match]) => (match ? match.replace(/[ ]+/g, '') : match));
+			.replace(/^>[> ]>+/gm, ([match]) => (match ? match.replace(/[ ]+/g, '') : match))
+			// https://github.com/the-djmaze/snappymail/issues/900
+			.replace(/\u2028/g,' ');
 
 		let bIn = false,
 			bDo = true,
@@ -483,184 +734,23 @@ export const
 			aText = aNextText;
 		} while (bDo);
 
-		return aText.join('\n')
+		tmpl.innerHTML = aText.join('\n')
 			// .replace(/~~~\/blockquote~~~\n~~~blockquote~~~/g, '\n')
 			.replace(/&/g, '&amp;')
 			.replace(/>/g, '&gt;')
 			.replace(/</g, '&lt;')
+			.replace(urlRegExp, (...m) => {
+				m[0] = stripTracking(m[0]);
+				return `<a href="${m[0]}" target="_blank">${m[0]}</a>`;
+			})
+			.replace(email, '$1<a href="mailto:$2">$2</a>')
+			.replace(tel, '<a href="$1">$1</a>')
 			.replace(/~~~blockquote~~~\s*/g, '<blockquote>')
 			.replace(/\s*~~~\/blockquote~~~/g, '</blockquote>')
 			.replace(/\n/g, '<br>');
+		blockquoteSwitcher();
+		return tmpl.innerHTML.trim();
 	};
-
-export class HtmlEditor {
-	/**
-	 * @param {Object} element
-	 * @param {Function=} onBlur
-	 * @param {Function=} onReady
-	 * @param {Function=} onModeChange
-	 */
-	constructor(element, onBlur = null, onReady = null, onModeChange = null) {
-		this.blurTimer = 0;
-
-		this.onBlur = onBlur;
-		this.onModeChange = onModeChange;
-
-		if (element) {
-			let editor;
-
-			onReady = onReady ? [onReady] : [];
-			this.onReady = fn => onReady.push(fn);
-			const readyCallback = () => {
-				this.editor = editor;
-				this.onReady = fn => fn();
-				onReady.forEach(fn => fn());
-			};
-
-			if (rl.createWYSIWYG) {
-				editor = rl.createWYSIWYG(element, readyCallback);
-			}
-			if (!editor) {
-				editor = new SquireUI(element);
-				setTimeout(readyCallback, 1);
-			}
-
-			editor.on('blur', () => this.blurTrigger());
-			editor.on('focus', () => this.blurTimer && clearTimeout(this.blurTimer));
-			editor.on('mode', () => {
-				this.blurTrigger();
-				this.onModeChange && this.onModeChange(!this.isPlain());
-			});
-		}
-	}
-
-	blurTrigger() {
-		if (this.onBlur) {
-			clearTimeout(this.blurTimer);
-			this.blurTimer = setTimeout(() => this.onBlur && this.onBlur(), 200);
-		}
-	}
-
-	/**
-	 * @returns {boolean}
-	 */
-	isHtml() {
-		return this.editor ? !this.isPlain() : false;
-	}
-
-	/**
-	 * @returns {boolean}
-	 */
-	isPlain() {
-		return this.editor ? 'plain' === this.editor.mode : false;
-	}
-
-	/**
-	 * @returns {void}
-	 */
-	clearCachedSignature() {
-		this.onReady(() => this.editor.execCommand('insertSignature', {
-			clearCache: true
-		}));
-	}
-
-	/**
-	 * @param {string} signature
-	 * @param {bool} html
-	 * @param {bool} insertBefore
-	 * @returns {void}
-	 */
-	setSignature(signature, html, insertBefore = false) {
-		this.onReady(() => this.editor.execCommand('insertSignature', {
-			isHtml: html,
-			insertBefore: insertBefore,
-			signature: signature
-		}));
-	}
-
-	/**
-	 * @param {boolean=} wrapIsHtml = false
-	 * @returns {string}
-	 */
-	getData() {
-		let result = '';
-		if (this.editor) {
-			try {
-				if (this.isPlain() && this.editor.plugins.plain && this.editor.__plain) {
-					result = this.editor.__plain.getRawData();
-				} else {
-					result = this.editor.getData();
-				}
-			} catch (e) {} // eslint-disable-line no-empty
-		}
-		return result;
-	}
-
-	/**
-	 * @returns {string}
-	 */
-	getDataWithHtmlMark() {
-		return (this.isHtml() ? ':HTML:' : '') + this.getData();
-	}
-
-	modeWysiwyg() {
-		this.onReady(() => this.editor.setMode('wysiwyg'));
-	}
-	modePlain() {
-		this.onReady(() => this.editor.setMode('plain'));
-	}
-
-	setHtmlOrPlain(text) {
-		if (':HTML:' === text.slice(0, 6)) {
-			this.setHtml(text.slice(6));
-		} else {
-			this.setPlain(text);
-		}
-	}
-
-	setData(mode, data) {
-		this.onReady(() => {
-			const editor = this.editor;
-			this.clearCachedSignature();
-			try {
-				editor.setMode(mode);
-				if (this.isPlain() && editor.plugins.plain && editor.__plain) {
-					editor.__plain.setRawData(data);
-				} else {
-					editor.setData(data);
-				}
-			} catch (e) { console.error(e); }
-		});
-	}
-
-	setHtml(html) {
-		this.setData('wysiwyg', html/*.replace(/<p[^>]*><\/p>/gi, '')*/);
-	}
-
-	setPlain(txt) {
-		this.setData('plain', txt);
-	}
-
-	focus() {
-		this.onReady(() => this.editor.focus());
-	}
-
-	hasFocus() {
-		try {
-			return this.editor && !!this.editor.focusManager.hasFocus;
-		} catch (e) {
-			return false;
-		}
-	}
-
-	blur() {
-		this.onReady(() => this.editor.focusManager.blur(true));
-	}
-
-	clear() {
-		this.onReady(() => this.isPlain() ? this.setPlain('') : this.setHtml(''));
-	}
-}
 
 rl.Utils = {
 	htmlToPlain: htmlToPlain,

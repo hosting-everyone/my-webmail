@@ -1,12 +1,15 @@
 import ko from 'ko';
 
 import { FileInfo, FileType } from 'Common/File';
+import { stopEvent, SettingsGet, SettingsCapa } from 'Common/Globals';
+import { b64EncodeJSONSafe } from 'Common/Utils';
 import {
 	attachmentDownload,
 	serverRequestRaw
 } from 'Common/Links';
 
 import { AbstractModel } from 'Knoin/AbstractModel';
+import { addObservablesTo } from 'External/ko';
 
 import { SMAudio } from 'Common/Audio';
 
@@ -14,24 +17,22 @@ export class AttachmentModel extends AbstractModel {
 	constructor() {
 		super();
 
-		this.checked = ko.observable(false);
+		this.checked = ko.observable(true);
 
 		this.mimeType = '';
+//		this.mimeTypeParams = '';
 		this.fileName = '';
 		this.fileNameExt = '';
 		this.fileType = FileType.Unknown;
-		this.friendlySize = '';
-		this.isThumbnail = false;
-		this.cid = '';
+		this.cId = '';
 		this.contentLocation = '';
-		this.download = '';
 		this.folder = '';
 		this.uid = '';
 		this.url = '';
 		this.mimeIndex = '';
-		this.framed = false;
+		this.estimatedSize = 0;
 
-		this.addObservables({
+		addObservablesTo(this, {
 			isInline: false,
 			isLinked: false
 		});
@@ -45,16 +46,23 @@ export class AttachmentModel extends AbstractModel {
 	static reviveFromJson(json) {
 		const attachment = super.reviveFromJson(json);
 		if (attachment) {
-			attachment.friendlySize = FileInfo.friendlySize(json.EstimatedSize);
-
 			attachment.fileNameExt = FileInfo.getExtension(attachment.fileName);
 			attachment.fileType = FileInfo.getType(attachment.fileNameExt, attachment.mimeType);
 		}
 		return attachment;
 	}
 
+	toggleChecked(self, event) {
+		stopEvent(event);
+		self.checked(!self.checked());
+	}
+
+	friendlySize() {
+		return FileInfo.friendlySize(this.estimatedSize) + (this.isLinked() ? ' 🔗' : '');
+	}
+
 	contentId() {
-		return this.cid.replace(/^<+|>+$/g, '');
+		return this.cId.replace(/^<+|>+$/g, '');
 	}
 
 	/**
@@ -83,13 +91,6 @@ export class AttachmentModel extends AbstractModel {
 	 */
 	isWav() {
 		return FileType.Audio === this.fileType && 'wav' === this.fileNameExt;
-	}
-
-	/**
-	 * @returns {boolean}
-	 */
-	hasThumbnail() {
-		return this.isThumbnail;
 	}
 
 	/**
@@ -124,6 +125,20 @@ export class AttachmentModel extends AbstractModel {
 		);
 	}
 
+	get download() {
+		return b64EncodeJSONSafe(this.url ? {
+			fileName: this.fileName,
+			data: this.url.replace(/^.+,/, '')
+		} : {
+			folder: this.folder,
+			uid: this.uid,
+			mimeIndex: this.mimeIndex,
+			mimeType: this.mimeType,
+			fileName: this.fileName,
+			accountHash: SettingsGet('accountHash')
+		});
+	}
+
 	/**
 	 * @returns {string}
 	 */
@@ -139,10 +154,19 @@ export class AttachmentModel extends AbstractModel {
 	}
 
 	/**
+	 * @returns {boolean}
+	 */
+	hasThumbnail() {
+		return SettingsCapa('AttachmentThumbnails') && this.isImage() && !this.isLinked();
+	}
+
+	/**
 	 * @returns {string}
 	 */
-	linkThumbnailPreviewStyle() {
-		return this.hasThumbnail() ? 'background:url(' + serverRequestRaw('ViewThumbnail', this.download) + ')' : '';
+	thumbnailStyle() {
+		return this.hasThumbnail()
+			? 'background:url(' + serverRequestRaw('ViewThumbnail', this.download) + ')'
+			: null;
 	}
 
 	/**
@@ -173,7 +197,7 @@ export class AttachmentModel extends AbstractModel {
 		const localEvent = event.originalEvent || event;
 		if (attachment && localEvent && localEvent.dataTransfer && localEvent.dataTransfer.setData) {
 			let link = this.linkDownload();
-			if ('http' !== link.slice(0, 4)) {
+			if (!link.startsWith('http')) {
 				link = location.protocol + '//' + location.host + location.pathname + link;
 			}
 			localEvent.dataTransfer.setData('DownloadURL', this.mimeType + ':' + this.fileName + ':' + link);

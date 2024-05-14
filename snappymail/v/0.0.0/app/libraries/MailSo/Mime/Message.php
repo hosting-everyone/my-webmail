@@ -17,10 +17,7 @@ namespace MailSo\Mime;
  */
 class Message extends Part
 {
-	/**
-	 * @var array
-	 */
-	private $aHeadersValue = array(
+	private array $aHeadersValue = array(
 /*
 		Enumerations\Header::BCC => '',
 		Enumerations\Header::CC => '',
@@ -42,25 +39,23 @@ class Message extends Part
 */
 	);
 
-	/**
-	 * @var AttachmentCollection
-	 */
-	private $oAttachmentCollection;
+	private AttachmentCollection $oAttachmentCollection;
 
-	/**
-	 * @var bool
-	 */
-	private $bAddEmptyTextPart = true;
+	private bool $bAddEmptyTextPart = true;
 
-	/**
-	 * @var bool
-	 */
-	private $bAddDefaultXMailer = true;
+	private bool $bAddDefaultXMailer = true;
 
 	function __construct()
 	{
 		parent::__construct();
 		$this->oAttachmentCollection = new AttachmentCollection;
+	}
+
+	private function getHeaderValue(string $name)
+	{
+		return isset($this->aHeadersValue[$name])
+			? $this->aHeadersValue[$name]
+			: null;
 	}
 
 	public function DoesNotAddDefaultXMailer() : void
@@ -70,8 +65,7 @@ class Message extends Part
 
 	public function MessageId() : string
 	{
-		return empty($this->aHeadersValue[Enumerations\Header::MESSAGE_ID]) ? ''
-			: $this->aHeadersValue[Enumerations\Header::MESSAGE_ID];
+		return $this->getHeaderValue(Enumerations\Header::MESSAGE_ID) ?: '';
 	}
 
 	public function SetMessageId(string $sMessageId) : void
@@ -91,52 +85,31 @@ class Message extends Part
 
 	public function GetSubject() : string
 	{
-		return isset($this->aHeadersValue[Enumerations\Header::SUBJECT]) ?
-			$this->aHeadersValue[Enumerations\Header::SUBJECT] : '';
+		return $this->getHeaderValue(Enumerations\Header::SUBJECT) ?: '';
 	}
 
 	public function GetFrom() : ?Email
 	{
-		if (isset($this->aHeadersValue[Enumerations\Header::FROM_]) &&
-			$this->aHeadersValue[Enumerations\Header::FROM_] instanceof Email)
-		{
-			return $this->aHeadersValue[Enumerations\Header::FROM_];
-		}
-
-		return null;
+		$value = $this->getHeaderValue(Enumerations\Header::FROM_);
+		return ($value instanceof Email) ? $value : null;
 	}
 
-	public function GetTo() : EmailCollection
+	public function GetTo() : ?EmailCollection
 	{
-		if (isset($this->aHeadersValue[Enumerations\Header::TO_]) &&
-			$this->aHeadersValue[Enumerations\Header::TO_] instanceof EmailCollection)
-		{
-			return $this->aHeadersValue[Enumerations\Header::TO_]->Unique();
-		}
-
-		return new EmailCollection;
+		$value = $this->getHeaderValue(Enumerations\Header::TO_);
+		return ($value instanceof EmailCollection) ? $value->Unique() : null;
 	}
 
 	public function GetCc() : ?EmailCollection
 	{
-		if (isset($this->aHeadersValue[Enumerations\Header::CC]) &&
-			$this->aHeadersValue[Enumerations\Header::CC] instanceof EmailCollection)
-		{
-			return $this->aHeadersValue[Enumerations\Header::CC]->Unique();
-		}
-
-		return null;
+		$value = $this->getHeaderValue(Enumerations\Header::CC);
+		return ($value instanceof EmailCollection) ? $value->Unique() : null;
 	}
 
 	public function GetBcc() : ?EmailCollection
 	{
-		if (isset($this->aHeadersValue[Enumerations\Header::BCC]) &&
-			$this->aHeadersValue[Enumerations\Header::BCC] instanceof EmailCollection)
-		{
-			return $this->aHeadersValue[Enumerations\Header::BCC]->Unique();
-		}
-
-		return null;
+		$value = $this->getHeaderValue(Enumerations\Header::BCC);
+		return ($value instanceof EmailCollection) ? $value->Unique() : null;
 	}
 
 	public function GetRcpt() : EmailCollection
@@ -145,8 +118,9 @@ class Message extends Part
 
 		$headers = array(Enumerations\Header::TO_, Enumerations\Header::CC, Enumerations\Header::BCC);
 		foreach ($headers as $header) {
-			if (isset($this->aHeadersValue[$header]) && $this->aHeadersValue[$header] instanceof EmailCollection) {
-				foreach ($this->aHeadersValue[$header] as $oEmail) {
+			$value = $this->getHeaderValue($header);
+			if ($value instanceof EmailCollection) {
+				foreach ($value as $oEmail) {
 					$oResult->append($oEmail);
 				}
 			}
@@ -156,8 +130,9 @@ class Message extends Part
 		$aReturn = array();
 		$headers = array(Enumerations\Header::TO_, Enumerations\Header::CC, Enumerations\Header::BCC);
 		foreach ($headers as $header) {
-			if (isset($this->aHeadersValue[$header]) && $this->aHeadersValue[$header] instanceof EmailCollection) {
-				foreach ($this->aHeadersValue[$header] as $oEmail) {
+			$value = $this->getHeaderValue($header);
+			if ($value instanceof EmailCollection) {
+				foreach ($value as $oEmail) {
 					$oResult->append($oEmail);
 					$sEmail = $oEmail->GetEmail();
 					if (!isset($aReturn[$sEmail])) {
@@ -175,11 +150,16 @@ class Message extends Part
 	public function SetCustomHeader(string $sHeaderName, string $sValue) : self
 	{
 		$sHeaderName = \trim($sHeaderName);
-		if (\strlen($sHeaderName))
-		{
+		if (\strlen($sHeaderName)) {
 			$this->aHeadersValue[$sHeaderName] = $sValue;
 		}
 
+		return $this;
+	}
+
+	public function SetAutocrypt(array $aValue) : self
+	{
+		$this->aHeadersValue['Autocrypt'] = $aValue;
 		return $this;
 	}
 
@@ -192,16 +172,19 @@ class Message extends Part
 
 	public function SetInReplyTo(string $sInReplyTo) : self
 	{
-		$this->aHeadersValue[Enumerations\Header::IN_REPLY_TO] = $sInReplyTo;
-
+		$sInReplyTo = \trim($sInReplyTo);
+		if (\strlen($sInReplyTo)) {
+			$this->aHeadersValue[Enumerations\Header::IN_REPLY_TO] = $sInReplyTo;
+		}
 		return $this;
 	}
 
 	public function SetReferences(string $sReferences) : self
 	{
-		$this->aHeadersValue[Enumerations\Header::REFERENCES] =
-			\MailSo\Base\Utils::StripSpaces($sReferences);
-
+		$sReferences = \MailSo\Base\Utils::StripSpaces($sReferences);
+		if (\strlen($sReferences)) {
+			$this->aHeadersValue[Enumerations\Header::REFERENCES] = $sReferences;
+		}
 		return $this;
 	}
 
@@ -211,11 +194,6 @@ class Message extends Part
 		$this->aHeadersValue[Enumerations\Header::X_CONFIRM_READING_TO] = $sEmail;
 
 		return $this;
-	}
-
-	public function SetReadConfirmation(string $sEmail) : self
-	{
-		return $this->SetReadReceipt($sEmail);
 	}
 
 	public function SetPriority(int $iValue) : self
@@ -234,8 +212,7 @@ class Message extends Part
 				break;
 		}
 
-		if (\strlen($sResult))
-		{
+		if (\strlen($sResult)) {
 			$this->aHeadersValue[Enumerations\Header::X_PRIORITY] = $sResult;
 		}
 
@@ -258,8 +235,9 @@ class Message extends Part
 
 	public function SetTo(EmailCollection $oEmails) : self
 	{
-		$this->aHeadersValue[Enumerations\Header::TO_] = $oEmails;
-
+		if ($oEmails->count()) {
+			$this->aHeadersValue[Enumerations\Header::TO_] = $oEmails;
+		}
 		return $this;
 	}
 
@@ -272,22 +250,25 @@ class Message extends Part
 
 	public function SetReplyTo(EmailCollection $oEmails) : self
 	{
-		$this->aHeadersValue[Enumerations\Header::REPLY_TO] = $oEmails;
-
+		if ($oEmails->count()) {
+			$this->aHeadersValue[Enumerations\Header::REPLY_TO] = $oEmails;
+		}
 		return $this;
 	}
 
 	public function SetCc(EmailCollection $oEmails) : self
 	{
-		$this->aHeadersValue[Enumerations\Header::CC] = $oEmails;
-
+		if ($oEmails->count()) {
+			$this->aHeadersValue[Enumerations\Header::CC] = $oEmails;
+		}
 		return $this;
 	}
 
 	public function SetBcc(EmailCollection $oEmails) : self
 	{
-		$this->aHeadersValue[Enumerations\Header::BCC] = $oEmails;
-
+		if ($oEmails->count()) {
+			$this->aHeadersValue[Enumerations\Header::BCC] = $oEmails;
+		}
 		return $this;
 	}
 
@@ -311,24 +292,21 @@ class Message extends Part
 
 	private function generateNewMessageId(string $sHostName = '') : string
 	{
-		if (0 === \strlen($sHostName))
-		{
+		if (!\strlen($sHostName)) {
 			$sHostName = isset($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : '';
 		}
 
-		if (empty($sHostName) && \MailSo\Base\Utils::FunctionExistsAndEnabled('php_uname'))
-		{
+		if (empty($sHostName) && \MailSo\Base\Utils::FunctionCallable('php_uname')) {
 			$sHostName = \php_uname('n');
 		}
 
-		if (empty($sHostName))
-		{
+		if (empty($sHostName)) {
 			$sHostName = 'localhost';
 		}
 
 		return '<'.
 			\MailSo\Base\Utils::Sha1Rand($sHostName.
-				(\MailSo\Base\Utils::FunctionExistsAndEnabled('getmypid') ? \getmypid() : '')).'@'.$sHostName.'>';
+				(\MailSo\Base\Utils::FunctionCallable('getmypid') ? \getmypid() : '')).'@'.$sHostName.'>';
 	}
 
 	public function GetRootPart() : Part
@@ -359,7 +337,7 @@ class Message extends Part
 					}
 					$oPart->Headers->append(
 						new Header(Enumerations\Header::CONTENT_TYPE,
-							$aAttachments[0]->ContentType().'; '.$oParameters->ToString())
+							$aAttachments[0]->ContentType().'; '.$oParameters)
 					);
 
 					if ($resource = $aAttachments[0]->Resource()) {
@@ -382,13 +360,10 @@ class Message extends Part
 		if (1 == \count($this->SubParts)) {
 			$oRootPart = $this->SubParts[0];
 			foreach ($this->oAttachmentCollection as $oAttachment) {
-				if ($oAttachment->IsLinked()) {
+				if ($oAttachment->isLinked()) {
 					$oRelatedPart = new Part;
 					$oRelatedPart->Headers->append(
-						new Header(
-							Enumerations\Header::CONTENT_TYPE,
-							Enumerations\MimeType::MULTIPART_RELATED
-						)
+						new Header(Enumerations\Header::CONTENT_TYPE, 'multipart/related')
 					);
 					$oRelatedPart->SubParts->append($oRootPart);
 					$oRootPart = $oRelatedPart;
@@ -397,24 +372,18 @@ class Message extends Part
 			}
 		} else {
 			$oRootPart = new Part;
-			$oRootPart->Headers->AddByName(
-				Enumerations\Header::CONTENT_TYPE,
-				Enumerations\MimeType::MULTIPART_MIXED
-			);
+			$oRootPart->Headers->AddByName(Enumerations\Header::CONTENT_TYPE, 'multipart/mixed');
 			$oRootPart->SubParts = $this->SubParts;
 		}
 
 		$oMixedPart = null;
 		foreach ($this->oAttachmentCollection as $oAttachment) {
-			if ($oRelatedPart && $oAttachment->IsLinked()) {
+			if ($oRelatedPart && $oAttachment->isLinked()) {
 				$oRelatedPart->SubParts->append($oAttachment->ToPart());
 			} else {
 				if (!$oMixedPart) {
 					$oMixedPart = new Part;
-					$oMixedPart->Headers->AddByName(
-						Enumerations\Header::CONTENT_TYPE,
-						Enumerations\MimeType::MULTIPART_MIXED
-					);
+					$oMixedPart->Headers->AddByName(Enumerations\Header::CONTENT_TYPE, 'multipart/mixed');
 					$oMixedPart->SubParts->append($oRootPart);
 					$oRootPart = $oMixedPart;
 				}
@@ -443,7 +412,7 @@ class Message extends Part
 			$oRootPart->Headers->SetByName(Enumerations\Header::MESSAGE_ID, $this->generateNewMessageId(), true);
 		}
 
-		if (!isset($this->aHeadersValue[Enumerations\Header::X_MAILER]) && $this->bAddDefaultXMailer) {
+		if ($this->bAddDefaultXMailer && !isset($this->aHeadersValue[Enumerations\Header::X_MAILER])) {
 			$oRootPart->Headers->SetByName(Enumerations\Header::X_MAILER, 'SnappyMail/'.APP_VERSION, true);
 		}
 
@@ -452,12 +421,11 @@ class Message extends Part
 		}
 
 		foreach ($this->aHeadersValue as $sName => $mValue) {
-			if (!($bWithoutBcc && \strtolower(Enumerations\Header::BCC) === \strtolower($sName))) {
-				if (\is_object($mValue)) {
-					if ($mValue instanceof EmailCollection || $mValue instanceof Email || $mValue instanceof ParameterCollection) {
-						$mValue = $mValue->ToString();
-					}
+			if ('autocrypt' === \strtolower($sName)) {
+				foreach ($mValue as $key) {
+					$oRootPart->Headers->AddByName($sName, $key);
 				}
+			} else if (!($bWithoutBcc && \strtolower(Enumerations\Header::BCC) === \strtolower($sName))) {
 				$oRootPart->Headers->SetByName($sName, (string) $mValue);
 			}
 		}

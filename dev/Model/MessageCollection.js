@@ -1,10 +1,6 @@
 import { AbstractCollectionModel } from 'Model/AbstractCollection';
 import { MessageModel } from 'Model/Message';
-
-import {
-	MessageFlagsCache,
-	hasNewMessageAndRemoveFromCache
-} from 'Common/Cache';
+import { MessageUserStore } from 'Stores/User/Message';
 
 'use strict';
 
@@ -13,18 +9,16 @@ export class MessageCollectionModel extends AbstractCollectionModel
 /*
 	constructor() {
 		super();
-		this.Filtered
-		this.Folder
-		this.FolderHash
-		this.Limit
-		this.MessageCount
-		this.MessageUnseenCount
-		this.MessageResultCount
-		this.NewMessages
-		this.Offset
-		this.Search
-		this.ThreadUid
-		this.UidNext
+		this.filtered
+		this.folder
+		this.totalEmails
+		this.totalThreads
+		this.threadUid
+		this.newMessages
+		this.offset
+		this.limit
+		this.search
+		this.limited
 	}
 */
 
@@ -32,18 +26,14 @@ export class MessageCollectionModel extends AbstractCollectionModel
 	 * @param {?Object} json
 	 * @returns {MessageCollectionModel}
 	 */
-	static reviveFromJson(object, cached) {
-		let newCount = 0;
+	static reviveFromJson(object/*, cached*/) {
+		let msg = MessageUserStore.message();
 		return super.reviveFromJson(object, message => {
-			message = MessageModel.reviveFromJson(message);
+			// If message is currently viewed, use that.
+			// Maybe then use msg.revivePropertiesFromJson(message) ?
+			message = (msg && msg.hash === message.hash) ? msg : MessageModel.reviveFromJson(message);
 			if (message) {
-				if (hasNewMessageAndRemoveFromCache(message.folder, message.uid) && 5 >= newCount) {
-					++newCount;
-				}
-
 				message.deleted(false);
-
-				cached ? MessageFlagsCache.initMessage(message) : MessageFlagsCache.store(message);
 				return message;
 			}
 		});

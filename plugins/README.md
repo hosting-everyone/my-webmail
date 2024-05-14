@@ -1,15 +1,88 @@
+Also see https://github.com/the-djmaze/snappymail/tree/master/plugins/example
+
 PHP
 ```php
 class Plugin extends \RainLoop\Plugins\AbstractPlugin
 {
 	public function __construct();
-	public function Name() : string;
-	public function Description() : string;
-	public function UseLangs(?bool $bLangs = null) : bool;
-	public function Supported() : string;
-	public function Init() : void;
-	public function FilterAppDataPluginSection(bool $bAdmin, bool $bAuth, array &$aConfig) : void;
-	protected function configMapping() : array;
+
+	/** Returns static::NAME */
+	public function Name(): string;
+
+	/** Returns /README file contents or static::DESCRIPTION */
+	public function Description(): string;
+
+	/** When $bLangs is boolean it sets the value, else returns current value */
+	public function UseLangs(?bool $bLangs = null): bool;
+
+	/** When true the result is empty string, else the error message */
+	public function Supported(): string;
+
+	/** Initialize settings */
+	public function Init(): void;
+
+	public function FilterAppDataPluginSection(bool $bAdmin, bool $bAuth, array &$aConfig): void;
+
+	/** Returns array of all plugin Property options for use in Admin -> Extensions -> Plugin cog wheel */
+	protected function configMapping(): array;
+
+	/** With this function you hook to an event
+	 * $sHookName see chapter "Hooks" below for available names
+	 * $sFunctionName the name of a function in this class
+	 */
+	final protected function addHook(string $sHookName, string $sFunctionName): self;
+
+	final protected function addCss(string $sFile, bool $bAdminScope = false): self;
+
+	final protected function addJs(string $sFile, bool $bAdminScope = false): self;
+
+	final protected function addTemplate(string $sFile, bool $bAdminScope = false): self;
+
+	final protected function addJsonHook(string $sActionName, string $sFunctionName): self;
+
+	/**
+	 * You may register your own service actions.
+	 * Url is like /?{actionname}/etc.
+	 * Predefined actions of \RainLoop\ServiceActions that can't be registered are:
+	 * - admin
+	 * - AdminAppData
+	 * - AppData
+	 * - Append
+	 * - Backup
+	 * - BadBrowser
+	 * - CspReport
+	 * - Css
+	 * - Json
+	 * - Lang
+	 * - Mailto
+	 * - NoCookie
+	 * - NoScript
+	 * - Ping
+	 * - Plugins
+	 * - ProxyExternal
+	 * - Raw
+	 * - Sso
+	 * - Upload
+	 * - UploadBackground
+	 * - UploadContacts
+	 */
+	final protected function addPartHook(string $sActionName, string $sFunctionName): self
+
+	final public function Config(): \RainLoop\Config\Plugin;
+	final public function Manager(): \RainLoop\Plugins\Manager;
+	final public function Path(): string;
+	final public function ConfigMap(bool $flatten = false): array;
+
+	/**
+	 * Returns result of Actions->DefaultResponse($sFunctionName, $mData) or json_encode($mData)
+	 */
+	final protected function jsonResponse(string $sFunctionName, $mData): mixed;
+
+	final public function jsonParam(string $sKey, $mDefault = null): mixed;
+
+	final public function getUserSettings(): array;
+
+	final public function saveUserSettings(array $aSettings): bool;
 }
 ```
 
@@ -59,12 +132,13 @@ $Plugin->addHook('hook.name', 'functionName');
 ### login.credentials
 	params:
 		string &$sEmail
-		string &$sLogin
+		string &$sImapUser
 		string &$sPassword
+		string &$sSmtpUser
 
 ### login.success
 	params:
-		\RainLoop\Model\Account $oAccount
+		\RainLoop\Model\MainAccount $oAccount
 
 ## IMAP
 
@@ -72,53 +146,59 @@ $Plugin->addHook('hook.name', 'functionName');
 	params:
 		\RainLoop\Model\Account $oAccount
 		\MailSo\Imap\ImapClient $oImapClient
-		array &$aCredentials
+		\MailSo\Imap\Settings $oSettings
 
 ### imap.after-connect
 	params:
 		\RainLoop\Model\Account $oAccount
 		\MailSo\Imap\ImapClient $oImapClient
-		array $aCredentials
+		\MailSo\Imap\Settings $oSettings
 
 ### imap.before-login
 	params:
 		\RainLoop\Model\Account $oAccount
 		\MailSo\Imap\ImapClient $oImapClient
-		array &$aCredentials
+		\MailSo\Imap\Settings $oSettings
 
 ### imap.after-login
 	params:
 		\RainLoop\Model\Account $oAccount
 		\MailSo\Imap\ImapClient $oImapClient
 		bool $bSuccess
-		array $aCredentials
+		\MailSo\Imap\Settings $oSettings
+
+### imap.message-headers
+	params:
+		array &$aHeaders
+
+	Allows you to fetch more MIME headers for messages.
 
 ## Sieve
 
 ### sieve.before-connect
 	params:
 		\RainLoop\Model\Account $oAccount
-		\MailSo\Sieve\ManageSieveClient $oSieveClient
-		array &$aCredentials
+		\MailSo\Sieve\SieveClient $oSieveClient
+		\MailSo\Sieve\Settings $oSettings
 
 ### sieve.after-connect
 	params:
 		\RainLoop\Model\Account $oAccount
-		\MailSo\Sieve\ManageSieveClient $oSieveClient
-		array $aCredentials
+		\MailSo\Sieve\SieveClient $oSieveClient
+		\MailSo\Sieve\Settings $oSettings
 
 ### sieve.before-login
 	params:
 		\RainLoop\Model\Account $oAccount
-		\MailSo\Sieve\ManageSieveClient $oSieveClient
-		array &$aCredentials
+		\MailSo\Sieve\SieveClient $oSieveClient
+		\MailSo\Sieve\Settings $oSettings
 
 ### sieve.after-login
 	params:
 		\RainLoop\Model\Account $oAccount
-		\MailSo\Sieve\ManageSieveClient $oSieveClient
+		\MailSo\Sieve\SieveClient $oSieveClient
 		bool $bSuccess
-		array $aCredentials
+		\MailSo\Sieve\Settings $oSettings
 
 ## SMTP
 
@@ -126,48 +206,48 @@ $Plugin->addHook('hook.name', 'functionName');
 	params:
 		\RainLoop\Model\Account $oAccount
 		\MailSo\Smtp\SmtpClient $oSmtpClient
-		array &$aCredentials
+		\MailSo\Smtp\Settings $oSettings
 
 ### smtp.after-connect
 	params:
 		\RainLoop\Model\Account $oAccount
 		\MailSo\Smtp\SmtpClient $oSmtpClient
-		array $aCredentials
+		\MailSo\Smtp\Settings $oSettings
 
 ### smtp.before-login
 	params:
 		\RainLoop\Model\Account $oAccount
 		\MailSo\Smtp\SmtpClient $oSmtpClient
-		array &$aCredentials
+		\MailSo\Smtp\Settings $oSettings
 
 ### smtp.after-login
 	params:
 		\RainLoop\Model\Account $oAccount
 		\MailSo\Smtp\SmtpClient $oSmtpClient
 		bool $bSuccess
-		array $aCredentials
+		\MailSo\Smtp\Settings $oSettings
 
-## Folders
+## Json service actions
+Called by RainLoop\ServiceActions::ServiceJson()
+{actionname} is one of the RainLoop\Actions::Do{ActionName}(),
+or an extension action as "Plugin{ActionName}" added with Plugin::addJsonHook()
+and called in JavaScript using rl.pluginRemoteRequest().
 
-### filter.folders-post
+### json.before-{actionname}
+	params: none
+
+### json.after-{actionname}
 	params:
-		\RainLoop\Model\Account $oAccount
-		\MailSo\Mail\FolderCollection $oFolderCollection
+		array &$aResponse
 
-### filter.folders-complete
-	params:
-		\RainLoop\Model\Account $oAccount
-		\MailSo\Mail\FolderCollection $oFolderCollection
+### json.action-post-call
+	Obsolete, use json.after-{actionname}
 
-### filter.folders-system-types
-	params:
-		\RainLoop\Model\Account $oAccount
-		array &$aList
+### json.action-pre-call
+	Obsolete, use json.before-{actionname}
 
-### filter.system-folders-names
-	params:
-		\RainLoop\Model\Account $oAccount
-		array &$aCache
+### filter.json-response
+	Obsolete, use json.after-{actionname}
 
 ## Others
 
@@ -193,6 +273,8 @@ $Plugin->addHook('hook.name', 'functionName');
 	params:
 		\MailSo\Mime\Message $oMessage
 
+	Happens before send/save message
+
 ### filter.build-read-receipt-message
 	params:
 		\MailSo\Mime\Message $oMessage
@@ -200,7 +282,7 @@ $Plugin->addHook('hook.name', 'functionName');
 
 ### filter.domain
 	params:
-		\RainLoop\Model\Domain &$oDomain
+		\RainLoop\Model\Domain $oDomain
 
 ### filter.fabrica
 	params:
@@ -212,10 +294,12 @@ $Plugin->addHook('hook.name', 'functionName');
 	params:
 		array &$aPaths
 
-### filter.json-response
+### filter.language
 	params:
-		string $sAction
-		array &$aResponseItem
+		string &$sLanguage
+		bool $bAdmin
+
+	Allows you to set a different language
 
 ### filter.message-html
 	params:
@@ -223,13 +307,18 @@ $Plugin->addHook('hook.name', 'functionName');
 		\MailSo\Mime\Message $oMessage
 		string &$sTextConverted
 
+	Happens before send/save message
+
 ### filter.message-plain
 	params:
 		\RainLoop\Model\Account $oAccount
 		\MailSo\Mime\Message $oMessage
 		string &$sTextConverted
 
+	Happens before send/save message
+
 ### filter.message-rcpt
+	Called by DoSendMessage and DoSendReadReceiptMessage
 	params:
 		\RainLoop\Model\Account $oAccount
 		\MailSo\Mime\EmailCollection $oRcpt
@@ -244,13 +333,19 @@ $Plugin->addHook('hook.name', 'functionName');
 	params:
 		\MailSo\Mime\Message $oMessage
 
+	Happens when reading message
+
 ### filter.save-message
 	params:
 		\MailSo\Mime\Message $oMessage
 
+	Happens before save message
+
 ### filter.send-message
 	params:
 		\MailSo\Mime\Message $oMessage
+
+	Happens before send message
 
 ### filter.send-message-stream
 	params:
@@ -276,6 +371,7 @@ $Plugin->addHook('hook.name', 'functionName');
 		array &$aHiddenRcpt
 
 ### filter.smtp-message-stream
+	Called by DoSendMessage and DoSendReadReceiptMessage
 	params:
 		\RainLoop\Model\Account $oAccount
 		resource &$rMessageStream
@@ -283,16 +379,7 @@ $Plugin->addHook('hook.name', 'functionName');
 
 ### filter.upload-response
 	params:
-		array &$aResponseItem
-
-### json.action-post-call
-	params:
-		string $sAction
-		array &$aResponseItem
-
-### json.action-pre-call
-	params:
-		string $sAction
+		array &$aResponse
 
 ### json.attachments
 	params:
@@ -304,65 +391,176 @@ $Plugin->addHook('hook.name', 'functionName');
 		int &$iLimit
 		\RainLoop\Model\Account $oAccount
 
-### json.suggestions-post
-	params:
-		array &$aResult
-		string $sQuery
-		\RainLoop\Model\Account $oAccount
-		int $iLimit
-
-### json.suggestions-pre
-	params:
-		array &$aResult
-		string $sQuery
-		\RainLoop\Model\Account $oAccount
-		int $iLimit
-
 ### main.content-security-policy
 	params:
 		\SnappyMail\HTTP\CSP $oCSP
 
+	Allows you to edit the policy, like:
+	`$oCSP->script[] = "'strict-dynamic'";`
+
 ### main.default-response
-	params:
-		string $sActionName
-		array &$aResponseItem
+	Obsolete, use json.after-{actionname}
 
 ### main.default-response-data
-	params:
-		string $sActionName
-		mixed &$mResult
+	Obsolete, use json.after-{actionname}
 
 ### main.default-response-error-data
-	params:
-		string $sActionName
-		int &$iErrorCode
-		string &$sErrorMessage
+	Obsolete, use json.after-{actionname}
 
 ### main.fabrica
 	params:
 		string $sName
 		mixed &$mResult
 
-### service.app-delay-start-begin
-	no params
-
-### service.app-delay-start-end
-	no params
-
 # JavaScript Events
 
 ## mailbox
+### mailbox.inbox-unread-count
 ### mailbox.message-list.selector.go-up
 ### mailbox.message-list.selector.go-down
-### mailbox.message-view.toggle-full-screen
-### mailbox.inbox-unread-count
+
 ### mailbox.message.show
+	Use to show a specific message.
+``` JavaScript
+	dispatchEvent(
+		new CustomEvent(
+			'mailbox.message.show',
+			{
+				detail: {
+					folder: 'INBOX',
+					uid: 1
+				},
+				cancelable: false
+			}
+		)
+	);
+```
+
 ## audio
 ### audio.start
 ### audio.stop
 ### audio.api.stop
 ## Misc
-### idle
 ### rl-layout
+	event.detail value is one of:
+	0. NoPreview
+	1. SidePreview
+	2. BottomPreview
+
+### rl-view-model.create
+	event.detail = the ViewModel class
+	Happens immediately after the ViewModel constructor.
+	See accessible properties as https://github.com/the-djmaze/snappymail/blob/master/dev/Knoin/AbstractViews.js
+
 ### rl-view-model
 	event.detail = the ViewModel class
+	Happens after the full build (vm.onBuild()) and contains viewModelDom
+
+### sm-admin-login
+	event.detail = FormData
+	cancelable using preventDefault()
+### sm-admin-login-response
+	event.detail = { error: int, data: {JSON response} }
+### sm-user-login
+	event.detail = FormData
+	cancelable using preventDefault()
+### sm-user-login-response
+	event.detail = { error: int, data: {JSON response} }
+
+### sm-show-screen
+	event.detail = 'screenname'
+	cancelable using preventDefault()
+
+### squire-toolbar
+	event.detail = { squire: SquireUI, actions: object }
+	`actions` is the toolbar structure.
+	```javascript
+	block-of-buttons: {
+		button-name: {
+			select: ['selectbox options'],
+			html: 'button text',
+			cmd: () => `command to execute`,
+			key: 'keyboard shortcut',
+			matches: 'HTML elements that match'
+		}
+	}
+	```
+	See [SquireUI.js](https://github.com/the-djmaze/snappymail/blob/master/dev/External/SquireUI.js)
+	for all default toolbar actions.
+
+# JavaScript `rl` object
+
+## rl.Enums.StorageResultType
+### rl.Enums.StorageResultType.Abort
+### rl.Enums.StorageResultType.Error
+### rl.Enums.StorageResultType.Success
+
+## rl.​Utils.htmlToPlain(html)
+Converts HTML to text
+
+## rl.Utils.plainToHtml(plain)
+Converts text to HTML
+
+## rl.addSettingsViewModel(SettingsViewModelClass, template, labelName, route)​
+Examples in
+* ./change-password/js/ChangePasswordUserSettings.js
+* ./example/js/ExampleUserSettings.js
+* ./kolab/js/settings.js
+* ./two-factor-auth/js/TwoFactorAuthSettings.js
+
+## rl.addSettingsViewModelForAdmin(SettingsViewModelClass, template, labelName, route)​
+Examples in
+* ./example/js/ExampleAdminSettings.js:34:	rl.addSettingsViewModelForAdmin(ExampleAdminSettings, 'ExampleAdminSettingsTab',
+
+## rl.adminArea()​
+Returns true or false when in '?admin' area
+
+## rl.app.Remote.abort(action)​​​​​
+
+## rl.app.Remote.get(action, url)​​​​​
+
+## rl.app.Remote.getPublicKey(fCallback)​​​​​
+
+## rl.app.Remote.post(action, fTrigger, params, timeOut)​​​​​
+
+## rl.app.Remote.request(action, fCallback, params, iTimeout, sGetAdd)​​​​​
+
+## rl.app.Remote.setTrigger(trigger, value)​​​​​
+
+## rl.app.Remote.streamPerLine(fCallback, sGetAdd, postData)
+
+## rl.app.folderList
+A knockout observable array of all folders/mailboxes
+
+## rl.fetch(resource, init, postData)​
+
+## rl.fetchJSON(resource, init, postData)​
+
+## rl.i18n(key, valueList, defaulValue)​
+
+## rl.loadScript(src)​
+
+## rl.logoutReload(url)​
+
+## rl.pluginPopupView
+class AbstractViewPopup
+
+## rl.pluginRemoteRequest(callback, action, parameters, timeout)​
+
+## rl.pluginSettingsGet(pluginSection, name)​
+
+## rl.registerWYSIWYG(name, construct)​
+
+## rl.route.root()
+
+## rl.route.reload()
+
+## rl.route.off()
+
+## rl.setTitle(title)​
+
+## rl.settings.get(name)
+
+## rl.settings.set(name, value)
+
+## rl.settings.app(name)

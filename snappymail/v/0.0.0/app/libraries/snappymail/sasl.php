@@ -4,8 +4,7 @@ namespace SnappyMail;
 
 abstract class SASL
 {
-	public
-		$base64 = false;
+	public bool $base64 = true;
 
 	abstract public function authenticate(string $authcid, string $passphrase, ?string $authzid = null) : string;
 
@@ -14,28 +13,29 @@ abstract class SASL
 		return null;
 	}
 
-	public function verify(string $data) : bool
+	public function hasChallenge() : bool
 	{
 		return false;
+	}
+
+	public function verify(string $data) : void
+	{
 	}
 
 	final public static function factory(string $type)
 	{
 		if (\preg_match('/^([A-Z2]+)(?:-(.+))?$/Di', $type, $m)) {
 			$class = __CLASS__ . "\\{$m[1]}";
-			if (\class_exists($class)) {
+			if (\class_exists($class) && $class::isSupported($m[2] ?? '')) {
 				return new $class($m[2] ?? '');
 			}
 		}
-		throw new \Exception("Unsupported SASL mechanism type: {$type}");
+		throw new \ValueError("Unsupported SASL mechanism type: {$type}");
 	}
 
 	public static function isSupported(string $type) : bool
 	{
 		if (\preg_match('/^([A-Z2]+)(?:-(.+))?$/Di', $type, $m)) {
-			if ('XOAUTH2' === $m[1] || 'OAUTHBEARER' === $m[1]) {
-				 $m[1] = 'OAUTH';
-			}
 			$class = __CLASS__ . "\\{$m[1]}";
 			return \class_exists($class) && $class::isSupported($m[2] ?? '');
 		}

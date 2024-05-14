@@ -4,6 +4,12 @@ namespace RainLoop;
 
 class Notifications
 {
+/*
+	RequestError = 1;
+	RequestAborted = 2;
+	RequestTimeout = 3;
+*/
+
 	const InvalidToken = 101;
 	const AuthError = 102;
 
@@ -11,6 +17,7 @@ class Notifications
 	const ConnectionError = 104;
 	const DomainNotAllowed = 109;
 	const AccountNotAllowed = 110;
+	const CryptKeyError = 111;
 
 	const ContactsSyncError = 140;
 
@@ -52,7 +59,6 @@ class Notifications
 	const MailServerError = 901;
 	const ClientViewError = 902;
 	const InvalidInputArgument = 903;
-//	const UnknownNotification = 998;
 	const UnknownError = 999;
 
 	// Admin
@@ -64,8 +70,7 @@ class Notifications
 
 	static public function GetNotificationsMessage(int $iCode, ?\Throwable $oPrevious = null) : string
 	{
-		if (self::ClientViewError === $iCode && $oPrevious)
-		{
+		if (self::ClientViewError === $iCode && $oPrevious) {
 			return $oPrevious->getMessage();
 		}
 

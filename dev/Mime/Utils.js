@@ -4,23 +4,40 @@ import { AttachmentModel } from 'Model/Attachment';
 import { FileInfo } from 'Common/File';
 import { BEGIN_PGP_MESSAGE } from 'Stores/User/Pgp';
 
+import { EmailModel } from 'Model/Email';
+
 /**
  * @param string data
  * @param MessageModel message
  */
 export function MimeToMessage(data, message)
 {
-	let signed;
 	const struct = ParseMime(data);
 	if (struct.headers) {
-		let html = struct.getByContentType('text/html');
+		let html = struct.getByContentType('text/html'),
+			subject = struct.headerValue('subject');
 		html = html ? html.body : '';
+
+		// Content-Type: ...; protected-headers="v1"
+		subject && message.subject(subject);
+
+		// EmailCollectionModel
+		['from','to'].forEach(name => {
+			const items = message[name];
+			struct.headerValue(name)?.forEach(item => {
+				item = new EmailModel(item.email, item.name);
+				// Make them unique
+				if (item.email && item.name || !items.find(address => address.email == item.email)) {
+					items.push(item);
+				}
+			});
+		});
 
 		struct.forEach(part => {
 			let cd = part.header('content-disposition'),
-				cid = part.header('content-id'),
+				cId = part.header('content-id'),
 				type = part.header('content-type');
-			if (cid || cd) {
+			if (cId || cd) {
 				// if (cd && 'attachment' === cd.value) {
 				let attachment = new AttachmentModel;
 				attachment.mimeType = type.value;
@@ -28,18 +45,15 @@ export function MimeToMessage(data, message)
 				attachment.fileNameExt = attachment.fileName.replace(/^.+(\.[a-z]+)$/, '$1');
 				attachment.fileType = FileInfo.getType('', type.value);
 				attachment.url = part.dataUrl;
-				attachment.friendlySize = FileInfo.friendlySize(part.body.length);
+				attachment.estimatedSize = part.body.length;
 /*
-				attachment.isThumbnail = false;
 				attachment.contentLocation = '';
-				attachment.download = '';
 				attachment.folder = '';
 				attachment.uid = '';
 				attachment.mimeIndex = part.id;
-				attachment.framed = false;
 */
-				attachment.cid = cid ? cid.value : '';
-				if (cid && html) {
+				attachment.cId = cId ? cId.value : '';
+				if (cId && html) {
 					let cid = 'cid:' + attachment.contentId(),
 						found = html.includes(cid);
 					attachment.isInline(found);
@@ -51,12 +65,28 @@ export function MimeToMessage(data, message)
 				} else {
 					message.attachments.push(attachment);
 				}
-			} else if ('multipart/signed' === type.value && 'application/pgp-signature' === type.params.protocol) {
-				signed = {
-					MicAlg: type.micalg,
-					BodyPart: part.parts[0],
-					SigPart: part.parts[1]
-				};
+			} else if ('multipart/signed' === type.value) {
+				let protocol = type.params.protocol;
+				if ('application/pgp-signature' === protocol) {
+					message.pgpSigned({
+						micAlg: type.micalg,
+						bodyPart: part.parts[0],
+						sigPart: part.parts[1]
+					});
+				} else if ('application/pkcs7-signature' === protocol.replace('x-')) {
+					message.smimeSigned({
+						micAlg: type.micalg,
+						bodyPart: part,
+						sigPart: part.parts[1], // For importing
+						detached: true
+					});
+				}
+			} else if ('application/pkcs7-mime' === type.value /*&& 'signed-data' === type.params['smime-type']=*/) {
+				message.smimeSigned({
+					micAlg: type.micalg,
+					bodyPart: part,
+					detached: false
+				});
 			}
 		});
 
@@ -67,10 +97,7 @@ export function MimeToMessage(data, message)
 		message.plain(data);
 	}
 
-	if (!signed && message.plain().includes(BEGIN_PGP_MESSAGE)) {
-		signed = true;
+	if (message.plain().includes(BEGIN_PGP_MESSAGE)) {
+		message.pgpSigned(true);
 	}
-	message.pgpSigned(signed);
-
-	// TODO: Verify instantly?
 }

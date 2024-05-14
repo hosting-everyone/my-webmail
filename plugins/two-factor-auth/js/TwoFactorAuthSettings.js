@@ -56,11 +56,12 @@ class TwoFactorAuthSettings
 					value = !!value;
 					if (value && this.twoFactorTested()) {
 						this.viewEnable_(value);
-						Remote.enableTwoFactor(fn, value);
+						Remote.enableTwoFactor(iError => {
+							fn(iError);
+							rl.settings.get('RequireTwoFactor') && rl.settings.set('SetupTwoFactor', !!iError);
+						}, value);
 					} else {
-						if (!value) {
-							this.viewEnable_(value);
-						}
+						value || this.viewEnable_(value);
 						Remote.enableTwoFactor(fn, false);
 					}
 				}
@@ -70,12 +71,12 @@ class TwoFactorAuthSettings
 //				translatorTrigger();
 				return this.twoFactorTested() || this.viewEnable_()
 					? ''
-					: rl.i18n('POPUPS_TWO_FACTOR_CFG/TWO_FACTOR_SECRET_TEST_BEFORE_DESC');
+					: rl.i18n('PLUGIN_2FA/TWO_FACTOR_SECRET_TEST_BEFORE_DESC');
 			},
 
 			viewTwoFactorStatus: () => {
 //				translatorTrigger();
-				return rl.i18n('POPUPS_TWO_FACTOR_CFG/TWO_FACTOR_SECRET_'
+				return rl.i18n('PLUGIN_2FA/TWO_FACTOR_SECRET_'
 					+ (this.twoFactorStatus() ? '' : 'NOT_')
 					+ 'CONFIGURED_DESC'
 				);
@@ -105,7 +106,12 @@ class TwoFactorAuthSettings
 	}
 
 	testTwoFactor() {
-		TwoFactorAuthTestPopupView.showModal([this.twoFactorTested]);
+		TwoFactorAuthTestPopupView.showModal([
+			() => {
+				this.twoFactorTested(true);
+				this.viewEnable(true);
+			}
+		]);
 	}
 
 	clearTwoFactor() {
@@ -187,22 +193,22 @@ class TwoFactorAuthTestPopupView extends rl.pluginPopupView {
 		Remote.verifyCode(iError => {
 			this.testing(false);
 			this.codeStatus(!iError);
-			this.twoFactorTested(!iError);
+			iError || (this.onSuccess() | this.close());
 		}, this.code());
 	}
 
-	onShow(twoFactorTested) {
+	onShow(onSuccess) {
 		this.code('');
 		this.codeStatus(null);
 		this.testing(false);
-		this.twoFactorTested = twoFactorTested;
+		this.onSuccess = onSuccess;
 	}
 }
 
 rl.addSettingsViewModel(
 	TwoFactorAuthSettings,
 	'TwoFactorAuthSettings',
-	'POPUPS_TWO_FACTOR_CFG/LEGEND_TWO_FACTOR_AUTH',
+	'PLUGIN_2FA/LEGEND_TWO_FACTOR_AUTH',
 	'two-factor-auth'
 );
 

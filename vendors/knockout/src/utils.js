@@ -4,12 +4,15 @@ ko.utils = {
     objectForEach: (obj, action) => obj && Object.entries(obj).forEach(prop => action(prop[0], prop[1])),
 
     emptyDomNode: domNode => [...domNode.childNodes].forEach(child => ko.removeNode(child)),
+//    emptyDomNode: domNode => {while (domNode.lastChild) ko.removeNode(domNode.lastChild)},
+    // Safari 14+
+//    emptyDomNode: domNode => domNode.replaceChildren(),
 
     moveCleanedNodesToContainerElement: nodes => {
         // Ensure it's a real array, as we're about to reparent the nodes and
         // we don't want the underlying collection to change while we're doing that.
         var nodesArray = [...nodes];
-        var templateDocument = (nodesArray[0] && nodesArray[0].ownerDocument) || document;
+        var templateDocument = nodesArray[0]?.ownerDocument || document;
 
         var container = templateDocument.createElement('div');
         nodesArray.forEach(node => container.append(ko.cleanNode(node)));
@@ -80,8 +83,8 @@ ko.utils = {
         node.ownerDocument.documentElement.contains(node.nodeType !== 1 ? node.parentNode : node),
 
     triggerEvent: (element, eventType) => {
-        if (!(element && element.nodeType))
-            throw new Error("element must be a DOM node when calling triggerEvent");
+        if (!element?.nodeType)
+            throw Error("element must be a DOM node when calling triggerEvent");
 
         element.dispatchEvent(new Event(eventType));
     },
@@ -89,7 +92,7 @@ ko.utils = {
     unwrapObservable: value => ko.isObservable(value) ? value() : value,
 
     setTextContent: (element, textContent) =>
-        element.textContent = ko.utils.unwrapObservable(textContent) || ""
+        element.textContent = ko.utils.unwrapObservable(textContent)
 };
 
 ko.exportSymbol('utils', ko.utils);

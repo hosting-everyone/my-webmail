@@ -1,7 +1,8 @@
-import { Notification } from 'Common/Enums';
+import { Notifications } from 'Common/Enums';
 import { ClientSideKeyNameLastSignMe } from 'Common/EnumsUser';
 import { SettingsGet, fireEvent } from 'Common/Globals';
 import { getNotification, translatorReload, convertLangName } from 'Common/Translator';
+import { addObservablesTo, addComputablesTo, addSubscribablesTo } from 'External/ko';
 
 import { LanguageStore } from 'Stores/Language';
 
@@ -24,8 +25,8 @@ export class LoginUserView extends AbstractViewLogin {
 	constructor() {
 		super();
 
-		this.addObservables({
-			loadingDesc: SettingsGet('LoadingDescription'),
+		addObservablesTo(this, {
+			loadingDesc: SettingsGet('loadingDescription'),
 
 			email: SettingsGet('DevEmail'),
 			password: SettingsGet('DevPassword'),
@@ -36,39 +37,39 @@ export class LoginUserView extends AbstractViewLogin {
 
 			submitRequest: false,
 			submitError: '',
-			submitErrorAddidional: '',
+			submitErrorAdditional: '',
 
 			langRequest: false,
 
 			signMeType: SignMeUnused
 		});
 
-		this.allowLanguagesOnLogin = !!SettingsGet('AllowLanguagesOnLogin');
+		this.allowLanguagesOnLogin = !!SettingsGet('allowLanguagesOnLogin');
 
 		this.language = LanguageStore.language;
 		this.languages = LanguageStore.languages;
 
 		this.bSendLanguage = false;
 
-		this.addComputables({
+		addComputablesTo(this, {
 
 			languageFullName: () => convertLangName(this.language()),
 
 			signMeVisibility: () => SignMeUnused !== this.signMeType()
 		});
 
-		this.addSubscribables({
+		addSubscribablesTo(this, {
 			email: () => this.emailError(false),
 
 			password: () => this.passwordError(false),
 
-			submitError: value => value || this.submitErrorAddidional(''),
+			submitError: value => value || this.submitErrorAdditional(''),
 
 			signMeType: iValue => this.signMe(SignMeOn === iValue),
 
 			language: value => {
 				this.langRequest(true);
-				translatorReload(false, value).then(
+				translatorReload(value).then(
 					() => {
 						this.langRequest(false);
 						this.bSendLanguage = true;
@@ -87,19 +88,26 @@ export class LoginUserView extends AbstractViewLogin {
 		});
 	}
 
+	hideError() {
+		this.submitError('');
+	}
+
 	submitCommand(self, event) {
+		const email = this.email().trim();
+		this.email(email);
+
 		let form = event.target.form,
 			data = new FormData(form),
-			valid = form.reportValidity() && fireEvent('sm-user-login', data);
+			valid = form.reportValidity() && fireEvent('sm-user-login', data, 1);
 
-		this.emailError(!this.email());
+		this.emailError(!email);
 		this.passwordError(!this.password());
 		this.formError(!valid);
 
 		if (valid) {
 			this.submitRequest(true);
-			data.set('Language', this.bSendLanguage ? this.language() : '');
-			data.set('SignMe', this.signMe() ? 1 : 0);
+			data.set('language', this.bSendLanguage ? this.language() : '');
+			data.set('signMe', this.signMe() ? 1 : 0);
 			Remote.request('Login',
 				(iError, oData) => {
 					fireEvent('sm-user-login-response', {
@@ -108,12 +116,12 @@ export class LoginUserView extends AbstractViewLogin {
 					});
 					if (iError) {
 						this.submitRequest(false);
-						if (Notification.InvalidInputArgument == iError) {
-							iError = Notification.AuthError;
+						if (Notifications.InvalidInputArgument == iError) {
+							iError = Notifications.AuthError;
 						}
-						this.submitError(getNotification(iError, (oData ? oData.ErrorMessage : ''),
-							Notification.UnknownNotification));
-						this.submitErrorAddidional((oData && oData.ErrorMessageAdditional) || '');
+						this.submitError(getNotification(iError, oData?.ErrorMessage,
+							Notifications.UnknownError));
+						this.submitErrorAdditional(oData?.ErrorMessageAdditional);
 					} else {
 						rl.setData(oData.Result);
 					}
@@ -130,25 +138,20 @@ export class LoginUserView extends AbstractViewLogin {
 	onBuild(dom) {
 		super.onBuild(dom);
 
-		const signMe = (SettingsGet('SignMe') || '').toLowerCase();
-
+		let signMe = SettingsGet('signMe');
 		switch (signMe) {
-			case 'defaultoff':
-			case 'defaulton':
-				this.signMeType(
-					'defaulton' === signMe ? SignMeOn : SignMeOff
-				);
-
+			case SignMeOff:
+			case SignMeOn:
 				switch (Local.get(ClientSideKeyNameLastSignMe)) {
 					case '-1-':
-						this.signMeType(SignMeOn);
+						signMe = SignMeOn;
 						break;
 					case '-0-':
-						this.signMeType(SignMeOff);
+						signMe = SignMeOff;
 						break;
 					// no default
 				}
-
+				this.signMeType(signMe);
 				break;
 			default:
 				this.signMeType(SignMeUnused);

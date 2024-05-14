@@ -3,49 +3,86 @@
 namespace OCA\SnappyMail\Controller;
 
 use OCA\SnappyMail\Util\SnappyMailHelper;
+use OCA\SnappyMail\ContentSecurityPolicy;
 
-use OCP\App\IAppManager;
 use OCP\AppFramework\Controller;
-use OCP\AppFramework\Http\ContentSecurityPolicy;
 use OCP\AppFramework\Http\TemplateResponse;
-use OCP\IConfig;
-use OCP\IRequest;
-use OCP\ISession;
 
-class PageController extends Controller {
-	private $userId;
-	private $config;
-	private $appManager;
-	private $appPath;
-	private $session;
-
-	public function __construct($AppName, IRequest $request, IAppManager $appManager, IConfig $config, ISession $session) {
-		parent::__construct($AppName, $request);
-		$this->appPath = $appManager->getAppPath('snappymail');
-		$this->config = $config;
-		$this->appManager = $appManager;
-		$this->session = $session;
-	}
-
+class PageController extends Controller
+{
 	/**
 	 * @NoAdminRequired
 	 * @NoCSRFRequired
 	 */
-	public function index() {
+	public function index()
+	{
+		$config = \OC::$server->getConfig();
+
+		$bAdmin = false;
+		if (!empty($_SERVER['QUERY_STRING'])) {
+			SnappyMailHelper::loadApp();
+			$bAdmin = \RainLoop\Api::Config()->Get('security', 'admin_panel_key', 'admin') == $_SERVER['QUERY_STRING'];
+			if (!$bAdmin) {
+				return SnappyMailHelper::startApp(true);
+			}
+		}
+
+		if (!$bAdmin && $config->getAppValue('snappymail', 'snappymail-no-embed')) {
+			\OC::$server->getNavigationManager()->setActiveEntry('snappymail');
+			\OCP\Util::addScript('snappymail', 'snappymail');
+			\OCP\Util::addStyle('snappymail', 'style');
+			SnappyMailHelper::startApp();
+			$response = new TemplateResponse('snappymail', 'index', [
+				'snappymail-iframe-url' => SnappyMailHelper::normalizeUrl(SnappyMailHelper::getAppUrl())
+					. (empty($_GET['target']) ? '' : "#{$_GET['target']}")
+			]);
+			$csp = new ContentSecurityPolicy();
+			$csp->addAllowedFrameDomain("'self'");
+//			$csp->addAllowedFrameAncestorDomain("'self'");
+			$response->setContentSecurityPolicy($csp);
+			return $response;
+		}
+
 		\OC::$server->getNavigationManager()->setActiveEntry('snappymail');
 
-		\OCP\Util::addStyle('snappymail', 'style');
+		\OCP\Util::addStyle('snappymail', 'embed');
 
-		$sUrl = SnappyMailHelper::normalizeUrl(SnappyMailHelper::getAppUrl());
-
-		$params = [
-			'snappymail-iframe-url' => SnappyMailHelper::normalizeUrl($sUrl).'?OwnCloudAuth'
-		];
-
-		$response = new TemplateResponse('snappymail', 'index', $params);
+		SnappyMailHelper::startApp();
+		$oConfig = \RainLoop\Api::Config();
+		$oActions = $bAdmin ? new \RainLoop\ActionsAdmin() : \RainLoop\Api::Actions();
+		$oHttp = \MailSo\Base\Http::SingletonInstance();
+		$oServiceActions = new \RainLoop\ServiceActions($oHttp, $oActions);
+		$sAppJsMin = $oConfig->Get('debug', 'javascript', false) ? '' : '.min';
+		$sAppCssMin = $oConfig->Get('debug', 'css', false) ? '' : '.min';
+		$sLanguage = $oActions->GetLanguage(false);
 
 		$csp = new ContentSecurityPolicy();
-		$csp->addAllowedFrameDomain("'self'");
+		$sNonce = $csp->getSnappyMailNonce();
+
+		$params = [
+			'Admin' => $bAdmin ? 1 : 0,
+			'LoadingDescriptionEsc' => \htmlspecialchars($oConfig->Get('webmail', 'loading_description', 'SnappyMail'), ENT_QUOTES|ENT_IGNORE, 'UTF-8'),
+			'BaseTemplates' => \RainLoop\Utils::ClearHtmlOutput($oServiceActions->compileTemplates($bAdmin)),
+			'BaseAppBootScript' => \file_get_contents(APP_VERSION_ROOT_PATH.'static/js'.($sAppJsMin ? '/min' : '').'/boot'.$sAppJsMin.'.js'),
+			'BaseAppBootScriptNonce' => $sNonce,
+			'BaseLanguage' => $oActions->compileLanguage($sLanguage, $bAdmin),
+			'BaseAppBootCss' => \file_get_contents(APP_VERSION_ROOT_PATH.'static/css/boot'.$sAppCssMin.'.css'),
+			'BaseAppThemeCss' => \preg_replace(
+				'/\\s*([:;{},]+)\\s*/s',
+				'$1',
+				$oActions->compileCss($oActions->GetTheme($bAdmin), $bAdmin)
+			)
+		];
+
+//		\OCP\Util::addScript('snappymail', '../app/snappymail/v/'.APP_VERSION.'/static/js'.($sAppJsMin ? '/min' : '').'/boot'.$sAppJsMin);
+
+		// Nextcloud html encodes, so addHeader('style') is not possible
+//		\OCP\Util::addHeader('style', ['id'=>'app-boot-css'], \file_get_contents(APP_VERSION_ROOT_PATH.'static/css/boot'.$sAppCssMin.'.css'));
+		\OCP\Util::addHeader('link', ['type'=>'text/css','rel'=>'stylesheet','href'=>\RainLoop\Utils::WebStaticPath('css/'.($bAdmin?'admin':'app').$sAppCssMin.'.css')], '');
+//		\OCP\Util::addHeader('style', ['id'=>'app-theme-style','data-href'=>$params['BaseAppThemeCssLink']], $params['BaseAppThemeCss']);
+
+		$response = new TemplateResponse('snappymail', 'index_embed', $params);
+
 		$response->setContentSecurityPolicy($csp);
 
 		return $response;
@@ -55,56 +92,26 @@ class PageController extends Controller {
 	 * @NoAdminRequired
 	 * @NoCSRFRequired
 	 */
-	public function appGet() {
-		$this->app();
+	public function appGet()
+	{
+		return SnappyMailHelper::startApp(true);
 	}
 
 	/**
 	 * @NoAdminRequired
 	 * @NoCSRFRequired
 	 */
-	public function appPost() {
-		$this->app();
+	public function appPost()
+	{
+		return SnappyMailHelper::startApp(true);
 	}
 
-	public function app() {
-
-		SnappyMailHelper::regSnappyMailDataFunction();
-
-		if (isset($_GET['OwnCloudAuth'])) {
-			$sEmail = '';
-			$sEncodedPassword = '';
-
-			$sUser = \OC::$server->getUserSession()->getUser()->getUID();
-
-			if ($this->config->getAppValue('snappymail', 'snappymail-autologin', false)) {
-				$sEmail = $sUser;
-				$sPasswordSalt = $sUser;
-				$sEncodedPassword = $this->session['snappymail-autologin-password'];
-			} else if ($this->config->getAppValue('snappymail', 'snappymail-autologin-with-email', false)) {
-				$sEmail = $this->config->getUserValue($sUser, 'settings', 'email', '');
-				$sPasswordSalt = $sUser;
-				$sEncodedPassword = $this->session['snappymail-autologin-password'];
-			}
-
-			// If the user has set credentials for SnappyMail in their personal
-			// settings, override everything before and use those instead.
-			$sIndividualEmail = $this->config->getUserValue($sUser, 'snappymail', 'snappymail-email', '');
-			if ($sIndividualEmail) {
-				$sEmail = $sIndividualEmail;
-				$sPasswordSalt = $sEmail;
-				$sEncodedPassword = $this->config->getUserValue($sUser, 'snappymail', 'snappymail-password', '');
-			}
-
-			$sDecodedPassword = SnappyMailHelper::decodePassword($sEncodedPassword, md5($sPasswordSalt));
-
-			$_ENV['___snappymail_owncloud_email'] = $sEmail;
-			$_ENV['___snappymail_owncloud_password'] = $sDecodedPassword;
-		}
-
-		include $this->appPath . '/app/index.php';
-
+	/**
+	 * @NoAdminRequired
+	 * @NoCSRFRequired
+	 */
+	public function indexPost()
+	{
+		return SnappyMailHelper::startApp(true);
 	}
-
 }
-

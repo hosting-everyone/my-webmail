@@ -1,5 +1,6 @@
 import { fireEvent } from 'Common/Globals';
 import { getNotification } from 'Common/Translator';
+import { addObservablesTo, addSubscribablesTo } from 'External/ko';
 
 import Remote from 'Remote/Admin/Fetch';
 
@@ -10,7 +11,7 @@ export class AdminLoginView extends AbstractViewLogin {
 	constructor() {
 		super('AdminLogin');
 
-		this.addObservables({
+		addObservablesTo(this, {
 			login: '',
 			password: '',
 			totp: '',
@@ -22,7 +23,7 @@ export class AdminLoginView extends AbstractViewLogin {
 			submitError: ''
 		});
 
-		this.addSubscribables({
+		addSubscribablesTo(this, {
 			login: () => this.loginError(false),
 			password: () => this.passwordError(false)
 		});
@@ -32,10 +33,14 @@ export class AdminLoginView extends AbstractViewLogin {
 		});
 	}
 
+	hideError() {
+		this.submitError('');
+	}
+
 	submitCommand(self, event) {
 		let form = event.target.form,
 			data = new FormData(form),
-			valid = form.reportValidity() && fireEvent('sm-admin-login', data);
+			valid = form.reportValidity() && fireEvent('sm-admin-login', data, 1);
 
 		this.loginError(!this.login());
 		this.passwordError(!this.password());

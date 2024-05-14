@@ -5,11 +5,11 @@
 		<span data-i18n="POPUPS_FILTER/TITLE_EDIT_FILTER" data-bind="visible: !isNew()"></span>
 	</h3>
 </header>
-<div class="modal-body" data-bind="with: filter, i18nInit: filter">
+<form id="sieve-script-filter" class="modal-body" spellcheck="false" data-bind="submit: saveFilter, with: filter">
 	<div class="control-group" data-bind="css: {'error': nameError}">
 		<input type="text" class="span5"
-			data-bind="value: name, hasfocus: nameFocused"
-			autocorrect="off" autocapitalize="off" spellcheck="false"
+			data-bind="value: name"
+			autofocus="" autocorrect="off" autocapitalize="off"
 			data-i18n="[placeholder]GLOBAL/NAME">
 	</div>
 
@@ -22,9 +22,9 @@
 				data-i18n="POPUPS_FILTER/SELECT_MATCH_ALL"></option>
 		</select>
 	</div>
-	<div data-bind="visible: conditions().length, foreach: conditions">
+	<div data-bind="foreach: conditions">
 		<div class="control-group" data-bind="css: {'error': valueError}" style="display:flex">
-			<div style="flex-grow:1" data-bind="css: {'error': valueError}, template: {'name': template(), 'data': $data}"></div>
+			<div style="flex-grow:1" data-bind="css: {'error': valueError}, template: {name: template(), data: $data}"></div>
 			<span class="delete-action button-delete fontastic" style="margin-top: 5px;"
 				data-bind="click: function (oCondition) { $root.removeCondition(oCondition); }">🗑</span>
 		</div>
@@ -32,13 +32,13 @@
 	<div class="control-group" data-bind="visible: 0 === conditions().length"
 		data-i18n="POPUPS_FILTER/ALL_INCOMING_MESSAGES_DESC"></div>
 	<div class="control-group">
-		<a class="btn" data-bind="click: addCondition, i18nInit: true" data-icon="✚" data-i18n="POPUPS_FILTER/BUTTON_ADD_CONDITION"></a>
+		<a class="btn" data-bind="click: addCondition" data-icon="✚" data-i18n="POPUPS_FILTER/BUTTON_ADD_CONDITION"></a>
 	</div>
 
 	<div class="legend" data-i18n="POPUPS_FILTER/LEGEND_ACTIONS"></div>
 	<select class="span3" data-bind="options: $root.actionTypeOptions, value: actionType, optionsText: 'name', optionsValue: 'id'"></select>
-	<div data-bind="template: {'name': actionTemplate()}, i18nUpdate: actionTemplate"></div>
-</div>
+	<div data-bind="template: {name: actionTemplate()}, i18nUpdate: actionTemplate"></div>
+</form>
 <footer>
-	<a class="btn buttonSave" data-bind="click: saveFilter" data-icon="✔" data-i18n="GLOBAL/DONE"></a>
+	<button class="btn buttonSave" form="sieve-script-filter" data-icon="✔" data-i18n="GLOBAL/DONE"></button>
 </footer>

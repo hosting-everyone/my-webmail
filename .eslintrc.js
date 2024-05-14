@@ -3,7 +3,7 @@ module.exports = {
 //	extends: ['eslint:recommended', 'plugin:prettier/recommended'],
 	extends: ['eslint:recommended'],
 	parserOptions: {
-		ecmaVersion: 6,
+		ecmaVersion: 11,
 		sourceType: 'module'
 	},
 	env: {
@@ -27,8 +27,6 @@ module.exports = {
 		'SquireUI': "readonly",
 		// node_modules/knockout but dev/External/ko.js is used
 		'ko': "readonly",
-		// dev/External/ifvisible.js
-		'ifvisible': "readonly",
 		// vendors/routes/
 		'hasher': "readonly",
 		'Crossroads': "readonly",
@@ -37,10 +35,13 @@ module.exports = {
 		// vendors/bootstrap/bootstrap.native.js
 		'BSN': "readonly",
 		// Mailvelope
-		'mailvelope': "readonly"
+		'mailvelope': "readonly",
+		// Punycode
+		'IDN': "readonly"
 	},
 	// http://eslint.org/docs/rules/
 	rules: {
+		'no-cond-assign': 0,
 		// plugins
 		'no-mixed-spaces-and-tabs': 'off',
 		'max-len': [
@@ -53,6 +54,7 @@ module.exports = {
 				ignoreTrailingComments: true,
 				ignorePattern: '(^\\s*(const|let|var)\\s.+=\\s*require\\s*\\(|^import\\s.+\\sfrom\\s.+;$)'
 			}
-		]
+		],
+		'no-constant-condition': ["error", { "checkLoops": false }]
 	}
 };

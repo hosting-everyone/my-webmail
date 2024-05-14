@@ -1,5 +1,6 @@
-import { Scope } from 'Common/Enums';
+import { ScopeMessageList, ScopeMessageView } from 'Common/Enums';
 import { elementById } from 'Common/Globals';
+import { exitFullscreen } from 'Common/Fullscreen';
 import { addObservablesTo, addSubscribablesTo } from 'External/ko';
 
 import { AppUserStore } from 'Stores/User/App';
@@ -12,11 +13,9 @@ export const MessageUserStore = new class {
 			message: null,
 			error: '',
 			loading: false,
-			fullScreen: false,
 
 			// Cache mail bodies
-			bodiesDom: null,
-			activeDom: null
+			bodiesDom: null
 		});
 
 		// Subscribers
@@ -26,37 +25,26 @@ export const MessageUserStore = new class {
 				clearTimeout(this.MessageSeenTimer);
 				elementById('rl-right').classList.toggle('message-selected', !!message);
 				if (message) {
-					if (!SettingsUserStore.usePreviewPane()) {
-						AppUserStore.focusedState(Scope.MessageView);
-					}
+					SettingsUserStore.usePreviewPane() || AppUserStore.focusedState(ScopeMessageView);
 				} else {
-					AppUserStore.focusedState(Scope.MessageList);
-
-					this.fullScreen(false);
-					this.hideMessageBodies();
+					AppUserStore.focusedState(ScopeMessageList);
+					exitFullscreen();
 				}
+				[...(this.bodiesDom()?.children || [])].forEach(el => el.hidden = true);
 			},
 		});
 
-		this.purgeMessageBodyCache = this.purgeMessageBodyCache.throttle(30000);
+		this.purgeCache = this.purgeCache.throttle(30000);
 	}
 
-	toggleFullScreen() {
-		MessageUserStore.fullScreen(!MessageUserStore.fullScreen());
-	}
-
-	purgeMessageBodyCache() {
-		const messagesDom = this.bodiesDom(),
-			children = messagesDom && messagesDom.children;
-		if (children) {
-			while (15 < children.length) {
-				children[0].remove();
+	purgeCache(all) {
+		const children = this.bodiesDom()?.children || [];
+		let i = Math.max(0, children.length - (all ? 0 : 15));
+		while (i--) {
+			children[i].remove();
+			if (children[i].message) {
+				children[i].message.body = null;
 			}
 		}
-	}
-
-	hideMessageBodies() {
-		const messagesDom = this.bodiesDom();
-		messagesDom && Array.from(messagesDom.children).forEach(el => el.hidden = true);
 	}
 };

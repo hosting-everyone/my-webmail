@@ -1,5 +1,7 @@
 <?php
 
+use SnappyMail\SensitiveString;
+
 class ChangePasswordDriverPDO
 {
 	const
@@ -37,8 +39,8 @@ class ChangePasswordDriverPDO
 				->SetType(\RainLoop\Enumerations\PluginPropertyType::PASSWORD),
 			\RainLoop\Plugins\Property::NewInstance('pdo_sql')->SetLabel('Statement')
 				->SetType(\RainLoop\Enumerations\PluginPropertyType::STRING_TEXT)
-				->SetDescription('SQL statement (allowed wildcards :email, :oldpass, :newpass, :domain, :username).')
-				->SetDefaultValue('UPDATE table SET password = :newpass WHERE domain = :domain AND username = :username and oldpass = :oldpass'),
+				->SetDescription('SQL statement (allowed wildcards :email, :oldpass, :newpass, :domain, :username, :login_name).')
+				->SetDefaultValue('UPDATE table SET password = :newpass WHERE (domain = :domain AND username = :username) OR loginname = :login_name'),
 			\RainLoop\Plugins\Property::NewInstance('pdo_encrypt')->SetLabel('Encryption')
 				->SetType(\RainLoop\Enumerations\PluginPropertyType::SELECTION)
 				->SetDefaultValue(array('none', 'bcrypt', 'Argon2i', 'Argon2id', 'SHA256-CRYPT', 'SHA512-CRYPT'))
@@ -58,7 +60,7 @@ class ChangePasswordDriverPDO
 		);
 	}
 
-	public function ChangePassword(\RainLoop\Model\Account $oAccount, string $sPrevPassword, string $sNewPassword) : bool
+	public function ChangePassword(\RainLoop\Model\Account $oAccount, SensitiveString $oPrevPassword, SensitiveString $oNewPassword) : bool
 	{
 		try
 		{
@@ -85,10 +87,11 @@ class ChangePasswordDriverPDO
 
 			$placeholders = array(
 				':email' => $sEmail,
-				':oldpass' => $encrypt_prefix . \ChangePasswordPlugin::encrypt($encrypt, $sPrevPassword),
-				':newpass' => $encrypt_prefix . \ChangePasswordPlugin::encrypt($encrypt, $sNewPassword),
-				':domain' => \MailSo\Base\Utils::GetDomainFromEmail($sEmail),
-				':username' => \MailSo\Base\Utils::GetAccountNameFromEmail($sEmail)
+				':oldpass' => $encrypt_prefix . \ChangePasswordPlugin::encrypt($encrypt, $oPrevPassword),
+				':newpass' => $encrypt_prefix . \ChangePasswordPlugin::encrypt($encrypt, $oNewPassword),
+				':domain' => \MailSo\Base\Utils::getEmailAddressDomain($sEmail),
+				':username' => \MailSo\Base\Utils::getEmailAddressLocalPart($sEmail),
+				':login_name' => $oAccount->IncLogin()
 			);
 
 			$sql = $this->oConfig->Get('plugin', 'pdo_sql', '');
@@ -107,6 +110,7 @@ class ChangePasswordDriverPDO
 		}
 		catch (\Exception $oException)
 		{
+			\SnappyMail\Log::error('change-password', $oException->getMessage());
 			if ($this->oLogger) {
 				$this->oLogger->WriteException($oException);
 			}

@@ -1,8 +1,8 @@
 import ko from 'ko';
 import { SettingsGet } from 'Common/Globals';
-import { pInt } from 'Common/Utils';
-import { addObservablesTo, koArrayWithDestroy } from 'External/ko';
+import { koComputable, addObservablesTo, koArrayWithDestroy } from 'External/ko';
 import Remote from 'Remote/User/Fetch';
+import { Notifications } from 'Common/Enums';
 
 export const ContactUserStore = koArrayWithDestroy();
 
@@ -12,40 +12,53 @@ ContactUserStore.syncing = ko.observable(false).extend({ debounce: 200 });
 
 addObservablesTo(ContactUserStore, {
 	allowSync: false, // Admin setting
-	enableSync: false,
+	syncMode: 0,
 	syncUrl: '',
 	syncUser: '',
 	syncPass: ''
 });
+
+// Also used by Selector
+ContactUserStore.hasChecked = koComputable(
+	// Issue: not all are observed?
+	() => !!ContactUserStore.find(item => item.checked())
+);
 
 /**
  * @param {Function} fResultFunc
  * @returns {void}
  */
 ContactUserStore.sync = fResultFunc => {
-	if (ContactUserStore.enableSync()
+	if (ContactUserStore.syncMode()
 	 && !ContactUserStore.importing()
 	 && !ContactUserStore.syncing()
 	) {
 		ContactUserStore.syncing(true);
-		Remote.request('ContactsSync', (iError, oData) => {
-			ContactUserStore.syncing(false);
-			fResultFunc && fResultFunc(iError, oData);
-		}, null, 200000);
+		Remote.streamPerLine(line => {
+			try {
+				line = JSON.parse(line);
+				if ('ContactsSync' === line.Action) {
+					ContactUserStore.syncing(false);
+					fResultFunc?.(line.ErrorCode, line);
+				}
+			} catch (e) {
+				ContactUserStore.syncing(false);
+				console.error(e);
+				fResultFunc?.(Notifications.UnknownError);
+			}
+		}, 'ContactsSync');
 	}
 };
 
 ContactUserStore.init = () => {
-	let value = !!SettingsGet('ContactsSyncIsAllowed');
-	ContactUserStore.allowSync(value);
-	if (value) {
-		ContactUserStore.enableSync(!!SettingsGet('EnableContactsSync'));
-		ContactUserStore.syncUrl(SettingsGet('ContactsSyncUrl'));
-		ContactUserStore.syncUser(SettingsGet('ContactsSyncUser'));
-		ContactUserStore.syncPass(SettingsGet('ContactsSyncPassword'));
+	let config = SettingsGet('ContactsSync');
+	ContactUserStore.allowSync(!!config);
+	if (config) {
+		ContactUserStore.syncMode(config.Mode);
+		ContactUserStore.syncUrl(config.Url);
+		ContactUserStore.syncUser(config.User);
+		ContactUserStore.syncPass(config.Password);
 		setTimeout(ContactUserStore.sync, 10000);
-		value = pInt(SettingsGet('ContactsSyncInterval'));
-		value = 5 <= value ? (320 >= value ? value : 320) : 20;
-		setInterval(ContactUserStore.sync, value * 60000 + 5000);
+		setInterval(ContactUserStore.sync, config.Interval * 60000 + 5000);
 	}
 };

@@ -1,8 +1,30 @@
 import { doc, createElement, addEventsListeners } from 'Common/Globals';
 import { EmailModel } from 'Model/Email';
+import { addressparser } from 'Mime/Address';
 
 const contentType = 'snappymail/emailaddress',
-	getAddressKey = li => li && li.emailaddress && li.emailaddress.key;
+	getAddressKey = li => li?.emailaddress?.key,
+
+	parseEmailLine = line => addressparser(line).map(item =>
+			(item.name || item.email)
+				? new EmailModel(item.email, item.name) : null
+		).filter(v => v),
+	splitEmailLine = line => {
+		const result = [];
+		let exists = false;
+		addressparser(line).forEach(item => {
+			const address = (item.name || item.email)
+				? new EmailModel(item.email, item.name)
+				: null;
+
+			if (address?.email) {
+				exists = true;
+			}
+
+			result.push(address ? address.toLine() : item.name);
+		});
+		return exists ? result : null;
+	};
 
 let dragAddress, datalist;
 
@@ -17,9 +39,11 @@ export class EmailAddressesComponent {
 		}
 
 		const self = this,
+			input = createElement('input',{type:"text", list:datalist.id,
+				autocomplete:"off", autocorrect:"off", autocapitalize:"off"}),
 			// In Chrome we have no access to dataTransfer.getData unless it's the 'drop' event
 			// In Chrome Mobile dataTransfer.types.includes(contentType) fails, only text/plain is set
-			validDropzone = () => dragAddress && dragAddress.li.parentNode !== self.ul,
+			validDropzone = () => dragAddress?.li.parentNode !== self.ul,
 			fnDrag = e => validDropzone() && e.preventDefault();
 
 		self.element = element;
@@ -55,13 +79,12 @@ export class EmailAddressesComponent {
 			}
 		});
 
-		self.input = createElement('input',{type:"text", list:datalist.id,
-			autocomplete:"off", autocorrect:"off", autocapitalize:"off", spellcheck:"false"});
+		self.input = input;
 
-		addEventsListeners(self.input, {
+		addEventsListeners(input, {
 			focus: () => {
 				self._focusTrigger(true);
-				self.input.value || self._resetDatalist();
+				input.value || self._resetDatalist();
 			},
 			blur: () => {
 				// prevent autoComplete menu click from causing a false 'blur'
@@ -71,8 +94,7 @@ export class EmailAddressesComponent {
 			keydown: e => {
 				if ('Backspace' === e.key || 'ArrowLeft' === e.key) {
 					// if our input contains no value and backspace has been pressed, select the last tag
-					var lastTag = self.inputCont.previousElementSibling,
-						input = self.input;
+					var lastTag = self.inputCont.previousElementSibling;
 					if (lastTag && (!input.value
 						|| (('selectionStart' in input) && input.selectionStart === 0 && input.selectionEnd === 0))
 					) {
@@ -93,11 +115,11 @@ export class EmailAddressesComponent {
 
 		// define starting placeholder
 		if (element.placeholder) {
-			self.input.placeholder = element.placeholder;
+			input.placeholder = element.placeholder;
 		}
 
 		self.inputCont = createElement('li',{class:"emailaddresses-input"});
-		self.inputCont.append(self.input);
+		self.inputCont.append(input);
 		self.ul.append(self.inputCont);
 
 		element.replaceWith(self.ul);
@@ -109,14 +131,23 @@ export class EmailAddressesComponent {
 
 		self._updateDatalist = self.options.autoCompleteSource
 			? (() => {
-				let value = self.input.value.trim();
+				let value = input.value.trim();
 				if (datalist.inputValue !== value) {
 					datalist.inputValue = value;
 					value.length && self.options.autoCompleteSource(
-						{term:value},
+						value,
 						items => {
 							self._resetDatalist();
-							items && items.forEach(item => datalist.append(new Option(item)));
+							let chars = value.length;
+							items?.forEach(item => {
+								datalist.append(new Option(item));
+								chars = Math.max(chars, item.length);
+							});
+							// https://github.com/the-djmaze/snappymail/issues/368 and #513
+							chars *= 8;
+							if (input.clientWidth < chars) {
+								input.style.width = chars + 'px';
+							}
 						}
 					)
 				}
@@ -135,8 +166,10 @@ export class EmailAddressesComponent {
 
 	_parseInput(force) {
 		let val = this.input.value;
-		if (force || val.includes(',') || val.includes(';')) {
-			this._parseValue(val) && (this.input.value = '');
+		if ((force || val.includes(',') || val.includes(';')
+				|| (val.charAt(val.length-1)===' ' && this._simpleEmailMatch(val)))
+			&& this._parseValue(val)) {
+			this.input.value = '';
 		}
 		this._resizeInput();
 	}
@@ -145,10 +178,10 @@ export class EmailAddressesComponent {
 		if (val) {
 			const self = this,
 				v = val.trim(),
-				hook = (v && [',', ';', '\n'].includes(v.slice(-1))) ? EmailModel.splitEmailLine(val) : null,
-				values = (hook || [val]).map(value => EmailModel.parseEmailLine(value))
+				hook = (v && [',', ';', '\n'].includes(v.slice(-1))) ? splitEmailLine(val) : null,
+				values = (hook || [val]).map(value => parseEmailLine(value))
 						.flat(Infinity)
-						.map(item => (item.toLine ? [item.toLine(false), item] : [item, null]));
+						.map(item => (item.toLine ? [item.toLine(), item] : [item, null]));
 
 			if (values.length) {
 				values.forEach(a => {
@@ -166,7 +199,7 @@ export class EmailAddressesComponent {
 							lastIndex = kk;
 						}
 
-						vv.value === v && (exists = true);
+						exists |= vv.value === v;
 					});
 
 					if (v !== '' && a[1] && !exists) {
@@ -186,7 +219,7 @@ export class EmailAddressesComponent {
 					}
 				});
 
-				if (values.length === 1 && values[0] === '' && self._lastEdit !== '') {
+				if (1 === values.length && '' === values[0] && '' !== self._lastEdit) {
 					self._lastEdit = '';
 					self._renderTags();
 				}
@@ -202,7 +235,7 @@ export class EmailAddressesComponent {
 	_resizeInput() {
 		let input = this.input;
 		if (input.clientWidth < input.scrollWidth) {
-			input.style.width = Math.min(500, Math.max(200, input.scrollWidth)) + 'px';
+			input.style.width = (input.scrollWidth + 20) + 'px';
 		}
 	}
 
@@ -254,15 +287,22 @@ export class EmailAddressesComponent {
 		}
 	}
 
+	_simpleEmailMatch(value) {
+		// A very SIMPLE test to check if the value might be an email
+		const val = value.trim();
+		return /^[^@]*<[^\s@]{1,128}@[^\s@]{1,256}\.[\w]{2,32}>$/g.test(val)
+			|| /^[^\s@]{1,128}@[^\s@]{1,256}\.[\w]{2,32}$/g.test(val);
+	}
+
 	_renderTags() {
 		let self = this;
 		[...self.ul.children].forEach(node => node !== self.inputCont && node.remove());
 
 		self._chosenValues.forEach(v => {
 			if (v.obj) {
-				let li = createElement('li',{title:v.obj.toLine(false, false, true),draggable:'true'}),
+				let li = createElement('li',{title:v.obj.toLine(),draggable:'true'}),
 					el = createElement('span');
-				el.append(v.obj.toLine(true, false, true));
+				el.append(v.obj.toLine(true));
 				li.append(el);
 
 				el = createElement('a',{href:'#', class:'ficon'});

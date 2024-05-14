@@ -8,8 +8,7 @@
 [class^="icon-"],
 [class*=" icon-"] {
 	display: inline-block;
-	width: 1em;
-	vertical-align: text-top;
+	min-width: 1em;
 
 	.disabled &,
 	.btn[disabled] & {
@@ -19,7 +18,7 @@
 
 /* .b-contacts-content .b-view-content */
 .iconsize24 {
-	font-size: 24px;
+	font-size: 171%;
 }
 
 .iconcolor-green {
@@ -36,14 +35,16 @@
 
 .icon-spinner {
 
-	height: 0.75em;
-	width: 0.75em;
+	height: 1.2em;
+	width: 1.2em;
 
 	margin: 0 -1px;
 
 	border: 3px solid #aaa;
 	border-top-color: #333;
 	border-radius: 100%;
+
+	vertical-align: text-top;
 }
 
 .icon-spinner:not(.not-animated),

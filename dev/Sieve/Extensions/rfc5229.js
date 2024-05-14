@@ -3,13 +3,13 @@
  */
 
 import {
-	GrammarCommand,
+	ActionCommand,
 	GrammarQuotedString,
 	GrammarStringList,
-	GrammarTest
+	TestCommand
 } from 'Sieve/Grammar';
 
-export class SetCommand extends GrammarCommand
+export class SetCommand extends ActionCommand
 {
 	constructor()
 	{
@@ -45,7 +45,7 @@ export class SetCommand extends GrammarCommand
 	}
 }
 
-export class StringTest extends GrammarTest
+export class StringTest extends TestCommand
 {
 	constructor()
 	{
@@ -59,8 +59,8 @@ export class StringTest extends GrammarTest
 		return 'string'
 			+ ' ' + this.match_type
 			+ (this.comparator ? ' :comparator ' + this.comparator : '')
-			+ ' ' + this.source.toString()
-			+ ' ' + this.key_list.toString();
+			+ ' ' + this.source
+			+ ' ' + this.key_list;
 	}
 
 	pushArguments(args)

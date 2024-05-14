@@ -3,17 +3,17 @@
  */
 
 import {
-	GrammarCommand,
+	ActionCommand,
 	GrammarNumber,
 	GrammarQuotedString,
 	GrammarStringList,
-	GrammarTest
+	TestCommand
 } from 'Sieve/Grammar';
 
 /**
  * https://datatracker.ietf.org/doc/html/rfc5435#section-3
  */
-export class NotifyCommand extends GrammarCommand
+export class NotifyCommand extends ActionCommand
 {
 	constructor()
 	{
@@ -59,9 +59,9 @@ export class NotifyCommand extends GrammarCommand
 	{
 		this._method.value = args.pop().value; // GrammarQuotedString
 		args.forEach((arg, i) => {
-			if (':options' === args[i-1]) {
+			if (i && ':options' === args[i-1]) {
 				this.options = arg; // GrammarStringList
-			} else if (':' === args[i-1][0]) {
+			} else if (i && ':' === args[i-1][0]) {
 				// :from, :importance, :message
 				this[args[i-1].replace(':','_')].value = arg.value;
 			}
@@ -72,7 +72,7 @@ export class NotifyCommand extends GrammarCommand
 /**
  * https://datatracker.ietf.org/doc/html/rfc5435#section-4
  */
-export class ValidNotifyMethodTest extends GrammarTest
+export class ValidNotifyMethodTest extends TestCommand
 {
 	constructor()
 	{
@@ -94,7 +94,7 @@ export class ValidNotifyMethodTest extends GrammarTest
 /**
  * https://datatracker.ietf.org/doc/html/rfc5435#section-5
  */
-export class NotifyMethodCapabilityTest extends GrammarTest
+export class NotifyMethodCapabilityTest extends TestCommand
 {
 	constructor()
 	{

@@ -15,23 +15,25 @@
 
 namespace MailSo\Imap\Requests;
 
-use MailSo\Imap\Exceptions\RuntimeException;
-use MailSo\Log\Enumerations\Type;
-
 /**
  * @category MailSo
  * @package Imap
  */
 class SORT extends Request
 {
-	public
-		$sCriterias = 'ALL',
-		$sCharset = '',
-		$bUid = true,
-		$aSortTypes = [],
-		$sLimit = '',
-		// RFC 5267
-		$aReturn = [
+	// a parenthesized list of sort criteria
+	public string $sCriterias = 'ALL';
+
+	public string $sCharset = '';
+
+	public bool $bUid = true;
+
+	public array $aSortTypes = [];
+
+	public string $sLimit = '';
+
+	// RFC 5267
+	public array $aReturn = [
 		/**
 		   ALL
 			  Return all message numbers/UIDs which match the search criteria,
@@ -51,15 +53,16 @@ class SORT extends Request
 		   PARTIAL 1:500
 			  Return all message numbers/UIDs which match the search criteria,
 			  in the requested sort order, using a sequence-set.
+
+		   SAVE
+			  This option tells the server to remember the result.
 		 */
 		];
 
 	function __construct(\MailSo\Imap\ImapClient $oImapClient)
 	{
-		if (!$oImapClient->IsSupported('SORT')) {
-			$oImapClient->writeLogException(
-				new RuntimeException('SORT is not supported'),
-				Type::ERROR, true);
+		if (!$oImapClient->hasCapability('SORT')) {
+			$oImapClient->writeLogException(new \MailSo\RuntimeException('SORT is not supported'), \LOG_ERR);
 		}
 		parent::__construct($oImapClient);
 	}
@@ -67,26 +70,20 @@ class SORT extends Request
 	public function SendRequest() : string
 	{
 		if (!$this->aSortTypes) {
-			$this->oImapClient->writeLogException(
-				new RuntimeException('SortTypes are missing'),
-				Type::ERROR, true);
+			$this->oImapClient->writeLogException(new \MailSo\RuntimeException('SortTypes are missing'), \LOG_ERR);
 		}
 
 		$aRequest = array();
 
 		if ($this->aReturn) {
 			// RFC 5267 checks
-			if (!$this->oImapClient->IsSupported('ESORT')) {
-				$this->oImapClient->writeLogException(
-					new RuntimeException('ESORT is not supported'),
-					Type::ERROR, true);
+			if (!$this->oImapClient->hasCapability('ESORT')) {
+				$this->oImapClient->writeLogException(new \MailSo\RuntimeException('ESORT is not supported'), \LOG_ERR);
 			}
-			if (!$this->oImapClient->IsSupported('CONTEXT=SORT')) {
+			if (!$this->oImapClient->hasCapability('CONTEXT=SORT')) {
 				foreach ($this->aReturn as $sReturn) {
 					if (\preg_match('/PARTIAL|UPDATE|CONTEXT/i', $sReturn)) {
-						$this->oImapClient->writeLogException(
-							new RuntimeException('CONTEXT=SORT is not supported'),
-							Type::ERROR, true);
+						$this->oImapClient->writeLogException(new \MailSo\RuntimeException('CONTEXT=SORT is not supported'), \LOG_ERR);
 					}
 				}
 			}

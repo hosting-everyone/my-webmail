@@ -17,7 +17,6 @@ import { SieveScriptPopupView } from 'Sieve/View/Script';
 window.Sieve = {
 	capa: capa,
 	scripts: scripts,
-	setError: setError,
 	loading: loading,
 	serverError: serverError,
 	serverErrorDesc: serverErrorDesc,
@@ -46,7 +45,7 @@ window.Sieve = {
 */
 					forEachObjectValue(data.Result.Scripts, value => {
 						value = SieveScriptModel.reviveFromJson(value);
-						value && scripts.push(value)
+						value && (value.allowFilters() ? scripts.unshift(value) : scripts.push(value))
 					});
 				}
 			});
@@ -56,28 +55,23 @@ window.Sieve = {
 	deleteScript: script => {
 		serverError(false);
 		Remote.request('FiltersScriptDelete',
-			(iError, data) => {
-				if (iError) {
-					setError((data && data.ErrorMessageAdditional) || getNotification(iError));
-				} else {
-					scripts.remove(script);
-				}
-			},
+			(iError, data) =>
+				iError
+					? setError(data?.ErrorMessageAdditional || getNotification(iError))
+					: scripts.remove(script)
+			,
 			{name:script.name()}
 		);
 	},
 
-	toggleScript(script) {
-		let name = script.active() ? '' : script.name();
+	setActiveScript(name) {
 		serverError(false);
 		Remote.request('FiltersScriptActivate',
-			(iError, data) => {
-				if (iError) {
-					setError((data && data.ErrorMessageAdditional) || iError)
-				} else {
-					scripts.forEach(script => script.active(script.name() === name));
-				}
-			},
+			(iError, data) =>
+				iError
+					? setError(data?.ErrorMessageAdditional || iError)
+					: scripts.forEach(script => script.active(script.name() === name))
+			,
 			{name:name}
 		);
 	}

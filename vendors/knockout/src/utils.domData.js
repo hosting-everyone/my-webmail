@@ -10,13 +10,11 @@ ko.utils.domData = {
         if (dataStore.has(node)) {
             dataStore.get(node)[key] = value;
         } else {
-            let dataForNode = {};
-            dataForNode[key] = value;
-            dataStore.set(node, dataForNode);
+            dataStore.set(node, {[key]:value});
         }
         return value;
     },
-    getOrSet: function(node, key, value) {
+    getOrSet(node, key, value) {
         return this.get(node, key) || this.set(node, key, value);
     },
     clear: node => dataStore.delete(node),

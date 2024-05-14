@@ -2,32 +2,33 @@
 
 namespace Sabre\VObject\Property\VCard;
 
-use
-    Sabre\VObject\DateTimeParser;
-
 /**
- * Date property
+ * Date property.
  *
  * This object encodes vCard DATE values.
  *
- * @copyright Copyright (C) 2007-2013 fruux GmbH. All rights reserved.
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
- * @license http://code.google.com/p/sabredav/wiki/License Modified BSD License
+ * @license http://sabre.io/license/ Modified BSD License
  */
-class Date extends DateAndOrTime {
-
+class Date extends DateAndOrTime
+{
     /**
      * Returns the type of value.
      *
      * This corresponds to the VALUE= parameter. Every property also has a
      * 'default' valueType.
-     *
-     * @return string
      */
-    public function getValueType() {
-
-        return "DATE";
-
+    public function getValueType(): string
+    {
+        return 'DATE';
     }
 
+    /**
+     * Sets the property as a DateTime object.
+     */
+    public function setDateTime(\DateTimeInterface $dt): void
+    {
+        $this->value = $dt->format('Ymd');
+    }
 }
