@@ -1,6 +1,7 @@
 import { Notifications } from 'Common/Enums';
 import { isArray, pInt, pString } from 'Common/Utils';
 import { serverRequest } from 'Common/Links';
+import { runHook } from 'Common/Plugins';
 import { getNotification } from 'Common/Translator';
 
 let iJsonErrorCount = 0;
@@ -129,10 +130,7 @@ export class AbstractFetchRemote
 
 		const start = Date.now();
 
-		fetchJSON(sAction, getURL(sGetAdd),
-			sGetAdd ? null : (params || {}),
-			pInt(iTimeout ?? 30000),
-			async data => {
+
 				let iError = 0;
 				if (data) {
 /*
@@ -148,9 +146,7 @@ export class AbstractFetchRemote
 					}
 				}
 
-				if (111 === iError && rl.app.ask && await rl.app.ask.cryptkey()) {
-					return this.request(sAction, fCallback, params, iTimeout, sGetAdd);
-				}
+
 
 				fCallback && fCallback(
 					iError,
