@@ -1,3 +1,91 @@
+## 2.36.1 – 2024-04-23
+
+### Added
+- Autoconfig detect through DNS SRV (RFC 6186 & 8314) and disable MX
+- Have I Been Pwned class to check breached passwords and email addresses
+- Handle RFC 5987 in Content-Disposition header
+- Ignore text/x-amp-html
+- Show SMTP error to user
+  [#1521](https://github.com/the-djmaze/snappymail/issues/1521)
+- OAuth2 for login using gmail (and others)
+
+### Changed
+- logMask all AUTHENTICATE requests
+- ErrorTip use white-space: pre
+- Simplify LoginProcess handling
+- ES2020 everywhere (require Safari 13.1)
+- Modified Squire to be more in line with v2.2.8
+- CSS set min-width for .attachmentParent and .flagParent to line them up
+- cPanel use extension login-cpanel instead of login-remote
+- Improved login credentials handling
+- Speedup Knockout a bit
+- Update Belarusian by @spoooyders
+- Update Chinese by @mayswind
+- Update French by @hguilbert
+- Update Polish by @tinola
+- Update Portuguese by @ner00
+
+### Fixed
+- Content encoding and type detection in JavaScript could fail due to case-sensitivity.
+- Extensions set logger failed
+- GnuPG check open_basedir and if shell_exec is disabled
+- Hide pagination when search result has no messages
+- Prevent mbstring error before setup.php
+- Prevent MessagesPerPage Infinity
+  [#1540](https://github.com/the-djmaze/snappymail/issues/1540)
+- Reseal CryptKey failed
+  [#1543](https://github.com/the-djmaze/snappymail/issues/1543)
+
+### Nextcloud
+- Add an occ command to set up the login settings
+  [#1552](https://github.com/the-djmaze/snappymail/issues/1552)
+
+
+## 2.36.0 – 2024-03-18
+
+### Added
+- Allow setting the supported THREAD algorithm
+- Icon to system folders
+- Remove remembered password after 15 minutes of inactivity
+  [#1142](https://github.com/the-djmaze/snappymail/issues/1142)
+- Swap background and text color for unreadable text on dark background
+  [#1486](https://github.com/the-djmaze/snappymail/issues/1486)
+- Generate TOTP code at ?Admin -> Security
+  [#1501](https://github.com/the-djmaze/snappymail/issues/1501)
+- Button to change S/MIME private key passphrase
+  [#1505](https://github.com/the-djmaze/snappymail/issues/1505)
+- Belarusian by @spoooyders
+  [#1512](https://github.com/the-djmaze/snappymail/pull/1512)
+- Log some domain idn_to_ascii issues
+  [#1513](https://github.com/the-djmaze/snappymail/pull/1513)
+
+### Changed
+- On folder/mailbox rename, also rename all children instead of reloading all
+- Seal MainAccount CryptKey and on error ask old login passphrase to reseal key.
+- Moved cache drivers outside core into extensions
+- Sieve always allow fileinto INBOX
+  [#1510](https://github.com/the-djmaze/snappymail/issues/1510)
+- Moved application.ini `sieve_auth_plain_initial` to per domain config
+- Languages use rfc5646, by using the shortest ISO 639 code by default
+- Update French by @hguilbert
+- Update Portuguese by @ner00
+
+### Fixed
+- On folder/mailbox rename, the old fullName must be removed from cache
+- On folder/mailbox rename, the checkable option was not renamed
+- Sort accounts drag & drop
+- S/MIME encrypted and opaque signed not visible
+  [#1450](https://github.com/the-djmaze/snappymail/issues/1450)
+- Wrong last UID of thread
+  [#1507](https://github.com/the-djmaze/snappymail/issues/1507)
+- Creation of dynamic property SnappyMail\DAV\Client::$HTTP
+  [#1509](https://github.com/the-djmaze/snappymail/issues/1509)
+- "Download as ZIP" fails for messages
+  [#1514](https://github.com/the-djmaze/snappymail/issues/1514)
+- SMTP "Authentication failed" when IMAP uses `shortLogin` and SMTP not
+  [#1517](https://github.com/the-djmaze/snappymail/issues/1517)
+
+
 ## 2.35.4 – 2024-03-16
 
 ### Added
@@ -6,7 +94,6 @@
 ### Changed
 - OpenPGP.js to v5.11.1
 - punycode.js lowercase domain names
-- Nextcloud changed stored password handling
 - application.ini `login_lowercase` removed and now configurable per domain JSON `lowerLogin`
 - Update Portuguese by @ner00
 
@@ -20,6 +107,11 @@
 - Importing or downloading a PGP public key attachment from a PGP encrypted message doesn't work
   [#1500](https://github.com/the-djmaze/snappymail/issues/1500)
 - VCard PHP Notice: Undefined index: ENCODING
+
+### Nextcloud
+- Changed stored password handling
+- Can't login from nextcloud with 2.35.3 bug Nextcloud
+  [#1490](https://github.com/the-djmaze/snappymail/issues/1490)
 
 
 ## 2.35.3 – 2024-03-12
@@ -68,6 +160,7 @@
 - Crash on importing corrupt OpenPGP keys
 - Crash on old browsers instead of showing error
 - Ignore popups on logoutReload()
+  [#1467](https://github.com/the-djmaze/snappymail/pull/1467)
 - Custom SASLMechanisms fail in IMAP when the connection is secure
   [#1484](https://github.com/the-djmaze/snappymail/pull/1484)
 
@@ -86,7 +179,9 @@
 - Drop support for gnupg PECL extension as it fails with "no passphrase" issues
 - Error 352 when getting Filters
   [#1455](https://github.com/the-djmaze/snappymail/issues/1455)
-- Nextcloud SetPassword(): Argument #1 must be of type SensitiveString, string given
+
+### Nextcloud
+- SetPassword(): Argument #1 must be of type SensitiveString, string given
   [#1456](https://github.com/the-djmaze/snappymail/issues/1456)
 
 

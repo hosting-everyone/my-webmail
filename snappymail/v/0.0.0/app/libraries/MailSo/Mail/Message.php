@@ -507,7 +507,6 @@ class Message implements \JsonSerializable
 			'spamResult' => $this->sSpamResult,
 			'isSpam' => $this->bIsSpam,
 			'dateTimestamp' => $this->iHeaderTimeStampInUTC ?: $this->iInternalTimeStampInUTC,
-			'internalTimestamp' => $this->iInternalTimeStampInUTC,
 
 			// \MailSo\Mime\EmailCollection
 			'from' => $this->oFrom,
@@ -548,6 +547,7 @@ class Message implements \JsonSerializable
 		}
 		if ($this->References) {
 			$result['references'] = $this->References;
+//			$result['references'] = \explode(' ', $this->References);
 		}
 		if ($this->sHtml || $this->sPlain) {
 			$result['html'] = $this->sHtml;

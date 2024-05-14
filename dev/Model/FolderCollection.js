@@ -29,6 +29,8 @@ import { FileInfo } from 'Common/File';
 import { FolderPopupView } from 'View/Popup/Folder';
 import { showScreenPopup } from 'Knoin/Knoin';
 
+import { isAllowedKeyword } from 'Stores/User/Folder';
+
 const
 //	isPosNumeric = value => null != value && /^[0-9]*$/.test(value.toString()),
 
@@ -411,6 +413,8 @@ export class FolderModel extends AbstractModel {
 			canBeSubscribed: () => this.selectable()
 				&& !(this.isSystemFolder() | !SettingsUserStore.hideUnsubscribed()),
 
+			optionalTags: () => this.permanentFlags.filter(isAllowedKeyword),
+
 			/**
 			 * Folder is visible when:
 			 * - hasVisibleSubfolders()
@@ -467,16 +471,25 @@ export class FolderModel extends AbstractModel {
 
 			detailedName: () => this.name() + ' ' + this.nameInfo(),
 
-			hasSubscribedUnreadMessagesSubfolders: () =>
-				!!this.subFolders().find(
-					folder => folder.unreadEmails() | folder.hasSubscribedUnreadMessagesSubfolders()
-				)
-/*
-				!!this.subFolders().filter(
-					folder => folder.unreadEmails() | folder.hasSubscribedUnreadMessagesSubfolders()
-				).length
-*/
-			,href: () => this.canBeSelected() && mailBox(this.fullNameHash)
+			icon: () => {
+				switch (this.type())
+				{
+					case 1: return '📥'; // FolderType.Inbox
+					case 2: return '📧'; // FolderType.Sent icon-paper-plane
+					case 3: return '🗎'; // FolderType.Drafts
+					case 4: return '⚠'; // FolderType.Junk
+					case 5: return '🗑'; // FolderType.Trash
+					case 6: return '🗄'; // FolderType.Archive
+				}
+				return null;
+			},
+
+			hasUnreadInSub: () =>
+				this.subFolders().some(
+					folder => folder.unreadEmails() | folder.hasUnreadInSub()
+				),
+
+			href: () => this.canBeSelected() && mailBox(this.fullNameHash)
 		});
 	}
 

@@ -18,6 +18,7 @@
 		"LOGOUT": "Saioa itxi",
 		"MORE": "Gehiago",
 		"MOVE_TO": "Mugitu",
+		"COPY_TO": "Kopiatu hona",
 		"NAME": "Izena",
 		"NONE": "Bat ere ez",
 		"TO_SPAM": "Move message(s) to Spam",
@@ -285,6 +286,9 @@
 		"CREATE_SELF_SIGNED": "Create self-signed",
 		"VALID_UNTIL": "Valid until",
 		"PRIVATE_KEY": "Private key",
+		"CHANGE_PASS": "Change passphrase",
+		"CURRENT_PASS": "Current passphrase",
+		"NEW_PASS": "New passphrase",
 		"ASK_CRYPTKEY_PASS": "Your login passphrase has changed. Please fill in your old login password to decrypt data"
 	},
 	"OPENPGP": {
@@ -452,6 +456,7 @@
 		"HIDE_DELETED_MESSAGES": "Ezkutatu ezabatzeko markatutako mezuak",
 		"USE_CHECKBOXES_IN_LIST": "Bistaratu kontrol laukiak zerrendan",
 		"USE_THREADS": "Erabili hariak",
+		"THREAD_ALGORITHM": "Threads algorithm",
 		"REPLY_SAME_FOLDER": "Kokatu erantzunak erantzundako mezuaren karpeta berean",
 		"PREFER_HTML": "Lehenetsi HTMLa testu arruntari",
 		"PREFER_HTML_INFO": "Mezuak batzuetan bi formatuetan datoz. Aukera honekin HTML edo testu arrunt partea erakustea aukera dezakezu.",

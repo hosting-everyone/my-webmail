@@ -42,26 +42,54 @@ export class IdentityPopupView extends AbstractViewPopup {
 		this.defaultOptionsAfterRender = defaultOptionsAfterRender;
 
 		this.createSelfSigned = this.createSelfSigned.bind(this);
+		this.setSMimeKeyPass = this.setSMimeKeyPass.bind(this);
 	}
 
-	async createSelfSigned() {
-		const identity = this.identity(),
-			pass = await AskPopupView.password('', 'CRYPTO/CREATE_SELF_SIGNED');
-		if (pass) {
-			Remote.request('SMimeCreateCertificate', (iError, oData) => {
-				if (oData.Result.x509) {
-					identity.smimeKey(oData.Result.pkey);
-					identity.smimeCertificate(oData.Result.x509);
-				} else {
-					this.submitError(oData.ErrorMessage);
-				}
-			}, {
-				name: identity.name(),
-				email: identity.email(),
-				privateKey: identity.smimeKey(),
-				passphrase: pass.password
-			});
+	createSelfSigned() {
+		AskPopupView.password('', 'CRYPTO/CREATE_SELF_SIGNED').then(result => {
+			if (result) {
+				const identity = this.identity();
+				Remote.request('SMimeCreateCertificate', (iError, oData) => {
+					if (oData.Result.x509) {
+						identity.smimeKey(oData.Result.pkey);
+						identity.smimeCertificate(oData.Result.x509);
+					} else {
+						this.submitError(oData.ErrorMessage);
+					}
+				}, {
+					name: identity.name(),
+					email: identity.email(),
+					privateKey: identity.smimeKey(),
+					passphrase: result.password
+				});
+			}
+		});
+	}
+
+	async setSMimeKeyPass() {
+		const identity = this.identity();
+		let old = null
+		if (identity.smimeKeyEncrypted()) {
+			old = await AskPopupView.password(i18n('CRYPTO/CURRENT_PASS'), 'CRYPTO/DECRYPT');
+			if (!old) {
+				return;
+			}
 		}
+		AskPopupView.password(i18n('CRYPTO/NEW_PASS'), 'GLOBAL/SAVE').then(result => {
+			if (result) {
+				Remote.request('SMimeExportPrivateKey', (iError, oData) => {
+					if (oData.Result) {
+						identity.smimeKey(oData.Result);
+					} else {
+						this.submitError(oData.ErrorMessage);
+					}
+				}, {
+					privateKey: identity.smimeKey(),
+					oldPassphrase: old?.password,
+					newPassphrase: result.password
+				});
+			}
+		});
 	}
 
 	submitForm(form) {

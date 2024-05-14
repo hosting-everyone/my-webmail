@@ -132,8 +132,9 @@ $Plugin->addHook('hook.name', 'functionName');
 ### login.credentials
 	params:
 		string &$sEmail
-		string &$sLogin
+		string &$sImapUser
 		string &$sPassword
+		string &$sSmtpUser
 
 ### login.success
 	params:
@@ -411,12 +412,6 @@ and called in JavaScript using rl.pluginRemoteRequest().
 		string $sName
 		mixed &$mResult
 
-### service.app-delay-start-begin
-	no params
-
-### service.app-delay-start-end
-	no params
-
 # JavaScript Events
 
 ## mailbox
@@ -454,7 +449,8 @@ and called in JavaScript using rl.pluginRemoteRequest().
 
 ### rl-view-model.create
 	event.detail = the ViewModel class
-	Happens immediately after the ViewModel constructor
+	Happens immediately after the ViewModel constructor.
+	See accessible properties as https://github.com/the-djmaze/snappymail/blob/master/dev/Knoin/AbstractViews.js
 
 ### rl-view-model
 	event.detail = the ViewModel class

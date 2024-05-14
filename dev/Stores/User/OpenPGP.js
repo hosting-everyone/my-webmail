@@ -13,6 +13,8 @@ import { OpenPgpKeyPopupView } from 'View/Popup/OpenPgpKey';
 
 import { Passphrases } from 'Storage/Passphrases';
 
+import { baseCollator } from 'Common/Translator';
+
 const
 	findOpenPGPKey = (keys, query/*, sign*/) =>
 		keys.find(key =>
@@ -34,12 +36,12 @@ const
 					privateKey: privateKey.key,
 					passphrase
 				});
-			result && pass.remember && Passphrases.set(privateKey, passphrase);
+			result && pass.remember && Passphrases.handle(privateKey, passphrase);
 			return result;
 		}
 	},
 
-	collator = new Intl.Collator(undefined, {sensitivity: 'base'}),
+	collator = baseCollator(),
 	sort = keys => keys.sort(
 //		(a, b) => collator.compare(a.emails[0], b.emails[0]) || collator.compare(a.fingerprint, b.fingerprint)
 		(a, b) => collator.compare(a.emails[0], b.emails[0]) || collator.compare(a.id, b.id)

@@ -165,6 +165,7 @@ class ImapClient extends \MailSo\Net\NetClient
 					$this->sendRaw($sAuth);
 				}
 				$oResponse = $this->getResponse();
+//				if ($oResponse->getLast()->ResponseType === Enumerations\ResponseType::CONTINUATION)
 				if ($SASL->hasChallenge()) {
 					$sChallenge = $SASL->challenge($this->getResponseValue($oResponse, ResponseType::CONTINUATION));
 					$this->logMask($sChallenge);
@@ -192,8 +193,7 @@ class ImapClient extends \MailSo\Net\NetClient
 			else if ($this->hasCapability('LOGINDISABLED'))
 			{
 				$oResponse = $this->SendRequestGetResponse('AUTHENTICATE', array($type));
-				$sB64 = $this->getResponseValue($oResponse, ResponseType::CONTINUATION);
-				$this->sendRaw($SASL->authenticate($sLogin, $sPassword, $sB64), true);
+
 				$this->getResponse();
 				$sPass = $SASL->challenge(''/*UGFzc3dvcmQ6*/);
 				$this->logMask($sPass);

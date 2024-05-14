@@ -19,6 +19,7 @@ AppUserStore.focusedState.subscribe(value => {
 			arePopupsVisible() || keyScope(value);
 			ThemeStore.isMobile() && leftPanelDisabled('FolderList' !== value);
 		}
-		elementById('V-Mail'+name).classList.toggle('focused', name === value);
+		let el = elementById('V-Mail'+name);
+		el && el.classList.toggle('focused', name === value);
 	});
 });

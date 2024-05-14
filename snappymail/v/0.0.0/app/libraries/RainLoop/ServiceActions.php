@@ -183,7 +183,7 @@ class ServiceActions
 				$this->oActions->logException($oException, \LOG_ERR);
 			}
 
-			$iLimit = (int) $this->Config()->Get('labs', 'log_ajax_response_write_limit', 0);
+			$iLimit = (int) $this->Config()->Get('logs', 'json_response_write_limit', 0);
 			$this->oActions->logWrite(0 < $iLimit && $iLimit < \strlen($sResult)
 					? \substr($sResult, 0, $iLimit).'...' : $sResult, \LOG_INFO, 'JSON');
 		}
@@ -552,18 +552,16 @@ class ServiceActions
 				if (\is_array($aData) && !empty($aData['Email']) && isset($aData['Password'], $aData['Time']) &&
 					(0 === $aData['Time'] || \time() - 10 < $aData['Time']))
 				{
-					$sEmail = \trim($aData['Email']);
-					$oPassword = new \SnappyMail\SensitiveString($aData['Password']);
-
 					$aAdditionalOptions = (isset($aData['AdditionalOptions']) && \is_array($aData['AdditionalOptions']))
 						? $aData['AdditionalOptions'] : [];
-
 					try
 					{
-						$oAccount = $this->oActions->LoginProcess($sEmail, $oPassword);
-
+						$oAccount = $this->oActions->LoginProcess(
+							\trim($aData['Email']),
+							new \SnappyMail\SensitiveString($aData['Password'])
+						);
 						if ($aAdditionalOptions) {
-							$bNeedToSettings = false;
+							$bSaveSettings = false;
 
 							$oSettings = $this->SettingsProvider()->Load($oAccount);
 							if ($oSettings) {
@@ -573,19 +571,15 @@ class ServiceActions
 								if ($sLanguage) {
 									$sLanguage = $this->oActions->ValidateLanguage($sLanguage);
 									if ($sLanguage !== $oSettings->GetConf('language', '')) {
-										$bNeedToSettings = true;
+										$bSaveSettings = true;
 										$oSettings->SetConf('language', $sLanguage);
 									}
 								}
 							}
 
-							if ($bNeedToSettings) {
+							if ($bSaveSettings) {
 								$oSettings->save();
 							}
-						}
-
-						if ($oAccount instanceof Model\MainAccount) {
-							$this->oActions->SetAuthToken($oAccount);
 						}
 					}
 					catch (\Throwable $oException)

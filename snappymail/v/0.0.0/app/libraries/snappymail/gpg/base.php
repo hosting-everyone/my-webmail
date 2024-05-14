@@ -483,8 +483,8 @@ abstract class Base
 
 	protected static function findBinary($name) : ?string
 	{
-		$binary = \trim((string) `which $name`);
-		if ($binary && \is_executable($binary)) {
+		$binary = \function_exists('shell_exec') ? \trim((string) `which $name`) : '';
+		if ($binary && \RainLoop\Utils::inOpenBasedir($binary) && \is_executable($binary)) {
 			return $binary;
 		}
 		$locations = \array_filter([

@@ -20,7 +20,8 @@ import { isArray } from 'Common/Utils';
 
 export const
 
-moveAction = ko.observable(false),
+// 1 = move, 2 = copy
+moveAction = ko.observable(0),
 
 dropdownsDetectVisibility = (() =>
 	dropdownVisibility(!!dropdowns.find(item => item.classList.contains('show')))
@@ -121,7 +122,7 @@ computedPaginatorHelper = (koCurrentPage, koPageCount) => {
 			next = 0,
 			limit = 2;
 
-		if (1 < pageCount || (0 < pageCount && pageCount < currentPage)) {
+		if (1 < pageCount) {
 			if (pageCount < currentPage) {
 				fAdd(pageCount);
 				prev = pageCount;
@@ -359,5 +360,5 @@ populateMessageBody = (oMessage, popup) => {
 	}
 };
 
-leftPanelDisabled.subscribe(value => value && moveAction(false));
+leftPanelDisabled.subscribe(value => value && moveAction(0));
 moveAction.subscribe(value => value && leftPanelDisabled(false));

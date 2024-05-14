@@ -18,6 +18,7 @@
 		"LOGOUT": "Sair",
 		"MORE": "Mais",
 		"MOVE_TO": "Mover Para",
+		"COPY_TO": "Copiar para",
 		"NAME": "Caixa de Entrada",
 		"NONE": "Nenhum",
 		"TO_SPAM": "Move message(s) to Spam",
@@ -285,7 +286,10 @@
 		"CREATE_SELF_SIGNED": "Create self-signed",
 		"VALID_UNTIL": "Valid until",
 		"PRIVATE_KEY": "Private key",
-		"ASK_CRYPTKEY_PASS": "Your login passphrase has changed. Please fill in your old login password to decrypt data"
+		"CHANGE_PASS": "Change passphrase",
+		"CURRENT_PASS": "Current passphrase",
+		"NEW_PASS": "New passphrase",
+		"ASK_CRYPTKEY_PASS": "Your login passphrase has changed. Please fill in your old login passphrase to decrypt data"
 	},
 	"OPENPGP": {
 		"POPUP_IMPORT_TITLE": "Importar chave OpenPGP",
@@ -452,6 +456,7 @@
 		"HIDE_DELETED_MESSAGES": "Ocultar mensagens marcadas para exclusão",
 		"USE_CHECKBOXES_IN_LIST": "Exibir caixas de seleção na lista",
 		"USE_THREADS": "Agrupar mensagens por conversa",
+		"THREAD_ALGORITHM": "Threads algorithm",
 		"REPLY_SAME_FOLDER": "Colocar resposta na mesma pasta da mensagem respondida",
 		"PREFER_HTML": "Prefer HTML to plain text",
 		"PREFER_HTML_INFO": "Messages sometimes come in both formats. This option controls whether you want the HTML part or the plain text part to be displayed.",

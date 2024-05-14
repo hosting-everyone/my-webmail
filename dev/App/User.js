@@ -45,6 +45,7 @@ import Remote from 'Remote/User/Fetch';
 
 import { LoginUserScreen } from 'Screen/User/Login';
 import { MailBoxUserScreen } from 'Screen/User/MailBox';
+import { ContactsUserScreen } from 'Screen/User/Contacts';
 import { SettingsUserScreen } from 'Screen/User/Settings';
 
 import { startScreens, showScreenPopup, arePopupsVisible } from 'Knoin/Knoin';
@@ -185,6 +186,7 @@ export class AppUser extends AbstractApp {
 					if (value) {
 						startScreens([
 							MailBoxUserScreen,
+							ContactsUserScreen,
 							SettingsUserScreen
 						]);
 
@@ -251,14 +253,18 @@ export class AppUser extends AbstractApp {
 	}
 }
 
-AskPopupView.password = function(sAskDesc, btnText) {
+AskPopupView.password = function(sAskDesc, btnText, ask) {
 	return new Promise(resolve => {
 		this.showModal([
 			sAskDesc,
-			view => resolve({password:view.passphrase(), remember:view.remember()}),
+			view => resolve({
+				password:view.passphrase(),
+				username:/*ask & 2 ? */view.username(),
+				remember:/*ask & 4 ? */view.remember()
+			}),
 			() => resolve(null),
 			true,
-			5,
+			ask || 1,
 			btnText
 		]);
 	});

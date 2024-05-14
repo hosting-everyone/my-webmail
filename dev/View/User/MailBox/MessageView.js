@@ -174,18 +174,17 @@ export class MailMessageView extends AbstractViewRight {
 
 			canBeRepliedOrForwarded: () => !MessagelistUserStore.isDraftFolder() && this.messageVisible(),
 
-			viewDkimIcon: () => 'none' !== this.dkimData()[0],
-
-			dkimIconClass:() => {
+			dkimIcon: () => {
 				switch (this.dkimData()[0]) {
 					case 'none':
 						return '';
 					case 'pass':
-						return 'icon-ok iconcolor-green'; // ✔️
+						return '✔';
 					default:
-						return 'icon-cross iconcolor-red'; // ✖ ❌
+						return '✖';
 				}
 			},
+			dkimIconClass: () => 'pass' === this.dkimData()[0] ? 'iconcolor-green' : 'iconcolor-red',
 
 			dkimTitle:() => {
 				const dkim = this.dkimData();
@@ -241,6 +240,7 @@ export class MailMessageView extends AbstractViewRight {
 		decorateKoCommands(this, {
 			editCommand: self => self.messageVisible(),
 			moveCommand: self => self.messageVisible(),
+			copyCommand: self => self.messageVisible(),
 			goUpCommand: self => !self.messageListOrViewLoading(),
 			goDownCommand: self => !self.messageListOrViewLoading()
 		});
@@ -258,13 +258,21 @@ export class MailMessageView extends AbstractViewRight {
 		currentMessage() && showMessageComposer([ComposeType.Draft, currentMessage()]);
 	}
 
-	moveCommand(vm, event) {
+	moveOrCopy(vm, event, mode) {
 		if (vm && event?.preventDefault) {
 			stopEvent(event);
 		}
 		this.actionsMenu().ddBtn.hide();
 		AppUserStore.focusedState(ScopeFolderList);
-		moveAction(true);
+		moveAction(mode);
+	}
+
+	moveCommand(vm, event) {
+		this.moveOrCopy(vm, event, 1);
+	}
+
+	copyCommand(vm, event) {
+		this.moveOrCopy(vm, event, 2);
 	}
 
 	setUnseen() {
@@ -541,20 +549,19 @@ export class MailMessageView extends AbstractViewRight {
 	 * @returns {void}
 	 */
 	readReceipt() {
-		let oMessage = currentMessage()
+		let oMessage = currentMessage();
 		if (oMessage.readReceipt) {
-			Remote.request('SendReadReceiptMessage', iError => {
-				if (!iError) {
-					oMessage.flags.push('$mdnsent');
-//					oMessage.flags.valueHasMutated();
+			oMessage.flags.push('$mdnsent');
+			Remote.request('SendReadReceiptMessage',
+				iError => iError && oMessage.flags.remove('$mdnsent'),
+				{
+					messageFolder: oMessage.folder,
+					messageUid: oMessage.uid,
+					readReceipt: oMessage.readReceipt,
+					subject: i18n('READ_RECEIPT/SUBJECT', { SUBJECT: oMessage.subject() }),
+					plain: i18n('READ_RECEIPT/BODY', { 'READ-RECEIPT': AccountUserStore.email() })
 				}
-			}, {
-				messageFolder: oMessage.folder,
-				messageUid: oMessage.uid,
-				readReceipt: oMessage.readReceipt,
-				subject: i18n('READ_RECEIPT/SUBJECT', { SUBJECT: oMessage.subject() }),
-				plain: i18n('READ_RECEIPT/BODY', { 'READ-RECEIPT': AccountUserStore.email() })
-			});
+			);
 		}
 	}
 
@@ -655,7 +662,7 @@ export class MailMessageView extends AbstractViewRight {
 					message.smimeDecrypted(true);
 					MimeToMessage(response.Result.data, message);
 					message.html() ? message.viewHtml() : message.viewPlain();
-					pass && pass.remember && Passphrases.set(identity, pass.password);
+					pass && pass.remember && Passphrases.handle(identity, pass.password);
 					if ('signed' in response.Result) {
 						message.smimeSigned(response.Result.signed);
 					}

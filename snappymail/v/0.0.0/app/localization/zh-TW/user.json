@@ -18,6 +18,7 @@
 		"LOGOUT": "登出",
 		"MORE": "更多",
 		"MOVE_TO": "移至",
+		"COPY_TO": "复制到",
 		"NAME": "名稱",
 		"NONE": "無",
 		"TO_SPAM": "移動郵件至垃圾郵件",
@@ -285,7 +286,10 @@
 		"CREATE_SELF_SIGNED": "Create self-signed",
 		"VALID_UNTIL": "Valid until",
 		"PRIVATE_KEY": "Private key",
-		"ASK_CRYPTKEY_PASS": "Your login passphrase has changed. Please fill in your old login password to decrypt data"
+		"CHANGE_PASS": "Change passphrase",
+		"CURRENT_PASS": "Current passphrase",
+		"NEW_PASS": "New passphrase",
+		"ASK_CRYPTKEY_PASS": "Your login passphrase has changed. Please fill in your old login passphrase to decrypt data"
 	},
 	"OPENPGP": {
 		"POPUP_IMPORT_TITLE": "匯入 OpenPGP 金鑰",
@@ -452,6 +456,7 @@
 		"HIDE_DELETED_MESSAGES": "隱藏標示為已刪除的郵件",
 		"USE_CHECKBOXES_IN_LIST": "在清單中顯示核取方塊",
 		"USE_THREADS": "使用對話",
+		"THREAD_ALGORITHM": "Threads algorithm",
 		"REPLY_SAME_FOLDER": "放置回覆的郵件在其所在資料夾",
 		"PREFER_HTML": "偏好 HTML",
 		"PREFER_HTML_INFO": "部分郵件會有兩種格式。此選項旨在設定郵件應優先顯示 HTML 格式，或純文字格式。",

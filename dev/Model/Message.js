@@ -8,7 +8,7 @@ import { forEachObjectEntry, b64EncodeJSONSafe } from 'Common/Utils';
 import { serverRequestRaw, proxy } from 'Common/Links';
 import { addObservablesTo, addComputablesTo } from 'External/ko';
 
-import { FolderUserStore, isAllowedKeyword } from 'Stores/User/Folder';
+import { FolderUserStore } from 'Stores/User/Folder';
 import { SettingsUserStore } from 'Stores/User/Settings';
 
 import { FileInfo, RFC822 } from 'Common/File';
@@ -81,7 +81,6 @@ export class MessageModel extends AbstractModel {
 //			autocrypt: ko.observableArray(),
 			hasVirus: null, // or boolean when scanned
 			priority: 3, // Normal
-			internalTimestamp: 0,
 			senderEmailsString: '',
 			senderClearEmailsString: '',
 			isSpam: false,
@@ -157,17 +156,15 @@ export class MessageModel extends AbstractModel {
 
 			tagOptions: () => {
 				const tagOptions = [];
-				FolderUserStore.currentFolder().permanentFlags.forEach(value => {
-					if (isAllowedKeyword(value)) {
-						let lower = value.toLowerCase();
-						tagOptions.push({
-							css: 'msgflag-' + lower,
-							value: value,
-							checked: this.flags().includes(lower),
-							label: i18n('MESSAGE_TAGS/'+lower, 0, value),
-							toggle: (/*obj*/) => toggleTag(this, value)
-						});
-					}
+				FolderUserStore.currentFolder().optionalTags().forEach(value => {
+					let lower = value.toLowerCase();
+					tagOptions.push({
+						css: 'msgflag-' + lower,
+						value: value,
+						checked: this.flags().includes(lower),
+						label: i18n('MESSAGE_TAGS/'+lower, 0, value),
+						toggle: (/*obj*/) => toggleTag(this, value)
+					});
 				});
 				return tagOptions
 			},
@@ -513,7 +510,7 @@ export class MessageModel extends AbstractModel {
 					hasImages = true;
 				},
 				attr = 'data-x-src',
-				src, useProxy = !!SettingsGet('useLocalProxyForExternalImages');
+				src, useProxy = !!SettingsGet('proxyExternalImages');
 			body.querySelectorAll('img[' + attr + ']').forEach(node => {
 				src = node.getAttribute(attr);
 				if (isValid(src)) {

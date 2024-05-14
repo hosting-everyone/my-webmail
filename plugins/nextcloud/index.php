@@ -4,11 +4,11 @@ class NextcloudPlugin extends \RainLoop\Plugins\AbstractPlugin
 {
 	const
 		NAME = 'Nextcloud',
-		VERSION = '2.34',
-		RELEASE  = '2024-03-16',
+		VERSION = '2.35',
+		RELEASE  = '2024-03-29',
 		CATEGORY = 'Integrations',
 		DESCRIPTION = 'Integrate with Nextcloud v20+',
-		REQUIRED = '2.35.4';
+		REQUIRED = '2.36.0';
 
 	public function Init() : void
 	{
@@ -36,10 +36,11 @@ class NextcloudPlugin extends \RainLoop\Plugins\AbstractPlugin
 			$this->addTemplate('templates/PopupsNextcloudFiles.html');
 			$this->addTemplate('templates/PopupsNextcloudCalendars.html');
 /*
-			// DISABLED https://github.com/the-djmaze/snappymail/issues/1420#issuecomment-1933045917
-			$this->addHook('imap.before-login', 'oidcLogin');
-			$this->addHook('smtp.before-login', 'oidcLogin');
-			$this->addHook('sieve.before-login', 'oidcLogin');
+			$this->addHook('login.credentials.step-2', 'loginCredentials2');
+			$this->addHook('login.credentials', 'loginCredentials');
+			$this->addHook('imap.before-login', 'beforeLogin');
+			$this->addHook('smtp.before-login', 'beforeLogin');
+			$this->addHook('sieve.before-login', 'beforeLogin');
 */
 		} else {
 			\SnappyMail\Log::debug('Nextcloud', 'NOT integrated');
@@ -70,10 +71,25 @@ class NextcloudPlugin extends \RainLoop\Plugins\AbstractPlugin
 		return static::IsIntegrated() && \OC::$server->getUserSession()->isLoggedIn();
 	}
 
-	// https://apps.nextcloud.com/apps/oidc_login
-	// DISABLED https://github.com/the-djmaze/snappymail/issues/1420#issuecomment-1933045917
-	public function oidcLogin(\RainLoop\Model\Account $oAccount, \MailSo\Net\NetClient $oClient, \MailSo\Net\ConnectSettings $oSettings) : void
+	public function loginCredentials(string &$sEmail, string &$sLogin, ?string &$sPassword = null) : void
 	{
+		$ocUser = \OC::$server->getUserSession()->getUser();
+		$sEmail = $ocUser->getEMailAddress() ?: $oc->user->getPrimaryEMailAddress();
+		$sLogin = $ocUser->getUID();
+	}
+
+	public function loginCredentials2(string &$sEmail, ?string &$sPassword = null) : void
+	{
+		$ocUser = \OC::$server->getUserSession()->getUser();
+		$sEmail = $ocUser->getEMailAddress() ?: $oc->user->getPrimaryEMailAddress();
+	}
+
+	public function beforeLogin(\RainLoop\Model\Account $oAccount, \MailSo\Net\NetClient $oClient, \MailSo\Net\ConnectSettings $oSettings) : void
+	{
+		$oSettings->username = \OC::$server->getUserSession()->getUser()->getUID();
+/*
+		// https://apps.nextcloud.com/apps/oidc_login
+		// DISABLED https://github.com/the-djmaze/snappymail/issues/1420#issuecomment-1933045917
 		if (\OC::$server->getConfig()->getAppValue('snappymail', 'snappymail-autologin-oidc', false)
 		 && \OC::$server->getSession()->get('is_oidc')
 //		 && $oClient->supportsAuthType('OAUTHBEARER') // v2.28
@@ -84,6 +100,7 @@ class NextcloudPlugin extends \RainLoop\Plugins\AbstractPlugin
 				\array_unshift($oSettings->SASLMechanisms, 'OAUTHBEARER');
 			}
 		}
+*/
 	}
 
 	/*

@@ -147,7 +147,6 @@ class Actions
 		}
 
 		$this->oPlugins = new Plugins\Manager($this);
-		$this->oPlugins->SetLogger($this->oLogger);
 		$this->oPlugins->RunHook('filter.application-config', array($this->oConfig));
 	}
 
@@ -195,10 +194,6 @@ class Actions
 				case 'settings-local':
 					// RainLoop\Providers\Settings\ISettings
 					$mResult = new Providers\Settings\DefaultSettings($this->LocalStorageProvider());
-					break;
-				case 'login':
-					// Providers\Login\LoginInterface
-					$mResult = new Providers\Login\DefaultLogin();
 					break;
 				case 'domain':
 					// Providers\Domain\DomainInterface
@@ -270,11 +265,11 @@ class Actions
 
 			if ($oAccount) {
 				$oDomain = $oAccount->Domain();
-				$sLine = \str_replace('{imap:login}', $oAccount->IncLogin(), $sLine);
+				$sLine = \str_replace('{imap:login}', $oAccount->ImapUser(), $sLine);
 				$sLine = \str_replace('{imap:host}', $oDomain->ImapSettings()->host, $sLine);
 				$sLine = \str_replace('{imap:port}', $oDomain->ImapSettings()->port, $sLine);
 
-				$sLine = \str_replace('{smtp:login}', $oAccount->OutLogin(), $sLine);
+				$sLine = \str_replace('{smtp:login}', $oAccount->SmtpUser(), $sLine);
 				$sLine = \str_replace('{smtp:host}', $oDomain->SmtpSettings()->host, $sLine);
 				$sLine = \str_replace('{smtp:port}', $oDomain->SmtpSettings()->port, $sLine);
 			}
@@ -479,49 +474,16 @@ class Actions
 		if (!isset($this->aCachers[$sIndexKey])) {
 			$this->aCachers[$sIndexKey] = new \MailSo\Cache\CacheClient();
 
-			$oDriver = null;
-			$sDriver = \strtoupper(\trim($this->oConfig->Get('cache', 'fast_cache_driver', 'files')));
-
-			switch (true) {
-				default:
-				case $bForceFile:
-					$oDriver = new \MailSo\Cache\Drivers\File(
-						\trim($this->oConfig->Get('cache', 'path', '')) ?: APP_PRIVATE_DATA . 'cache',
-						$sKey
-					);
-					break;
-
-				case ('APCU' === $sDriver) &&
-					\MailSo\Base\Utils::FunctionsCallable(array(
-						'apcu_store', 'apcu_fetch', 'apcu_delete', 'apcu_clear_cache')):
-
-					$oDriver = new \MailSo\Cache\Drivers\APCU($sKey);
-					break;
-
-				case ('MEMCACHE' === $sDriver || 'MEMCACHED' === $sDriver) &&
-					(\class_exists('Memcache',false) || \class_exists('Memcached',false)):
-					$oDriver = new \MailSo\Cache\Drivers\Memcache(
-						$this->oConfig->Get('labs', 'fast_cache_memcache_host', '127.0.0.1'),
-						(int) $this->oConfig->Get('labs', 'fast_cache_memcache_port', 11211),
-						43200,
-						$sKey
-					);
-					break;
-
-				case 'REDIS' === $sDriver && \class_exists('Predis\Client'):
-					$oDriver = new \MailSo\Cache\Drivers\Redis(
-						$this->oConfig->Get('labs', 'fast_cache_redis_host', '127.0.0.1'),
-						(int) $this->oConfig->Get('labs', 'fast_cache_redis_port', 6379),
-						43200,
-						$sKey
-					);
-					break;
+			$oDriver = $bForceFile ? null : $this->fabrica('cache');
+			if (!($oDriver instanceof \MailSo\Cache\DriverInterface)) {
+				$oDriver = new \MailSo\Cache\Drivers\File(
+					\trim($this->oConfig->Get('cache', 'path', '')) ?: APP_PRIVATE_DATA . 'cache'
+				);
 			}
+//			$sDriver = \strtoupper(\trim($this->oConfig->Get('cache', 'fast_cache_driver', 'files')));
+			$oDriver->setPrefix($sKey);
 
-			if ($oDriver) {
-				$this->aCachers[$sIndexKey]->SetDriver($oDriver);
-			}
-
+			$this->aCachers[$sIndexKey]->SetDriver($oDriver);
 			$this->aCachers[$sIndexKey]->SetCacheIndex($this->oConfig->Get('cache', 'fast_cache_index', ''));
 		}
 
@@ -621,7 +583,7 @@ class Actions
 						'MaxBlockquotesLevel' => 0,
 						'simpleAttachmentsList' => false,
 						'listGrouped' => $oConfig->Get('defaults', 'mail_list_grouped', false),
-						'MessagesPerPage' => (int) $oConfig->Get('webmail', 'messages_per_page', 25),
+						'MessagesPerPage' => \max(10, \intval($oConfig->Get('webmail', 'messages_per_page', 25)) ?: 25),
 						'messageNewWindow' => false,
 						'messageReadAuto' => true, // (bool) $oConfig->Get('webmail', 'message_read_auto', true),
 						'MessageReadDelay' => (int) $oConfig->Get('webmail', 'message_read_delay', 5),
@@ -636,8 +598,7 @@ class Actions
 						'showNextMessage' => (bool) $oConfig->Get('defaults', 'view_show_next_message', false),
 						'AutoLogout' => (int) $oConfig->Get('defaults', 'autologout', 30),
 						'AllowDraftAutosave' => (bool) $oConfig->Get('defaults', 'allow_draft_autosave', true),
-						'ContactsAutosave' => (bool) $oConfig->Get('defaults', 'contacts_autosave', true),
-						'sieveAllowFileintoInbox' => (bool)$oConfig->Get('labs', 'sieve_allow_fileinto_inbox', false)
+						'ContactsAutosave' => (bool) $oConfig->Get('defaults', 'contacts_autosave', true)
 					],
 					// MainAccount or AdditionalAccount
 					$this->getAccountData($oAccount)
@@ -717,7 +678,7 @@ class Actions
 					$aResult['simpleAttachmentsList'] = (bool)$oSettings->GetConf('simpleAttachmentsList', $aResult['simpleAttachmentsList']);
 					$aResult['listGrouped'] = (bool)$oSettings->GetConf('listGrouped', $aResult['listGrouped']);
 					$aResult['ContactsAutosave'] = (bool)$oSettings->GetConf('ContactsAutosave', $aResult['ContactsAutosave']);
-					$aResult['MessagesPerPage'] = (int)$oSettings->GetConf('MessagesPerPage', $aResult['MessagesPerPage']);
+					$aResult['MessagesPerPage'] = \max(10, \intval($oSettings->GetConf('MessagesPerPage', $aResult['MessagesPerPage']) ?: $aResult['MessagesPerPage']));
 					$aResult['messageNewWindow'] = (int)$oSettings->GetConf('messageNewWindow', $aResult['messageNewWindow']);
 					$aResult['messageReadAuto'] = (int)$oSettings->GetConf('messageReadAuto', $aResult['messageReadAuto']);
 					$aResult['MessageReadDelay'] = (int)$oSettings->GetConf('MessageReadDelay', $aResult['MessageReadDelay']);
@@ -769,7 +730,7 @@ class Actions
 		}
 
 		if ($aResult['Auth']) {
-			$aResult['useLocalProxyForExternalImages'] = (bool)$oConfig->Get('labs', 'use_local_proxy_for_external_images', false);
+			$aResult['proxyExternalImages'] = (bool)$oConfig->Get('labs', 'use_local_proxy_for_external_images', false);
 			$aResult['autoVerifySignatures'] = (bool)$oConfig->Get('security', 'auto_verify_signatures', false);
 			$aResult['allowLanguagesOnSettings'] = (bool) $oConfig->Get('webmail', 'allow_languages_on_settings', true);
 			$aResult['Capa'] = $this->Capa($bAdmin, $oAccount);
@@ -810,7 +771,7 @@ class Actions
 
 	protected function loginErrorDelay(): void
 	{
-		$iDelay = (int) $this->oConfig->Get('labs', 'login_fault_delay', 0);
+		$iDelay = (int) $this->oConfig->Get('login', 'fault_delay', 0);
 		if (0 < $iDelay) {
 			$seconds = $iDelay - (\microtime(true) - $_SERVER['REQUEST_TIME_FLOAT']);
 			if (0 < $seconds) {
