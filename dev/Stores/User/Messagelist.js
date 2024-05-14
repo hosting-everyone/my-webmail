@@ -179,10 +179,7 @@ let prevFolderName;
  * @param {boolean=} bDropPagePosition = false
  * @param {boolean=} bDropCurrentFolderCache = false
  */
-MessagelistUserStore.reload = (bDropPagePosition = false, bDropCurrentFolderCache = false) => {
-	let iOffset = (MessagelistUserStore.page() - 1) * SettingsUserStore.messagesPerPage(),
-		folderName = FolderUserStore.currentFolderFullName();
-//		folderName = FolderUserStore.currentFolder() ? self.currentFolder().fullName : '');
+
 
 	if (bDropCurrentFolderCache) {
 		setFolderETag(folderName, '');
@@ -288,18 +285,7 @@ MessagelistUserStore.reload = (bDropPagePosition = false, bDropCurrentFolderCach
 
 					disableAutoSelect(true);
 
-					if (collection.threadUid) {
-						let refs = {};
-						collection.forEach(msg => {
-							msg.level = 0;
-							if (msg.inReplyTo && refs[msg.inReplyTo]) {
-								msg.level = 1 + refs[msg.inReplyTo].level;
-							}
-							refs[msg.messageId] = msg;
-						});
-					}
 
-					MessagelistUserStore(collection);
 					MessagelistUserStore.isIncomplete(false);
 				} else {
 					MessagelistUserStore.count(0);
