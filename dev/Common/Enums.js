@@ -9,6 +9,7 @@ ScopeMessageList = 'MessageList',
 ScopeFolderList = 'FolderList',
 ScopeMessageView = 'MessageView',
 ScopeSettings = 'Settings',
+ScopeContacts = 'Contacts',
 
 /**
  * @enum {number}

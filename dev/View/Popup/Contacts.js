@@ -21,9 +21,10 @@ import { AbstractViewPopup } from 'Knoin/AbstractViews';
 
 import { AskPopupView } from 'View/Popup/Ask';
 
+import { ScopeContacts } from 'Common/Enums';
+
 const
-	CONTACTS_PER_PAGE = 50,
-	ScopeContacts = 'Contacts';
+	CONTACTS_PER_PAGE = 50;
 
 let
 	bOpenCompose = false,
@@ -342,7 +343,7 @@ export class ContactsPopupView extends AbstractViewPopup {
 		this.search('');
 		this.contactsCount(0);
 
-		ContactUserStore([]);
+//		ContactUserStore([]);
 
 		bOpenCompose && showMessageComposer();
 	}

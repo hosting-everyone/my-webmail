@@ -66,11 +66,11 @@ export class SettingsUserScreen extends AbstractSettingsScreen {
 	}
 
 	onShow() {
-		this.setSettingsTitle();
+		this.setTitle();
 		keyScope(ScopeSettings);
 	}
 
-	setSettingsTitle() {
+	setTitle() {
 		const sEmail = AccountUserStore.email();
 		rl.setTitle((sEmail ? sEmail + ' - ' :  '') + this.sSettingsTitle);
 	}
